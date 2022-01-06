@@ -1,0 +1,278 @@
+{
+**************************************************
+*  Wiznet 6100 Driver Ver 0.1 (I'm Not Done Yet) *
+**************************************************
+
+LICENSE TERMS
+-------------
+Copyright 2021, 2022 Terry E. Trapp, KE4PJW
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+}
+
+CON
+  MOD   = 16
+  ADDR  = 19
+  RSET  = 23
+  CSn   = 17
+  RDn   = 21
+  WRn   = 22
+  INTn  = 5
+  DATA  = 24
+  CLK   = 18
+
+' Parallel Bus Symbols
+  IDM_ARH = %00
+  IDM_ARL = %01
+  IDM_BSR = %10
+  IDM_DR  = %11
+
+' Block Selection (BS)
+  IDM_BSR_Common_Register       = %000_00_000
+  IDM_BSR_Socket0_Register      = %000_01_000
+  IDM_BSR_Socket0_TX_Buffer     = %000_10_000
+  IDM_BSR_Socket0_RX_Buffer     = %000_11_000
+  IDM_BSR_Socket1_Register      = %001_01_000
+  IDM_BSR_Socket1_TX_Buffer     = %001_10_000
+  IDM_BSR_Socket1_RX_Buffer     = %001_11_000
+  IDM_BSR_Socket2_Register      = %010_01_000
+  IDM_BSR_Socket2_TX_Buffer     = %010_10_000
+  IDM_BSR_Socket2_RX_Buffer     = %010_11_000
+  IDM_BSR_Socket3_Register      = %011_01_000
+  IDM_BSR_Socket3_TX_Buffer     = %011_10_000
+  IDM_BSR_Socket3_RX_Buffer     = %011_11_000
+  IDM_BSR_Socket4_Register      = %100_01_000
+  IDM_BSR_Socket4_TX_Buffer     = %100_10_000
+  IDM_BSR_Socket4_RX_Buffer     = %100_11_000
+  IDM_BSR_Socket5_Register      = %101_01_000
+  IDM_BSR_Socket5_TX_Buffer     = %101_10_000
+  IDM_BSR_Socket5_RX_Buffer     = %101_11_000
+  IDM_BSR_Socket6_Register      = %110_01_000
+  IDM_BSR_Socket6_TX_Buffer     = %110_10_000
+  IDM_BSR_Socket6_RX_Buffer     = %110_11_000
+  IDM_BSR_Socket7_Register      = %111_01_000
+  IDM_BSR_Socket7_TX_Buffer     = %111_10_000
+  IDM_BSR_Socket7_RX_Buffer     = %111_11_000
+
+' W6100 Registers
+  REG_CIDR0     = $0000
+  REG_CIDR1     = $0001
+  REG_VER0      = $0002
+  REG_VER1      = $0003
+  REG_CHPLCKR   = $41F4
+  REG_NETLCKR   = $41F5
+  REG_PHYLCKR   = $41F6
+  REG_SYSR      = $2000
+  REG_SHAR0     = $4120
+  REG_SHAR1     = $4121
+  REG_SHAR2     = $4122
+  REG_SHAR3     = $4123
+  REG_SHAR4     = $4124
+  REG_SHAR5     = $4125
+  REG_GAR0      = $4130
+  REG_GAR1      = $4131
+  REG_GAR2      = $4132
+  REG_GAR3      = $4133
+  REG_SUBR0     = $4134
+  REG_SUBR1     = $4135
+  REG_SUBR2     = $4136
+  REG_SUBR3     = $4137
+  REG_SIPR0     = $4138
+  REG_SIPR1     = $4139
+  REG_SIPR2     = $413A
+  REG_SIPR3     = $413B
+  REG_Sn_TX_BSR = $0200
+  REG_Sn_RX_BSR = $0220
+  REG_Sn_MR     = $0000
+  REG_Sn_MR2    = $0144
+  REG_Sn_DHAR   = $0118
+  REG_Sn_DIPR   = $0120
+  REG_Sn_DPORTR = $0140
+  REG_Sn_PORTR  = $0114
+  REG_Sn_TX_WR   = $020C
+  REG_Sn_CR     = $0010
+  REG_Sn_SR     = $0030
+  REG_Sn_IR     = $0020
+  REG_Sn_IRCLR  = $0028
+  REG_Sn_RX_RSR = $0224
+  REG_Sn_RX_RD  = $0228
+  REG_Sn_IMR    = $0024
+
+' Protocol Mode
+  PM_SOCKET_Closed   = %0000
+  PM_TCP4            = %0001
+  PM_UDP4            = %0010
+  PM_IPRAW4          = %0011
+  PM_MACRAW          = %0111
+  PM_TCP6            = %1001
+  PM_UDP6            = %1010
+  PM_IPRAW6          = %1011
+  PM_TCP_Dual        = %1101
+  PM_UDP_Dual        = %1110
+  PM_M_UDP4          = %1000_0010 'UDP Multicast
+
+' MR2 Options
+
+  MR2_DHAM      = 2 ' Overide Destination MAC Address
+  MR2_FARP      = 1 ' Use ARP for destination.
+
+' Interrupt Registers
+  Sn_IR_SENDOK  = %0001_0000
+  Sn_IR_TIMEOUT = %0000_1000
+  Sn_IR_RECV    = %0000_0100
+  Sn_IR_DISCON  = %0000_0010
+  Sn_IR_CON     = %0000_0001
+
+' Command Registers
+  CR_Complete   = $00
+  CR_Open       = $01
+  CR_LISTEN     = $02
+  CR_CONNECT    = $04
+  CR_CONNECT6   = $84
+  CR_DISCON     = $08
+  CR_CLOSE      = $10
+  CR_SEND       = $20
+  CR_SEND6      = $A0
+  CR_SEND_KEEP  = $22
+  CR_RECV       = $40
+
+ ' Status Registers
+  SOCK_CLOSED       = $00 'SOCKET n closed.
+  SOCK_INIT         = $13 'SOCKET n opened in TCP Mode.
+  SOCK_LISTEN       = $14 'SOCKET n is in TCP Mode and waits for Connection request.
+  SOCK_ESTABLISHED  = $17 'SOCKET n is in TCP Mode and TCP Connection is completed.
+  SOCK_CLOSE_WAIT   = $1C 'SOCKET n is in TCP Mode and received FIN Packet.
+  SOCK_UDP          = $22 'SOCKET n opened in UDP Mode.
+  SOCK_IPRAW        = $32 'SOCKET n opened in IPRAW Mode.
+  SOCK_IPRAW6       = $33 'SOCKET n opened in IPRAW6 Mode.
+  SOCK_MACRAW       = $42 'SOCKET n opened in MACRAW Mode.
+  SOCK_SYNSENT      = $15 'The status of sending Connect-Request.
+  SOCK_SYNRECV      = $16 'The status of receiving Connect-Request.
+  SOCK_FIN_WAIT     = $18 'The status of closing SOCKET n.
+  SOCK_TIME_WAIT    = $1B 'The status of closing SOCKET n.
+  SOCK_LAST_ACK     = $1D 'The status of closing SOCKET n.
+
+  '
+   SYSR_CHPL    = $CE ' Unlock Chip
+   SYSR_NETL    = $C5 ' Lock Net
+   SYSR_NETU    = $3A ' Lock Net
+   SYSR_PHYL    = $53 ' Unlock PHY Lock Register
+VAR
+  long  ADDRH
+  long  ADDRL
+
+
+OBJ
+
+
+
+PUB reset()
+  PINL (RSET)
+  PINH (WRn)
+  PINH (RDn)
+  PINH (CSn)
+  PINL (CLK)
+  PINH (RSET)
+  waitms (3000)
+
+PUB setmod010()
+  PINH (MOD)
+
+PUB initparallel()
+  reset()
+  setmod010()
+PUB readreg(REGISTER,BS,BLEN,RB) : r | i
+' Parse register address
+  ADDRL :=  REGISTER
+  ADDRL &= $FF
+  ADDRH :=  REGISTER
+  ADDRH >>= 8
+
+
+' Set ADDRH
+  PINL(CSn)
+  PINWRITE (ADDR ADDPINS 1, IDM_ARH)
+  PINWRITE (DATA ADDPINS 7, ADDRH)
+  PINL(WRn)
+  PINH(WRn)
+
+'Set ADDRL
+  PINWRITE (ADDR ADDPINS 1, IDM_ARL)
+  PINWRITE (DATA ADDPINS 7, ADDRl)
+  PINL(WRn)
+  PINH(WRn)
+
+'Set BS (This is a common register, therefore set byte data to $00)
+  PINWRITE (ADDR ADDPINS 1, IDM_BSR)
+  PINWRITE (DATA ADDPINS 7, BS)
+  PINL(WRn)
+  PINH(WRn)
+
+'Read Register
+  i := 0
+  REPEAT BLEN
+    PINWRITE (ADDR ADDPINS 1, IDM_DR)
+    PINF(DATA ADDPINS 7)
+    PINL(RDn)
+    byte[RB][i] := PINREAD (DATA ADDPINS 7)
+    r := PINREAD (DATA ADDPINS 7)
+    i++
+    PINH(RDn)
+
+  PINH(CSn)
+  return r
+
+PUB writereg(REGISTER,BS,BLEN,RB) : r | i
+' Parse register address
+  ADDRL :=  REGISTER
+  ADDRL &= $FF
+  ADDRH :=  REGISTER
+  ADDRH >>= 8
+
+
+' Set ADDRH
+  PINL(CSn)
+  PINWRITE (ADDR ADDPINS 1, IDM_ARH)
+  PINWRITE (DATA ADDPINS 7, ADDRH)
+  PINL(WRn)
+  PINH(WRn)
+
+'Set ADDRL
+  PINWRITE (ADDR ADDPINS 1, IDM_ARL)
+  PINWRITE (DATA ADDPINS 7, ADDRL)
+  PINL(WRn)
+  PINH(WRn)
+
+'Set BS (This is a common register, therefore set byte data to $00)
+  PINWRITE (ADDR ADDPINS 1, IDM_BSR)
+  PINWRITE (DATA ADDPINS 7, BS)
+  PINL(WRn)
+  PINH(WRn)
+
+'Write Register
+  i := 0
+  REPEAT BLEN
+    PINWRITE (ADDR ADDPINS 1, IDM_DR)
+    PINWRITE (DATA ADDPINS 7, byte[RB][i])
+    i++
+    PINL(WRn)
+    PINH(WRn)
+
+  PINH(CSn)
+  return

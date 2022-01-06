@@ -1,0 +1,849 @@
+'******************************************************************************
+'*                                                                            *
+'*  DVI text mode demo for Propeller P2                                       *
+'*  ===================================                                       *
+'*                                                                            *
+'*  This demo shows a simple way to setup and get text to output to a screen  *
+'*  in a DVI output format using the text driver.                             *
+'*                                                                            *
+'*  You can experiment with the flags arguments and enable these driver       *
+'*  attributes :                                                              *
+'*  DOUBLE_HIGH, DOUBLE_WIDE, FLASH_TEXT                                      *
+'*                                                                            *
+'*  You can pass in VGA, WVGA, SVGA_50Hz for the resolution.                  *
+'*                                                                            *
+'*  Revision history:                                                         *
+'*  -----------------                                                         *
+'*    0.92b  15 FEB 2021  rogloh       -initial BETA release-                 *
+'*                                                                            *
+'******************************************************************************
+
+CON
+        DVI_BASE_PIN  = 32     ' set to the base pin of the DVI group
+
+
+VAR
+        byte version
+        byte regi[2]
+        byte MACADDRESS[6]  ' Must be unique per layer 2 network
+        byte IPADDRESS[4]
+        byte SUBNETMASK[4]
+        byte GATEWAY[4]
+        byte DHCPSERVER[4]
+        byte RequestID[4]
+        byte DHCPMESSAGETYPE
+        byte CHIPID[2]
+        byte CHIPVER[2]
+        long byteindex
+        long readptr
+        byte READBUFFER[1024]
+        byte WRITEBUFFER[1024]
+        byte REGBUFFER[2]
+        word TX_WR
+        word RX_RD
+        word RX_RSR
+        long resp_ptr
+        long resp_404_ptr
+        long req_ptr
+        long pageviews
+OBJ
+        vid: "p2textdrv"
+        W6100: "W6100drv"
+        prng: "jm_prng"
+
+PUB helloworld() | i, j
+' initialize the display to desired resolution (eg, VGA, WVGA etc)
+    vid.initDvi(-1, DVI_BASE_PIN, 0, vid.FLASH_TEXT, vid.WVGA)
+
+' we can choose to map SEND to output to the text region
+    send:=@vid.tx
+
+  resp_ptr    := String("HTTP/1.1 200 OK", $0D, $0A, "Connection: close", $0D, $0A, "Content-Type: text/html", $0D, $0A, $0D, $0A, "<HTML><BODY><H1>Hello, World!</H1><BR><H2>I am a Parallax P2.</H2></BODY></HTML>", $0D, $0A)
+  resp_404_ptr:= String("HTTP/1.1 404 Not Found", $0D, $0A, "Connection: close", $0D, $0A, "Content-Type: text/html", $0D, $0A, $0D, $0A, "<HTML><BODY><H1>Nope, not here.</H2></BODY></HTML>", $0D, $0A)
+  req_ptr := String("test.htm")
+
+  'Configure Mac Address
+  MACADDRESS[0] := $00
+  MACADDRESS[1] := $08
+  MACADDRESS[2] := $DC
+  MACADDRESS[3] := $00
+  MACADDRESS[4] := $00
+  MACADDRESS[5] := $00
+
+  vid.setTextColours(2,16)
+  send("Setting Mode: 010")
+  W6100.setmod010()
+  vid.nl()
+  send("Resetting Ethernet: ")
+  W6100.reset()
+  waitms(3000)
+  waitms(3000)
+  waitms(3000)
+  send("Reset complete")
+  vid.nl()
+
+  send("Chip Identification: ")
+
+  W6100.readreg(W6100.REG_CIDR0,W6100.IDM_BSR_Common_Register,2,@CHIPID)
+  byteindex := 0
+  REPEAT 2
+    vid.hex(CHIPID[byteindex],2)
+    byteindex++
+  vid.nl()
+
+  send("Chip Version: ")
+  W6100.readreg(W6100.REG_VER0,W6100.IDM_BSR_Common_Register,2,@CHIPVER)
+  byteindex := 0
+  REPEAT 2
+    vid.hex(CHIPVER[byteindex],2)
+    byteindex++
+  vid.nl()
+
+  send("Network Configuration Unlocked.")
+  WRITEBUFFER[0] := W6100.SYSR_NETU
+  W6100.writereg(W6100.REG_NETLCKR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
+  vid.nl()
+
+  send("Set MAC address: 00:08:DC:00:00:00")
+  W6100.writereg(W6100.REG_SHAR0,W6100.IDM_BSR_Common_Register,6,@MACADDRESS)
+  vid.nl()
+
+
+  send("Network Configuration locked.")
+  WRITEBUFFER[0] := W6100.SYSR_NETU
+  W6100.writereg(W6100.REG_NETLCKR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
+  vid.nl()
+
+  Send("Configuring 8 sockets with 2K TX buffer.")
+  i := W6100.IDM_BSR_Socket0_Register
+  WRITEBUFFER[0] := 2
+  repeat 8
+    W6100.writereg(W6100.REG_Sn_TX_BSR,i,1,@WRITEBUFFER)
+    Send(".")
+    i := i + %001_00_000
+  vid.nl()
+
+  Send("Validate TX buffer: ")
+  i := W6100.IDM_BSR_Socket0_Register
+  repeat 8
+    W6100.readreg(W6100.REG_Sn_TX_BSR,i,1,@READBUFFER)
+    vid.hex(READBUFFER[0],2)
+    i := i + %001_00_000
+  vid.nl()
+
+  Send("Configuring 8 sockets with 2K RX buffer.")
+  i := W6100.IDM_BSR_Socket0_Register
+  WRITEBUFFER[0] := 2
+  repeat 8
+    W6100.writereg(W6100.REG_Sn_RX_BSR,i,1,@WRITEBUFFER)
+    Send(".")
+    i := i + %001_00_000
+  vid.nl()
+
+  Send("Validate RX buffer: ")
+  i := W6100.IDM_BSR_Socket0_Register
+  repeat 8
+    W6100.readreg(W6100.REG_Sn_RX_BSR,i,1,@READBUFFER)
+    vid.hex(READBUFFER[0],2)
+    i := i + %001_00_000
+  vid.nl()
+
+  send("Configuring Protocol Mode UDP on Socket 0")
+  Open(68,W6100.PM_UDP4,W6100.IDM_BSR_Socket0_Register)
+
+  ' Set Destination IP
+  WRITEBUFFER[0] := 255
+  WRITEBUFFER[1] := 255
+  WRITEBUFFER[2] := 255
+  WRITEBUFFER[3] := 255
+  W6100.writereg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket0_Register,4,@WRITEBUFFER)
+
+  ' Set Destination port
+  WRITEBUFFER[0] := 00
+  WRITEBUFFER[1] := 67
+  W6100.writereg(W6100.REG_Sn_DPORTR,W6100.IDM_BSR_Socket0_Register,2,@WRITEBUFFER)
+
+
+  send("Set XID to: ")
+  RequestID[0] := prng.xrandomize($00,$FF)
+  RequestID[1] := prng.xrandomize($00,$FF)
+  RequestID[2] := prng.xrandomize($00,$FF)
+  RequestID[3] := prng.xrandomize($00,$FF)
+  vid.hex(RequestID[0],2)
+  vid.hex(RequestID[1],2)
+  vid.hex(RequestID[2],2)
+  vid.hex(RequestID[3],2)
+  vid.nl()
+
+
+  WRITEBUFFER[0]  := $01 'Op $01 This is a discover packet
+  WRITEBUFFER[1]  := $01 'HType $01 Ethernet xBase-T
+  WRITEBUFFER[2]  := $06 'HLen $06 because we have 6 Octets in the hardware address.
+  WRITEBUFFER[3]  := $00 'Hops setting Hops counter to 0. Is incremented by DHCP relays
+  WRITEBUFFER[4]  := RequestID[0] 'XID Unique ID
+  WRITEBUFFER[5]  := RequestID[1] 'XID Unique ID
+  WRITEBUFFER[6]  := RequestID[2] 'XID Unique ID
+  WRITEBUFFER[7]  := RequestID[3] 'XID Unique ID
+  WRITEBUFFER[8]  := $00 'Secs Elapsed Seconds (Not used)
+  WRITEBUFFER[9]  := $00 'Secs Elapsed Seconds (Not used)
+  WRITEBUFFER[10] := $80 'Flags $80 sets this to broadcast from the DHCP server, becasue we are not on the network yet.
+  WRITEBUFFER[11] := $00 'Flags Reserved
+  WRITEBUFFER[12] := $00 'CIAddr We have no IP yet, so set to $00
+  WRITEBUFFER[13] := $00 'CIAddr We have no IP yet, so set to $00
+  WRITEBUFFER[14] := $00 'CIAddr We have no IP yet, so set to $00
+  WRITEBUFFER[15] := $00 'CIAddr We have no IP yet, so set to $00
+  WRITEBUFFER[16] := $00 'YIAddr Client Request, so set to $00
+  WRITEBUFFER[17] := $00 'YIAddr Client Request, so set to $00
+  WRITEBUFFER[18] := $00 'YIAddr Client Request, so set to $00
+  WRITEBUFFER[19] := $00 'YIAddr Client Request, so set to $00
+  WRITEBUFFER[20] := $00 'SIAddr Client Request, so set to $00
+  WRITEBUFFER[21] := $00 'SIAddr Client Request, so set to $00
+  WRITEBUFFER[22] := $00 'SIAddr Client Request, so set to $00
+  WRITEBUFFER[23] := $00 'SIAddr Client Request, so set to $00
+  WRITEBUFFER[24] := $00 'GIAddr Client Request, so set to $00
+  WRITEBUFFER[25] := $00 'GIAddr Client Request, so set to $00
+  WRITEBUFFER[26] := $00 'GIAddr Client Request, so set to $00
+  WRITEBUFFER[27] := $00 'GIAddr Client Request, so set to $00
+  WRITEBUFFER[28] := $00 'CHAddr MAC address
+  WRITEBUFFER[29] := $08 'CHAddr MAC address
+  WRITEBUFFER[30] := $DC 'CHAddr MAC address
+  WRITEBUFFER[31] := $00 'CHAddr MAC address
+  WRITEBUFFER[32] := $00 'CHAddr MAC address
+  WRITEBUFFER[33] := $00 'CHAddr MAC address
+  BYTEFILL(@WRITEBUFFER + 34, $00, 10) 'CHAddr fill with 0's
+  BYTEFILL(@WRITEBUFFER + 44, $00, 64) 'bootp.server fill with 0's
+  BYTEFILL(@WRITEBUFFER + 108, $00, 128) 'File fill with 0's
+  WRITEBUFFER[236] := $63 'Magic Cookie
+  WRITEBUFFER[237] := $82 'Magic Cookie
+  WRITEBUFFER[238] := $53 'Magic Cookie
+  WRITEBUFFER[239] := $63 'Magic Cookie
+  WRITEBUFFER[240] :=  53 'Option 53
+  WRITEBUFFER[241] := $01 'Option 53 Length
+  WRITEBUFFER[242] := $01 'Option 53 Discovery Value
+  WRITEBUFFER[243] :=  55 'Option 55
+  WRITEBUFFER[244] := $03 'Option 55 Length
+  WRITEBUFFER[245] := $01 'Option 55 Request Subnet Mask
+  WRITEBUFFER[246] := $03 'Option 3 Request Router
+  WRITEBUFFER[247] := $06 'Option 6 Request DNS Server
+  WRITEBUFFER[248] := $FF 'End this shit
+
+  SendData(W6100.IDM_BSR_Socket0_Register,@WRITEBUFFER,249)
+
+  repeat until READBUFFER[12] == RequestID[0] && READBUFFER[13] == RequestID[1] && READBUFFER[14] == RequestID[2] && READBUFFER[15] == RequestID[3]
+     repeat until ReceiveData(W6100.IDM_BSR_Socket0_Register,1) == 0
+     ReceiveProcess(W6100.IDM_BSR_Socket0_Register,@READBUFFER)
+
+    Send("UDP Header Information: ")
+    vid.hex(READBUFFER[0],2)
+    vid.hex(READBUFFER[1],2)
+    vid.nl()
+    Send("UDP Source IP: ")
+    vid.dec(READBUFFER[2])
+    Send(".")
+    vid.dec(READBUFFER[3])
+    Send(".")
+    vid.dec(READBUFFER[4])
+    Send(".")
+    vid.dec(READBUFFER[5])
+    vid.nl()
+    Send("UDP Port Number: ")
+    vid.dec(READBUFFER[6])
+    vid.dec(READBUFFER[7])
+    vid.nl()
+      send("Received XID is: ")
+
+    vid.hex(READBUFFER[12],2)
+    vid.hex(READBUFFER[13],2)
+    vid.hex(READBUFFER[14],2)
+    vid.hex(READBUFFER[15],2)
+    vid.nl()
+
+
+  send("DHCP Assigned IP Address: ")
+  vid.dec(READBUFFER[24])
+  Send(".")
+  vid.dec(READBUFFER[25])
+  Send(".")
+  vid.dec(READBUFFER[26])
+  Send(".")
+  vid.dec(READBUFFER[27] )
+  vid.nl()
+  IPADDRESS[0] := READBUFFER[24]
+  IPADDRESS[1] := READBUFFER[25]
+  IPADDRESS[2] := READBUFFER[26]
+  IPADDRESS[3] := READBUFFER[27]
+
+  send("Magic Cookie: ")
+  vid.hex(READBUFFER[244],2)
+  vid.hex(READBUFFER[245],2)
+  vid.hex(READBUFFER[246],2)
+  vid.hex(READBUFFER[247],2)
+  vid.nl()
+
+  i:=248
+  repeat until i >= RX_RSR || READBUFFER[i] == $FF
+    case READBUFFER[i]
+      53  :  send("DHCP Message Type: ")
+             DHCPMESSAGETYPE := READBUFFER[i+2]
+             vid.dec(READBUFFER[i+2])
+             vid.nl()
+             i := i + 3
+      54  :  send("DHCP Server: ")
+               vid.dec(READBUFFER[i+2])
+               Send(".")
+               vid.dec(READBUFFER[i+3])
+               Send(".")
+               vid.dec(READBUFFER[i+4])
+               Send(".")
+               vid.dec(READBUFFER[i+5] )
+               vid.nl()
+               DHCPSERVER[0] := READBUFFER[i+2]
+               DHCPSERVER[1] := READBUFFER[i+3]
+               DHCPSERVER[2] := READBUFFER[i+4]
+               DHCPSERVER[3] := READBUFFER[i+5]
+               i := i + 6
+
+      1 : send("DHCP Subnet Mask: ")
+               vid.dec(READBUFFER[i+2])
+               Send(".")
+               vid.dec(READBUFFER[i+3])
+               Send(".")
+               vid.dec(READBUFFER[i+4])
+               Send(".")
+               vid.dec(READBUFFER[i+5] )
+               vid.nl()
+               SUBNETMASK[0] := READBUFFER[i+2]
+               SUBNETMASK[1] := READBUFFER[i+3]
+               SUBNETMASK[2] := READBUFFER[i+4]
+               SUBNETMASK[3] := READBUFFER[i+5]
+               i := i + 6
+      3 : send("DHCP Gateway: ")
+               vid.dec(READBUFFER[i+2])
+               Send(".")
+               vid.dec(READBUFFER[i+3])
+               Send(".")
+               vid.dec(READBUFFER[i+4])
+               Send(".")
+               vid.dec(READBUFFER[i+5] )
+               vid.nl()
+               GATEWAY[0] := READBUFFER[i+2]
+               GATEWAY[1] := READBUFFER[i+3]
+               GATEWAY[2] := READBUFFER[i+4]
+               GATEWAY[3] := READBUFFER[i+5]
+               i := i + 6
+      $ff : send("Detected end of DHCP Options.")
+            vid.nl()
+      OTHER : send("DHCP Option Unknown: ")
+               vid.dec(READBUFFER[i])
+               send(" Incrementing ")
+               vid.dec(READBUFFER[i+1] + 2)
+               i++
+               i := i + READBUFFER[i]
+               i++
+               vid.nl()
+
+  send("Current IP Address: ")
+  W6100.readreg(W6100.REG_SIPR0,W6100.IDM_BSR_Common_Register,4,@READBUFFER)
+  vid.dec(READBUFFER[0])
+  Send(".")
+  vid.dec(READBUFFER[1])
+  Send(".")
+  vid.dec(READBUFFER[2])
+  Send(".")
+  vid.dec(READBUFFER[3] )
+  vid.nl()
+
+  send("Current Subnet Mask: ")
+  W6100.readreg(W6100.REG_GAR0,W6100.IDM_BSR_Common_Register,4,@READBUFFER)
+  vid.dec(READBUFFER[0])
+  Send(".")
+  vid.dec(READBUFFER[1])
+  Send(".")
+  vid.dec(READBUFFER[2])
+  Send(".")
+  vid.dec(READBUFFER[3] )
+  vid.nl()
+
+  '
+  WRITEBUFFER[0]  := $01 'Op $01 This is a request packet
+  WRITEBUFFER[1]  := $01 'HType $01 Ethernet xBase-T
+  WRITEBUFFER[2]  := $06 'HLen $06 because we have 6 Octets in the hardware address.
+  WRITEBUFFER[3]  := $00 'Hops setting Hops counter to 0. Is incremented by DHCP relays
+  WRITEBUFFER[4]  := RequestID[0] 'XID Unique ID
+  WRITEBUFFER[5]  := RequestID[1] 'XID Unique ID
+  WRITEBUFFER[6]  := RequestID[2] 'XID Unique ID
+  WRITEBUFFER[7]  := RequestID[3] 'XID Unique ID
+  WRITEBUFFER[8]  := $00 'Secs Elapsed Seconds (Not used)
+  WRITEBUFFER[9]  := $00 'Secs Elapsed Seconds (Not used)
+  WRITEBUFFER[10] := $80 'Flags $80 sets this to broadcast from the DHCP server, becasue we are not on the network yet.
+  WRITEBUFFER[11] := $00 'Flags Reserved
+  WRITEBUFFER[12] := IPADDRESS[0] 'CIAddr
+  WRITEBUFFER[13] := IPADDRESS[1] 'CIAddr
+  WRITEBUFFER[14] := IPADDRESS[2] 'CIAddr
+  WRITEBUFFER[15] := IPADDRESS[3] 'CIAddr
+  WRITEBUFFER[16] := $00 'YIAddr Client Request, so set to $00
+  WRITEBUFFER[17] := $00 'YIAddr Client Request, so set to $00
+  WRITEBUFFER[18] := $00 'YIAddr Client Request, so set to $00
+  WRITEBUFFER[19] := $00 'YIAddr Client Request, so set to $00
+  WRITEBUFFER[20] := DHCPSERVER[0] 'SIAddr DHCP Server IP
+  WRITEBUFFER[21] := DHCPSERVER[1] 'SIAddr DHCP Server IP
+  WRITEBUFFER[22] := DHCPSERVER[2] 'SIAddr DHCP Server IP
+  WRITEBUFFER[23] := DHCPSERVER[3] 'SIAddr DHCP Server IP
+  WRITEBUFFER[24] := $00 'GIAddr Client Request, so set to $00
+  WRITEBUFFER[25] := $00 'GIAddr Client Request, so set to $00
+  WRITEBUFFER[26] := $00 'GIAddr Client Request, so set to $00
+  WRITEBUFFER[27] := $00 'GIAddr Client Request, so set to $00
+  WRITEBUFFER[28] := $00 'CHAddr MAC address
+  WRITEBUFFER[29] := $08 'CHAddr MAC address
+  WRITEBUFFER[30] := $DC 'CHAddr MAC address
+  WRITEBUFFER[31] := $00 'CHAddr MAC address
+  WRITEBUFFER[32] := $00 'CHAddr MAC address
+  WRITEBUFFER[33] := $00 'CHAddr MAC address
+  BYTEFILL(@WRITEBUFFER + 34, $00, 10) 'CHAddr fill with 0's
+  BYTEFILL(@WRITEBUFFER + 44, $00, 64) 'bootp.server fill with 0's
+  BYTEFILL(@WRITEBUFFER + 108, $00, 128) 'File fill with 0's
+  WRITEBUFFER[236] := $63 'Magic Cookie
+  WRITEBUFFER[237] := $82 'Magic Cookie
+  WRITEBUFFER[238] := $53 'Magic Cookie
+  WRITEBUFFER[239] := $63 'Magic Cookie
+  WRITEBUFFER[240] :=  53 'Option 53
+  WRITEBUFFER[241] := $01 'Option 53 Length
+  WRITEBUFFER[242] := $03 'Option 53 Request Value
+  WRITEBUFFER[243] :=  50 'Option 50 ' Requesting this IP
+  WRITEBUFFER[244] := $04 'Option 50 Length
+  WRITEBUFFER[245] := IPADDRESS[0] 'Option 50 requested IP 1st Octect
+  WRITEBUFFER[246] := IPADDRESS[1] 'Option 50 requested IP 2nd Octect
+  WRITEBUFFER[247] := IPADDRESS[2] 'Option 50 requested IP 3rd Octect
+  WRITEBUFFER[248] := IPADDRESS[3] 'Option 50 requested IP 4th Octect
+  WRITEBUFFER[249] := $03 'Option 54 DHCP Server
+  WRITEBUFFER[250] := $04 'Option 54 Length
+  WRITEBUFFER[251] := DHCPSERVER[0] 'SIAddr DHCP Server IP
+  WRITEBUFFER[252] := DHCPSERVER[1] 'SIAddr DHCP Server IP
+  WRITEBUFFER[253] := DHCPSERVER[2] 'SIAddr DHCP Server IP
+  WRITEBUFFER[254] := DHCPSERVER[3] 'SIAddr DHCP Server IP
+  WRITEBUFFER[255] := $FF 'End this shit
+
+  SendData(W6100.IDM_BSR_Socket0_Register,@WRITEBUFFER,256)
+
+  'clearing readbuffer
+  BYTEFILL(@READBUFFER,$00,1024)
+
+  W6100.readreg(W6100.REG_Sn_IR,W6100.IDM_BSR_Socket0_Register,1,@READBUFFER)
+  send("Checking Sn_IR Socket Status: ")
+  vid.hex(READBUFFER[0],2)
+  vid.nl()
+
+  repeat until READBUFFER[12] == RequestID[0] && READBUFFER[13] == RequestID[1] && READBUFFER[14] == RequestID[2] && READBUFFER[15] == RequestID[3]
+     repeat until ReceiveData(W6100.IDM_BSR_Socket0_Register,1) == 0
+     ReceiveProcess(W6100.IDM_BSR_Socket0_Register,@READBUFFER)
+
+    send("Received XID is: ")
+    vid.hex(READBUFFER[12],2)
+    vid.hex(READBUFFER[13],2)
+    vid.hex(READBUFFER[14],2)
+    vid.hex(READBUFFER[15],2)
+    vid.nl()
+
+  i:=248
+  repeat until i >= RX_RSR || READBUFFER[i] == $FF
+    case READBUFFER[i]
+      53  :  send("DHCP Message Type: ")
+             DHCPMESSAGETYPE := READBUFFER[i+2]
+             vid.dec(READBUFFER[i+2])
+             vid.nl()
+             i := i + 3
+      54  :  send("DHCP Server: ")
+               vid.dec(READBUFFER[i+2])
+               Send(".")
+               vid.dec(READBUFFER[i+3])
+               Send(".")
+               vid.dec(READBUFFER[i+4])
+               Send(".")
+               vid.dec(READBUFFER[i+5] )
+               vid.nl()
+               DHCPSERVER[0] := READBUFFER[i+2]
+               DHCPSERVER[1] := READBUFFER[i+3]
+               DHCPSERVER[2] := READBUFFER[i+4]
+               DHCPSERVER[3] := READBUFFER[i+5]
+               i := i + 6
+
+      1 : send("DHCP Subnet Mask: ")
+               vid.dec(READBUFFER[i+2])
+               Send(".")
+               vid.dec(READBUFFER[i+3])
+               Send(".")
+               vid.dec(READBUFFER[i+4])
+               Send(".")
+               vid.dec(READBUFFER[i+5] )
+               vid.nl()
+               SUBNETMASK[0] := READBUFFER[i+2]
+               SUBNETMASK[1] := READBUFFER[i+3]
+               SUBNETMASK[2] := READBUFFER[i+4]
+               SUBNETMASK[3] := READBUFFER[i+5]
+               i := i + 6
+      3 : send("DHCP Gateway: ")
+               vid.dec(READBUFFER[i+2])
+               Send(".")
+               vid.dec(READBUFFER[i+3])
+               Send(".")
+               vid.dec(READBUFFER[i+4])
+               Send(".")
+               vid.dec(READBUFFER[i+5] )
+               vid.nl()
+               GATEWAY[0] := READBUFFER[i+2]
+               GATEWAY[1] := READBUFFER[i+3]
+               GATEWAY[2] := READBUFFER[i+4]
+               GATEWAY[3] := READBUFFER[i+5]
+               i := i + 6
+      $ff : send("Detected end of DHCP Options.")
+            vid.nl()
+      OTHER : send("DHCP Option Unknown: ")
+               vid.dec(READBUFFER[i])
+               send(" Incrementing ")
+               vid.dec(READBUFFER[i+1] + 2)
+               i++
+               i := i + READBUFFER[i]
+               i++
+               vid.nl()
+
+  if DHCPMESSAGETYPE <> 5
+    send("DHCP Failure")
+    return
+
+  send("Network Configuration Unlocked.")
+  WRITEBUFFER[0] := $3A
+  W6100.writereg(W6100.REG_NETLCKR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
+  vid.nl()
+
+  send("Set Gateway address: ")
+  WRITEBUFFER[0] := GATEWAY[0]
+  WRITEBUFFER[1] := GATEWAY[1]
+  WRITEBUFFER[2] := GATEWAY[2]
+  WRITEBUFFER[3] := GATEWAY[3]
+  vid.dec(WRITEBUFFER[0])
+  Send(".")
+  vid.dec(WRITEBUFFER[1])
+  Send(".")
+  vid.dec(WRITEBUFFER[2])
+  Send(".")
+  vid.dec(WRITEBUFFER[3] )
+  vid.nl()
+  W6100.writereg(W6100.REG_GAR0,W6100.IDM_BSR_Common_Register,4,@WRITEBUFFER)
+
+  send("Set Subnet: ")
+  WRITEBUFFER[0] := SUBNETMASK[0]
+  WRITEBUFFER[1] := SUBNETMASK[1]
+  WRITEBUFFER[2] := SUBNETMASK[2]
+  WRITEBUFFER[3] := SUBNETMASK[3]
+  vid.dec(WRITEBUFFER[0])
+  Send(".")
+  vid.dec(WRITEBUFFER[1])
+  Send(".")
+  vid.dec(WRITEBUFFER[2])
+  Send(".")
+  vid.dec(WRITEBUFFER[3] )
+  vid.nl()
+  W6100.writereg(W6100.REG_SUBR0,W6100.IDM_BSR_Common_Register,4,@WRITEBUFFER)
+
+
+  send("Set IP Address: ")
+  WRITEBUFFER[0] := IPADDRESS[0]
+  WRITEBUFFER[1] := IPADDRESS[1]
+  WRITEBUFFER[2] := IPADDRESS[2]
+  WRITEBUFFER[3] := IPADDRESS[3]
+  vid.dec(WRITEBUFFER[0])
+  Send(".")
+  vid.dec(WRITEBUFFER[1])
+  Send(".")
+  vid.dec(WRITEBUFFER[2])
+  Send(".")
+  vid.dec(WRITEBUFFER[3] )
+  vid.nl()
+  W6100.writereg(W6100.REG_SIPR0,W6100.IDM_BSR_Common_Register,4,@WRITEBUFFER)
+
+  send("Network Configuration locked.")
+  WRITEBUFFER[0] := $C5
+  W6100.writereg(W6100.REG_NETLCKR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
+  vid.nl()
+
+  send("System Status Register: ")
+  vid.hex(W6100.readreg(W6100.REG_SYSR,W6100.IDM_BSR_Common_Register,1,@READBUFFER),2)
+  vid.nl()
+
+  send("Starting web server")
+  vid.nl()
+
+repeat
+
+  httpd(80,W6100.PM_TCP4,W6100.IDM_BSR_Socket1_Register)
+
+pub httpd(port,PM,socket) : i
+  send("Configuring Protocol Mode TCP on Socket 1")
+  vid.nl()
+  Open(port,PM,socket)
+
+  send("Configuring listener on Socket 1")
+  vid.nl()
+   ' Instantiate Stay Puff listener on opened socket.
+  if ListenTCP(socket) <> W6100.SOCK_LISTEN
+     Return
+
+  send("Waiting for TCP request on Socket 1 port 80")
+  vid.nl()
+  if (EstablishTCP(socket) <> W6100.Sn_IR_TIMEOUT)
+    W6100.readreg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket1_Register,4,@READBUFFER)
+    send("Connection Established from ")
+    vid.dec(READBUFFER[0])
+    Send(".")
+    vid.dec(READBUFFER[1])
+    Send(".")
+    vid.dec(READBUFFER[2])
+    Send(".")
+    vid.dec(READBUFFER[3])
+    vid.nl()
+
+
+  send("Checking Sn_RX_RSR Socket Status/number of bytes in buffer: ")
+    If (ReceiveData(socket,50000) <> W6100.Sn_IR_TIMEOUT)
+      ReceiveProcess(socket,@READBUFFER)
+      send("Received: ")
+      vid.nl()
+      i:=0
+      repeat until i == RX_RSR
+       send(READBUFFER[i])
+       i++
+      vid.nl()
+
+
+      SendData(socket,resp_ptr,strsize(resp_ptr))' Send the page
+  Disconnect(socket)
+
+Pub Disconnect(socket)
+    send("Disconnect attempt")
+    vid.nl()
+
+ '   W6100.readreg(W6100.REG_Sn_IR,W6100.IDM_BSR_Socket1_Register,1,@REGBUFFER)
+  '  If REGBUFFER[0] <> $1C
+    REGBUFFER[0] := W6100.CR_DISCON
+    W6100.writereg(W6100.REG_Sn_CR,socket,1,@REGBUFFER)
+    repeat until REGBUFFER[0] == 0
+        W6100.readreg(W6100.REG_Sn_CR,socket,1,@REGBUFFER)
+
+    repeat while (REGBUFFER[0] & (W6100.Sn_IR_TIMEOUT + W6100.Sn_IR_DISCON)) == $00
+        W6100.readreg(W6100.REG_Sn_IR,socket,1,@REGBUFFER)
+        vid.hex(REGBUFFER[0],2)
+        vid.nl()
+      if (REGBUFFER[0] & (W6100.Sn_IR_TIMEOUT + W6100.Sn_IR_DISCON)) == W6100.Sn_IR_DISCON
+       REGBUFFER[0] := W6100.Sn_IR_DISCON
+      else
+       REGBUFFER[0] := W6100.Sn_IR_TIMEOUT
+      W6100.writereg(W6100.REG_Sn_IRCLR,socket,1,@REGBUFFER)
+
+    send("Disconnected")
+    vid.nl()
+    ' Gonna try this bullshit right here because I am sure I didn't clear all of the interrupts
+    REGBUFFER[0] := $1F
+    W6100.writereg(W6100.REG_Sn_IRCLR,socket,1,@REGBUFFER)
+
+
+pub Open(port,PM,socket)
+
+  W6100.readreg(W6100.REG_Sn_SR,socket,1,@REGBUFFER)
+  vid.hex(REGBUFFER[0],2)
+  vid.nl()
+  repeat until REGBUFFER[0] == W6100.SOCK_INIT or REGBUFFER[0] == W6100.SOCK_UDP
+    WRITEBUFFER[0] := PM
+    W6100.writereg(W6100.REG_Sn_MR,socket,1,@WRITEBUFFER)
+
+   ' Set Listening port
+    WRITEBUFFER[0] := port.BYTE[1]
+    WRITEBUFFER[1] := port.BYTE[0]
+    W6100.writereg(W6100.REG_Sn_PORTR,socket,2,@WRITEBUFFER)
+
+  ' Choose the form of the destructor. (Open the socket)
+    REGBUFFER[0] := W6100.CR_Open
+    W6100.writereg(W6100.REG_Sn_CR,socket,1,@REGBUFFER)
+      repeat until REGBUFFER[0] == 0
+         W6100.readreg(W6100.REG_Sn_CR,socket,1,@REGBUFFER)
+
+    W6100.readreg(W6100.REG_Sn_SR,socket,1,@REGBUFFER)
+    vid.hex(REGBUFFER[0],2)
+    vid.nl()
+
+pub ListenTCP(socket) : rtv
+  WRITEBUFFER[0] := W6100.CR_LISTEN
+  W6100.writereg(W6100.REG_Sn_CR,socket,1,@WRITEBUFFER)
+    repeat until REGBUFFER[0] == 0
+       W6100.readreg(W6100.REG_Sn_CR,socket,1,@REGBUFFER)
+  W6100.readreg(W6100.REG_Sn_SR,socket,1,@REGBUFFER)
+  rtv := REGBUFFER[0]
+
+pub EstablishTCP(socket) : rtv
+  W6100.readreg(W6100.REG_Sn_IR,socket,1,@REGBUFFER)
+   repeat until (REGBUFFER[0] & W6100.Sn_IR_CON) == W6100.Sn_IR_CON || (REGBUFFER[0] & W6100.Sn_IR_TIMEOUT) == W6100.Sn_IR_TIMEOUT
+    W6100.readreg(W6100.REG_Sn_IR,socket,1,@REGBUFFER)
+    if (REGBUFFER[0] & W6100.Sn_IR_TIMEOUT) == W6100.Sn_IR_TIMEOUT
+      'Timeout(socket)
+      rtv := W6100.Sn_IR_TIMEOUT
+  REGBUFFER[0] := W6100.Sn_IR_CON
+  W6100.writereg(W6100.REG_Sn_IRCLR,socket,1,@REGBUFFER)
+
+pub ReceiveData(socket,tmov) : rtv | tmo
+    tmo := 0
+    RX_RSR := 0
+    repeat until RX_RSR > 0 or tmo > tmov
+      W6100.readreg(W6100.REG_Sn_RX_RSR,socket,2,@READBUFFER)
+      RX_RSR := READBUFFER[0]
+      RX_RSR <<= 8
+      RX_RSR := RX_RSR + READBUFFER[1]
+      tmo++
+    if tmo > tmov
+      rtv := W6100.Sn_IR_TIMEOUT
+    send("TMO: ")
+    vid.dec(tmo)
+    vid.nl()
+
+pub ReceiveProcess(socket,rxptr)
+
+    W6100.readreg(W6100.REG_Sn_RX_RD,socket,2,@REGBUFFER)
+    send("RX Buffer Start Address: ")
+    vid.dec(REGBUFFER[0])
+    vid.dec(REGBUFFER[1])
+    vid.nl()
+    RX_RD := REGBUFFER[0]
+    RX_RD <<= 8
+    RX_RD := RX_RD + REGBUFFER[1]
+
+
+    send("Read buffer starting at: ")
+    vid.dec(REGBUFFER[0])
+    vid.dec(REGBUFFER[1])
+    W6100.readreg(RX_RD,socket + $10,RX_RSR,rxptr)
+    vid.nl()
+
+    send("Update RX Buffer Start Address: ")
+    RX_RD := RX_RD + RX_RSR
+    REGBUFFER[0] := RX_RD.BYTE[1]
+    REGBUFFER[1] := RX_RD.BYTE[0]
+    W6100.writereg(W6100.REG_Sn_RX_RD,socket,2,@REGBUFFER)
+    vid.hex(REGBUFFER[0],2)
+    vid.hex(REGBUFFER[1],2)
+    vid.nl()
+    REGBUFFER[1] := W6100.CR_RECV
+    W6100.writereg(W6100.REG_Sn_CR,socket,1,@REGBUFFER+1)
+    repeat until REGBUFFER[0] == 0
+       W6100.readreg(W6100.REG_Sn_CR,socket,1,@REGBUFFER)
+
+pub SendData(socket,sendptr,ptrlen) : rtv | i
+    W6100.readreg(W6100.REG_Sn_TX_WR,socket,2,@REGBUFFER)
+    send("TX Buffer Start Address: ")
+    vid.hex(REGBUFFER[0],2)
+    vid.hex(REGBUFFER[1],2)
+    vid.nl()
+    TX_WR := REGBUFFER[0]
+    TX_WR <<= 8
+    TX_WR := TX_WR + REGBUFFER[1]
+
+   ' bytemove(@WRITEBUFFER,sendptr,strsize(sendptr))
+
+    send("Write Webpage request to TX Buffer")
+    vid.nl()
+   { i:=0
+    repeat strsize(@WRITEBUFFER)
+      send(WRITEBUFFER[i])
+      i++
+    }
+    W6100.writereg(TX_WR,socket + $08,ptrlen,sendptr)
+    vid.nl()
+
+
+    send("Update TX Buffer Start Address: ")
+'    TX_WR := TX_WR + strsize(@WRITEBUFFER)
+    TX_WR := TX_WR + ptrlen
+    REGBUFFER[0] := TX_WR.BYTE[1]
+    REGBUFFER[1] := TX_WR.BYTE[0]
+    vid.hex(REGBUFFER[0],2)
+    vid.hex(REGBUFFER[1],2)
+    'vid.hex(TX_WR,4)
+    vid.nl()
+    W6100.writereg(W6100.REG_Sn_TX_WR,socket,2,@REGBUFFER)
+
+    W6100.readreg(W6100.REG_Sn_IR,socket,1,@READBUFFER)
+    send("Checking Sn_IR Socket Status: ")
+    vid.hex(READBUFFER[0],2)
+    vid.nl()
+
+    W6100.readreg(W6100.REG_Sn_CR,socket,1,@READBUFFER)
+    send("Checking Sn_CR Socket Status: ")
+    vid.hex(READBUFFER[0],2)
+    vid.nl()
+
+    W6100.readreg(W6100.REG_Sn_MR,socket,1,@READBUFFER)
+    send("Checking Sn_MR Socket Status: ")
+    vid.hex(READBUFFER[0],2)
+    vid.nl()
+
+    send("Sending Webpage")
+    vid.nl()
+    WRITEBUFFER[0] := W6100.CR_SEND
+    W6100.writereg(W6100.REG_Sn_CR,socket,1,@WRITEBUFFER)
+    repeat until REGBUFFER[0] == 0
+       W6100.readreg(W6100.REG_Sn_CR,socket,1,@REGBUFFER)
+    repeat while (REGBUFFER[0] & $18) == $00
+       W6100.readreg(W6100.REG_Sn_IMR,socket,1,@REGBUFFER)
+
+    if (REGBUFFER[0] & $18) == $10
+         REGBUFFER[0] := $10
+         W6100.writereg(W6100.REG_Sn_IRCLR,socket,1,@REGBUFFER)
+    send("Webpage Sent")
+    vid.nl()
+
+
+
+pub Timeout()
+
+
+
+{  send("Mac Address: ")
+  readptr := W6100.readreg(W6100.REG_SHAR0,W6100.IDM_BSR_Common_Register,6,@READBUFFER)
+
+{  vid.hex(W6100.readreg(W6100.REG_SHAR0,W6100.IDM_BSR_Common_Register,6),2)
+  vid.hex(W6100.readreg(W6100.REG_SHAR1,W6100.IDM_BSR_Common_Register,1),2)
+  vid.hex(W6100.readreg(W6100.REG_SHAR2,W6100.IDM_BSR_Common_Register,1),2)
+  vid.hex(W6100.readreg(W6100.REG_SHAR3,W6100.IDM_BSR_Common_Register,1),2)
+  vid.hex(W6100.readreg(W6100.REG_SHAR4,W6100.IDM_BSR_Common_Register,1),2)
+  vid.hex(W6100.readreg(W6100.REG_SHAR5,W6100.IDM_BSR_Common_Register,1),2)
+}
+  byteindex := 0
+  REPEAT 6
+
+    vid.hex(READBUFFER[byteindex],2)
+    byteindex++
+
+
+
+  vid.nl()   }
+
+{
+LICENSE TERMS
+-------------
+Copyright 2021 Roger Loh
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+}
