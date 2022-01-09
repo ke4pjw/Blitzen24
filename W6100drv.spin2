@@ -28,13 +28,13 @@ THE SOFTWARE.
 
 CON
   MOD   = 16
-  ADDR  = 19
+  ADDR  = 19 ADDPINS 1
   RSET  = 23
   CSn   = 17
   RDn   = 21
   WRn   = 22
   INTn  = 5
-  DATA  = 24
+  DATA  = 24 ADDPINS 7
   CLK   = 18
 
 ' Parallel Bus Symbols
@@ -176,10 +176,12 @@ CON
 VAR
   long  ADDRH
   long  ADDRL
-
-
+  byte  REGBUFFER[2]
+  word  TX_WR
+  word  RX_RD
+  word  RX_RSR
 OBJ
-
+'       vid: "p2textdrv"
 
 
 PUB reset()
@@ -197,82 +199,282 @@ PUB setmod010()
 PUB initparallel()
   reset()
   setmod010()
-PUB readreg(REGISTER,BS,BLEN,RB) : r | i
+PUB readreg(REGISTER,BS,BLEN,RB) : r | i , LADDRL, LADDRH
 ' Parse register address
-  ADDRL :=  REGISTER
-  ADDRL &= $FF
-  ADDRH :=  REGISTER
-  ADDRH >>= 8
-
-
+  LADDRL :=  REGISTER
+  LADDRH :=  LADDRL
+  LADDRL &= $FF
+  LADDRH >>= 8
 ' Set ADDRH
+
   PINL(CSn)
-  PINWRITE (ADDR ADDPINS 1, IDM_ARH)
-  PINWRITE (DATA ADDPINS 7, ADDRH)
-  PINL(WRn)
-  PINH(WRn)
+  PINWRITE (ADDR , IDM_ARH)
+  PINWRITE (DATA , LADDRH)
+  pintoggle(WRn)
+  pintoggle(WRn)
+  'PINL(WRn)
+  'PINH(WRn)
 
 'Set ADDRL
-  PINWRITE (ADDR ADDPINS 1, IDM_ARL)
-  PINWRITE (DATA ADDPINS 7, ADDRl)
-  PINL(WRn)
-  PINH(WRn)
+  PINWRITE (ADDR , IDM_ARL)
+  PINWRITE (DATA , LADDRL)
+  pintoggle(WRn)
+  pintoggle(WRn)
 
 'Set BS (This is a common register, therefore set byte data to $00)
-  PINWRITE (ADDR ADDPINS 1, IDM_BSR)
-  PINWRITE (DATA ADDPINS 7, BS)
-  PINL(WRn)
-  PINH(WRn)
+  PINWRITE (ADDR , IDM_BSR)
+  PINWRITE (DATA , BS)
+  pintoggle(WRn)
+  pintoggle(WRn)
 
 'Read Register
   i := 0
   REPEAT BLEN
-    PINWRITE (ADDR ADDPINS 1, IDM_DR)
-    PINF(DATA ADDPINS 7)
+    PINWRITE (ADDR , IDM_DR)
+    PINF(DATA )
     PINL(RDn)
-    byte[RB][i] := PINREAD (DATA ADDPINS 7)
-    r := PINREAD (DATA ADDPINS 7)
+    byte[RB][i] := PINREAD (DATA )
+    r := PINREAD (DATA )
     i++
     PINH(RDn)
 
   PINH(CSn)
   return r
 
-PUB writereg(REGISTER,BS,BLEN,RB) : r | i
+PUB writereg(REGISTER,BS,BLEN,RB) : r | i , LADDRL ,  LADDRH
 ' Parse register address
-  ADDRL :=  REGISTER
-  ADDRL &= $FF
-  ADDRH :=  REGISTER
-  ADDRH >>= 8
 
+  LADDRL :=  REGISTER
+  LADDRH :=  LADDRL
+  LADDRL &= $FF
+  LADDRH >>= 8
 
 ' Set ADDRH
   PINL(CSn)
-  PINWRITE (ADDR ADDPINS 1, IDM_ARH)
-  PINWRITE (DATA ADDPINS 7, ADDRH)
+  PINWRITE (ADDR , IDM_ARH)
+  PINWRITE (DATA , LADDRH)
+  'pintoggle(WRn)
   PINL(WRn)
   PINH(WRn)
 
 'Set ADDRL
-  PINWRITE (ADDR ADDPINS 1, IDM_ARL)
-  PINWRITE (DATA ADDPINS 7, ADDRL)
+  PINWRITE (ADDR , IDM_ARL)
+  PINWRITE (DATA , LADDRL)
+  'pintoggle(WRn)
   PINL(WRn)
   PINH(WRn)
 
 'Set BS (This is a common register, therefore set byte data to $00)
-  PINWRITE (ADDR ADDPINS 1, IDM_BSR)
-  PINWRITE (DATA ADDPINS 7, BS)
+  PINWRITE (ADDR , IDM_BSR)
+  PINWRITE (DATA , BS)
+  'pintoggle(WRn)
   PINL(WRn)
   PINH(WRn)
 
 'Write Register
   i := 0
   REPEAT BLEN
-    PINWRITE (ADDR ADDPINS 1, IDM_DR)
-    PINWRITE (DATA ADDPINS 7, byte[RB][i])
+    PINWRITE (ADDR , IDM_DR)
+    PINWRITE (DATA , byte[RB][i])
     i++
+    'pintoggle(WRn)
     PINL(WRn)
     PINH(WRn)
 
   PINH(CSn)
   return
+
+Pub Disconnect(socket)
+    'send("Disconnect attempt")
+
+
+ '   readreg(REG_Sn_IR,IDM_BSR_Socket1_Register,1,@REGBUFFER)
+  '  If REGBUFFER[0] <> $1C
+    REGBUFFER[0] := CR_DISCON
+    writereg(REG_Sn_CR,socket,1,@REGBUFFER)
+    repeat until REGBUFFER[0] == 0
+        readreg(REG_Sn_CR,socket,1,@REGBUFFER)
+
+    repeat while (REGBUFFER[0] & (Sn_IR_TIMEOUT + Sn_IR_DISCON)) == $00
+        readreg(REG_Sn_IR,socket,1,@REGBUFFER)
+        'vid.hex(REGBUFFER[0],2)
+        'vid.nl()
+      if (REGBUFFER[0] & (Sn_IR_TIMEOUT + Sn_IR_DISCON)) == Sn_IR_DISCON
+       REGBUFFER[0] := Sn_IR_DISCON
+      else
+       REGBUFFER[0] := Sn_IR_TIMEOUT
+      writereg(REG_Sn_IRCLR,socket,1,@REGBUFFER)
+
+    'send("Disconnected")
+    'vid.nl()
+    ' Gonna try this bullshit right here because I am sure I didn't clear all of the interrupts
+    REGBUFFER[0] := $1F
+    writereg(REG_Sn_IRCLR,socket,1,@REGBUFFER)
+
+
+pub Open(port,PM,socket)
+
+  readreg(REG_Sn_SR,socket,1,@REGBUFFER)
+  'vid.hex(REGBUFFER[0],2)
+  'vid.nl()
+  repeat until REGBUFFER[0] == SOCK_INIT or REGBUFFER[0] == SOCK_UDP
+    REGBUFFER[0] := PM
+    writereg(REG_Sn_MR,socket,1,@REGBUFFER)
+
+   ' Set Listening port
+    REGBUFFER[0] := port.BYTE[1]
+    REGBUFFER[1] := port.BYTE[0]
+    writereg(REG_Sn_PORTR,socket,2,@REGBUFFER)
+
+  ' Choose the form of the destructor. (Open the socket)
+    REGBUFFER[0] := CR_Open
+    writereg(REG_Sn_CR,socket,1,@REGBUFFER)
+      repeat until REGBUFFER[0] == 0
+         readreg(REG_Sn_CR,socket,1,@REGBUFFER)
+
+    readreg(REG_Sn_SR,socket,1,@REGBUFFER)
+    'vid.hex(REGBUFFER[0],2)
+    'vid.nl()
+
+pub ListenTCP(socket) : rtv
+  REGBUFFER[0] := CR_LISTEN
+  writereg(REG_Sn_CR,socket,1,@REGBUFFER)
+  readreg(REG_Sn_SR,socket,1,@REGBUFFER)
+    repeat until REGBUFFER[0] == 0
+       readreg(REG_Sn_CR,socket,1,@REGBUFFER)
+  readreg(REG_Sn_SR,socket,1,@REGBUFFER)
+  rtv := REGBUFFER[0]
+
+pub EstablishTCP(socket) : rtv
+  readreg(REG_Sn_IR,socket,1,@REGBUFFER)
+   repeat until (REGBUFFER[0] & Sn_IR_CON) == Sn_IR_CON || (REGBUFFER[0] & Sn_IR_TIMEOUT) == Sn_IR_TIMEOUT
+    readreg(REG_Sn_IR,socket,1,@REGBUFFER)
+    if (REGBUFFER[0] & Sn_IR_TIMEOUT) == Sn_IR_TIMEOUT
+      'Timeout(socket)
+      rtv := Sn_IR_TIMEOUT
+  REGBUFFER[0] := Sn_IR_CON
+  writereg(REG_Sn_IRCLR,socket,1,@REGBUFFER)
+
+pub ReceiveData(socket,tmov) : rtv | tmo
+    tmo := 0
+    RX_RSR := 0
+    repeat until RX_RSR > 0 or tmo > tmov
+      readreg(REG_Sn_RX_RSR,socket,2,@REGBUFFER)
+      RX_RSR := REGBUFFER[0]
+      RX_RSR <<= 8
+      RX_RSR := RX_RSR + REGBUFFER[1]
+      tmo++
+    if tmo > tmov
+       rtv := Sn_IR_TIMEOUT
+    'send("TMO: ")
+    'vid.dec(tmo)
+    'vid.nl()
+
+pub ReceiveProcess(socket,rxptr) : rtv
+
+    readreg(REG_Sn_RX_RD,socket,2,@REGBUFFER)
+'    send("RX Buffer Start Address: ")
+'    hex(REGBUFFER[0],2)
+'    hex(REGBUFFER[1],2)
+'    nl()
+    RX_RD := REGBUFFER[0]
+    RX_RD <<= 8
+    RX_RD := RX_RD + REGBUFFER[1]
+
+
+'    send("Read buffer starting at: ")
+'    hex(REGBUFFER[0],2)
+'    hex(REGBUFFER[1],2)
+'    nl()
+    readreg(RX_RD,socket + $10,RX_RSR,rxptr)
+
+
+'    send("Update RX Buffer Start Address: ")
+    RX_RD := RX_RD + RX_RSR
+    REGBUFFER[0] := RX_RD.BYTE[1]
+    REGBUFFER[1] := RX_RD.BYTE[0]
+    writereg(REG_Sn_RX_RD,socket,2,@REGBUFFER)
+'    hex(REGBUFFER[0],2)
+'    hex(REGBUFFER[1],2)
+'    nl()
+    REGBUFFER[1] := CR_RECV
+    writereg(REG_Sn_CR,socket,1,@REGBUFFER+1)
+    repeat until REGBUFFER[0] == 0
+       readreg(REG_Sn_CR,socket,1,@REGBUFFER)
+    rtv := RX_RSR
+pub SendData(socket,sendptr,ptrlen) : rtv | i
+    readreg(REG_Sn_TX_WR,socket,2,@REGBUFFER)
+    'send("TX Buffer Start Address: ")
+    'vid.hex(REGBUFFER[0],2)
+    'vid.hex(REGBUFFER[1],2)
+    'vid.nl()
+    TX_WR := REGBUFFER[0]
+    TX_WR <<= 8
+    TX_WR := TX_WR + REGBUFFER[1]
+
+   ' bytemove(@WRITEBUFFER,sendptr,strsize(sendptr))
+
+    'send("Write Webpage request to TX Buffer")
+    'vid.nl()
+   { i:=0
+    repeat strsize(@WRITEBUFFER)
+      'send(WRITEBUFFER[i])
+      i++
+    }
+    writereg(TX_WR,socket + $08,ptrlen,sendptr)
+    'vid.nl()
+
+
+    'send("Update TX Buffer Start Address: ")
+'    TX_WR := TX_WR + strsize(@WRITEBUFFER)
+    TX_WR := TX_WR + ptrlen
+    REGBUFFER[0] := TX_WR.BYTE[1]
+    REGBUFFER[1] := TX_WR.BYTE[0]
+    'vid.hex(REGBUFFER[0],2)
+    'vid.hex(REGBUFFER[1],2)
+    'vid.hex(TX_WR,4)
+    'vid.nl()
+    writereg(REG_Sn_TX_WR,socket,2,@REGBUFFER)
+ {
+    readreg(REG_Sn_IR,socket,1,@READBUFFER)
+    'send("Checking Sn_IR Socket Status: ")
+    'vid.hex(READBUFFER[0],2)
+    'vid.nl()
+
+    readreg(REG_Sn_CR,socket,1,@READBUFFER)
+    'send("Checking Sn_CR Socket Status: ")
+    'vid.hex(READBUFFER[0],2)
+    'vid.nl()
+
+    readreg(REG_Sn_MR,socket,1,@READBUFFER)
+    'send("Checking Sn_MR Socket Status: ")
+    'vid.hex(READBUFFER[0],2)
+    'vid.nl()
+  }
+    'send("Sending Webpage")
+    'vid.nl()
+    REGBUFFER[0] := CR_SEND
+    writereg(REG_Sn_CR,socket,1,@REGBUFFER)
+    repeat until REGBUFFER[0] == 0
+       readreg(REG_Sn_CR,socket,1,@REGBUFFER)
+    repeat while (REGBUFFER[0] & $18) == $00
+       readreg(REG_Sn_IMR,socket,1,@REGBUFFER)
+
+    if (REGBUFFER[0] & $18) == $10
+         REGBUFFER[0] := $10
+         writereg(REG_Sn_IRCLR,socket,1,@REGBUFFER)
+    'send("Webpage Sent")
+    'vid.nl()
+
+
+
+pub Timeout()
+
+PUB hex(value, digits)
+' Print a hexadecimal number
+  value <<= (8 - digits) << 2
+  repeat digits
+    value ROL= 4
+    send(lookupz(value & $F : "0".."9", "A".."F"))
+PUB nl()
+ send( $0D, $0A)
