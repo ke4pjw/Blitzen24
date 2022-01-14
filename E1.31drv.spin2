@@ -35,9 +35,11 @@ VAR
   long E131stack[128]
   long E131cog
   byte PACKETBUFFER[2048]
+  byte UNIVERSEone[512]
   word psize
 OBJ
         W6100: "W6100drv"
+        WS2811: "jm_rgbx_pixel"
 
 pub start(sendptr) : result
   send("Starting E131cog")
@@ -56,31 +58,45 @@ pub mymain(port,protocol,socket,sendptr)
     send("Listening for E1.31 packets on port 5568")
     W6100.Open(port,protocol,socket)
     send := sendptr
-
+    WS2811.start_2811(@UNIVERSEone, 50, 1, 10)
     repeat
       receive(@PACKETBUFFER,socket)
 
-
-PUB receive(bufferptr,socket) | i , lpsize
+PUB receive(bufferptr,socket) | i , lpsize , o
     repeat until W6100.ReceiveData(socket,1) == 0
     lpsize := W6100.ReceiveProcess(socket,bufferptr)
 '    hex(PACKETBUFFER[132],2)
-'    i := 52
-'    repeat until i > 64+52 || PACKETBUFFER[i] == 0
-'       send(PACKETBUFFER[i])
-'       i++
+    { i := 12
+     repeat until i > 12+12 || PACKETBUFFER[i] == 0
+        send(PACKETBUFFER[i])
+        i++  }
     'Send( $0D, $0A, "Universe: ")
     'hex(PACKETBUFFER[121],2)
     'hex(PACKETBUFFER[122],2)
-     if PACKETBUFFER[122] == 4
-        Send("Got it!")
-   ' hex(PACKETBUFFER[135],2)
-   ' hex(PACKETBUFFER[136],2)
-
+    send( $0D, $0A)
+     if PACKETBUFFER[122] == 2 && PACKETBUFFER[12] == "A" && PACKETBUFFER[13] == "S" && PACKETBUFFER[14] == "C"
+        'Send("Got it!")
+        i := 0
+        o := 134
+        repeat 50
+          WS2811.set_red(i,PACKETBUFFER[o])
+          WS2811.set_green(i,PACKETBUFFER[o+1])
+          WS2811.set_blue(i,PACKETBUFFER[o+2])
+          i++
+          o := o + 3
+   {
+      hex(PACKETBUFFER[134],2)
+      hex(PACKETBUFFER[135],2)
+      hex(PACKETBUFFER[136],2)
+      send( $0D, $0A)
+      hex(PACKETBUFFER[137],2)
+      hex(PACKETBUFFER[138],2)
+      hex(PACKETBUFFER[139],2)
+      send( $0D, $0A)
 '    send( $0D, $0A,"-----end-----", $0D, $0A)
     'send("Received E1.31 packet")
 
-
+        }
 PUB hex(value, digits)
 ' Print a hexadecimal number
   value <<= (8 - digits) << 2
