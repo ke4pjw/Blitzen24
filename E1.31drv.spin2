@@ -55,16 +55,21 @@ pub stop()
 
 
 pub mymain(port,protocol,socket,sendptr)
-    send("Listening for E1.31 packets on port 5568")
+
     W6100.Open(port,protocol,socket)
     send := sendptr
     WS2811.start_2811(@UNIVERSEone, 50, 1, 10)
-    repeat
-      receive(@PACKETBUFFER,socket)
+    send("Listening for E1.31 packets on port 5568")
+    receive(@PACKETBUFFER,socket)
 
 PUB receive(bufferptr,socket) | i , lpsize , o
-    repeat until W6100.ReceiveData(socket,1) == 0
-    lpsize := W6100.ReceiveProcess(socket,bufferptr)
+repeat
+'    Send("Socket: ")
+'    hex(socket,2)
+'    send( $0D, $0A)
+'   repeat until W6100.ReceiveData(socket,1) == 0
+    W6100.FastReceiveData(socket,1)
+    W6100.ReceiveProcess(socket,bufferptr)
 '    hex(PACKETBUFFER[132],2)
     { i := 12
      repeat until i > 12+12 || PACKETBUFFER[i] == 0
@@ -73,10 +78,10 @@ PUB receive(bufferptr,socket) | i , lpsize , o
     'Send( $0D, $0A, "Universe: ")
     'hex(PACKETBUFFER[121],2)
     'hex(PACKETBUFFER[122],2)
-    send( $0D, $0A)
-     if PACKETBUFFER[122] == 2 && PACKETBUFFER[12] == "A" && PACKETBUFFER[13] == "S" && PACKETBUFFER[14] == "C"
-        'Send("Got it!")
-        i := 0
+'    send( $0D, $0A)
+    if PACKETBUFFER[122] == 5 ' && PACKETBUFFER[12] == "A" && PACKETBUFFER[13] == "S" && PACKETBUFFER[14] == "C"
+        Send("Got it!")
+ {       i := 0
         o := 134
         repeat 50
           WS2811.set_red(i,PACKETBUFFER[o])
@@ -84,6 +89,7 @@ PUB receive(bufferptr,socket) | i , lpsize , o
           WS2811.set_blue(i,PACKETBUFFER[o+2])
           i++
           o := o + 3
+          }
    {
       hex(PACKETBUFFER[134],2)
       hex(PACKETBUFFER[135],2)

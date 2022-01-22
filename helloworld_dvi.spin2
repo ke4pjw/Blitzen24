@@ -62,6 +62,7 @@ OBJ
         prng: "jm_prng"
         E131: "E1.31drv"
 
+
 PUB helloworld() | i, j
 ' initialize the display to desired resolution (eg, VGA, WVGA etc)
     vid.initDvi(-1, DVI_BASE_PIN, 0, vid.FLASH_TEXT, vid.WVGA)
@@ -97,6 +98,10 @@ PUB helloworld() | i, j
   send("Setting Mode: 010")
   W6100.setmod010()
   send( $0D, $0A)
+  send("Data Pins: ")
+  vid.hex(W6100.DATA,4)
+  send( $0D, $0A)
+
   send("Resetting Ethernet: ")
   W6100.reset()
   waitms(3000)
@@ -104,6 +109,8 @@ PUB helloworld() | i, j
   waitms(3000)
   send("Reset complete")
   send( $0D, $0A)
+
+
 
   send("Chip Identification: ")
 
@@ -157,7 +164,7 @@ PUB helloworld() | i, j
   Send("Configuring 8 sockets with 2K RX buffer.")
   i := W6100.IDM_BSR_Socket0_Register
   WRITEBUFFER[0] := 2
-  repeat 3
+  repeat 8
     W6100.writereg(W6100.REG_Sn_RX_BSR,i,1,@WRITEBUFFER)
     Send(".")
     i := i + %001_00_000

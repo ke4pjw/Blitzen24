@@ -28,14 +28,17 @@ THE SOFTWARE.
 
 CON
   MOD   = 16
-  ADDR  = 19 ADDPINS 1
+  ADDR  = 18 ADDPINS 1
   RSET  = 23
   CSn   = 17
   RDn   = 21
   WRn   = 22
   INTn  = 5
   DATA  = 24 ADDPINS 7
-  CLK   = 18
+  CLK   = 20
+  DPINS = 24 / 8
+  A0    = 18
+  A1    = 19
 
 ' Parallel Bus Symbols
   IDM_ARH = %00
@@ -181,7 +184,7 @@ VAR
   word  RX_RD
   word  RX_RSR
 OBJ
-'       vid: "p2textdrv"
+       vid: "p2textdrv"
 
 
 PUB reset()
@@ -199,17 +202,95 @@ PUB setmod010()
 PUB initparallel()
   reset()
   setmod010()
-PUB readreg(REGISTER,BS,BLEN,RB) : r | i , LADDRL, LADDRH
+PUB readreg(REGISTER,BS,BLEN,RB) : r | i , LADDRL, LADDRH, tmpdata, tmpptr, datapin
+
+'   tmpptr := RB
+'  datapin := dpins
+
+
+ {
 ' Parse register address
   LADDRL :=  REGISTER
   LADDRH :=  LADDRL
   LADDRL &= $FF
   LADDRH >>= 8
 ' Set ADDRH
+ }
+{  PINL(CSn)}
 
-  PINL(CSn)
+org
+  mov LADDRL, REGISTER
+  mov LADDRH, REGISTER
+  and LADDRL, #$FF
+  shr LADDRH, #8
+
+  mov datapin, #dpins
+
+  mov i,#0
+  add i,BLEN
+  add i,RB
+
+  DRVL  ##CSn
+' Load high byte
+  DRVL  ##A0 'ADDR bit 0
+  DRVL  ##A1 'ADDR bit 1
+
+  DIRNOT #DATA
+  altsb datapin, #outa
+  setbyte LADDRH
+
+  DRVL  ##WRn
+  waitx #20
+  DRVH  ##WRn
+
+'load low byte
+
+  DRVH  ##A0 'ADDR bit 0
+  DRVL  ##A1 'ADDR bit 1
+
+  altsb datapin, #outa
+  setbyte LADDRL
+
+  DRVL  ##WRn
+  waitx #20
+  DRVH  ##WRn
+
+'Set BS
+  DRVl  ##A0 'ADDR bit 0
+  DRVh  ##A1 'ADDR bit 1
+
+  altsb datapin, #outa
+  setbyte BS
+
+  DRVL  ##WRn
+  waitx #20
+  DRVH  ##WRn
+
+  DRVh  ##A0 'ADDR bit 0
+  DRVh  ##A1 'ADDR bit 1
+  FLTL #DATA
+
+' Read i number of bytes.
+
+label DRVL ##RDn
+      waitx #20
+      altgb datapin,#ina
+      getbyte tmpdata
+      WRBYTE tmpdata, RB
+      add RB, #1
+      DRVH ##RDn
+      waitx #20
+      CMP i,RB wz
+if_nz jmp #label
+
+      mov   r, tmpdata
+      DRVH  ##CSn
+
+end
+{
   PINWRITE (ADDR , IDM_ARH)
   PINWRITE (DATA , LADDRH)
+
   pintoggle(WRn)
   pintoggle(WRn)
   'PINL(WRn)
@@ -226,19 +307,35 @@ PUB readreg(REGISTER,BS,BLEN,RB) : r | i , LADDRL, LADDRH
   PINWRITE (DATA , BS)
   pintoggle(WRn)
   pintoggle(WRn)
+  ]
 
 'Read Register
-  i := 0
+'  i := 0
+  PINWRITE (ADDR , IDM_DR)
+  PINF(DATA )
+     }
+  {
   REPEAT BLEN
-    PINWRITE (ADDR , IDM_DR)
-    PINF(DATA )
-    PINL(RDn)
-    byte[RB][i] := PINREAD (DATA )
-    r := PINREAD (DATA )
-    i++
-    PINH(RDn)
+'    PINL(RDn)
+    org
+    DRVL ##RDn
+    waitx #20
+    altgb datapin,#ina
+    getbyte tmpdata
+    WRBYTE tmpdata, RB
+    add RB, #1
+    DRVH ##RDn
+    end   }
+   ' byte[RB][i] := PINREAD (DATA )
+   { r := PINREAD (DATA )
+    byte[RB][i] := tmpdata   }
+ '   i++
 
-  PINH(CSn)
+'    PINH(RDn)
+   ' send( $0D, $0A)
+
+{  r := byte[RB]
+  PINH(CSn)   }
   return r
 
 PUB writereg(REGISTER,BS,BLEN,RB) : r | i , LADDRL ,  LADDRH
@@ -369,6 +466,13 @@ pub ReceiveData(socket,tmov) : rtv | tmo
     'send("TMO: ")
     'vid.dec(tmo)
     'vid.nl()
+pub FastReceiveData(socket,tmov) : rtv | tmo
+    repeat until  readreg(REG_Sn_RX_RSR,socket,2,@REGBUFFER)  > 0
+
+    RX_RSR := REGBUFFER[0]
+    RX_RSR <<= 8
+    RX_RSR := RX_RSR + REGBUFFER[1]
+
 
 pub ReceiveProcess(socket,rxptr) : rtv
 
