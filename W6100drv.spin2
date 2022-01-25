@@ -204,38 +204,38 @@ PUB initparallel()
   setmod010()
 PUB readreg(REGISTER,BS,BLEN,RB) : r | i , LADDRL, LADDRH, tmpdata, tmpptr, datapin
 
-'   tmpptr := RB
-'  datapin := dpins
-
-
- {
-' Parse register address
-  LADDRL :=  REGISTER
-  LADDRH :=  LADDRL
-  LADDRL &= $FF
-  LADDRH >>= 8
-' Set ADDRH
- }
-{  PINL(CSn)}
-
 org
+' Set the HUB FIFO
+
+ WRFAST #0,RB
+
+' Clear the return value
+  mov r,#0
+
+' Parse register address
   mov LADDRL, REGISTER
   mov LADDRH, REGISTER
   and LADDRL, #$FF
   shr LADDRH, #8
 
+' Set the data pins
   mov datapin, #dpins
 
+' Setup the byte ingest counter
   mov i,#0
   add i,BLEN
   add i,RB
 
+' Enable Chip Select on the W6100
   DRVL  ##CSn
+
 ' Load high byte
   DRVL  ##A0 'ADDR bit 0
   DRVL  ##A1 'ADDR bit 1
 
-  DIRNOT #DATA
+'  DIRNOT #DATA
+    DRVL #DATA
+
   altsb datapin, #outa
   setbyte LADDRH
 
@@ -272,74 +272,120 @@ org
 
 ' Read i number of bytes.
 
-label DRVL ##RDn
-      waitx #20
-      altgb datapin,#ina
-      getbyte tmpdata
-      WRBYTE tmpdata, RB
-      add RB, #1
-      DRVH ##RDn
-      waitx #20
+label DRVL ##RDn ' Enable Chip Read
+      waitx #17 ' Wait cuz this is slow
+      altgb datapin,#ina ' Where you gonna get that data?
+      getbyte tmpdata ' Get that data and put it in tmpdata
+'      WRBYTE tmpdata, RB ' Write that data to the read buffer in HUBRAM.
+      WFBYTE tmpdata
+      add RB, #1 ' Increment the read buffer by 1 byte
+      DRVH ##RDn ' Disable Chip read
+      waitx #2  ' Wait cuz this is slow
+
+      add r,tmpdata  ' Populate return value
+      shl r,#8
+
+' R U Dun? (Compare i, which is where we stop where it is equal to the current read buffer value)
       CMP i,RB wz
 if_nz jmp #label
-
-      mov   r, tmpdata
+      shr r,#8
+' Disable Chip Select
       DRVH  ##CSn
 
 end
-{
-  PINWRITE (ADDR , IDM_ARH)
-  PINWRITE (DATA , LADDRH)
-
-  pintoggle(WRn)
-  pintoggle(WRn)
-  'PINL(WRn)
-  'PINH(WRn)
-
-'Set ADDRL
-  PINWRITE (ADDR , IDM_ARL)
-  PINWRITE (DATA , LADDRL)
-  pintoggle(WRn)
-  pintoggle(WRn)
-
-'Set BS (This is a common register, therefore set byte data to $00)
-  PINWRITE (ADDR , IDM_BSR)
-  PINWRITE (DATA , BS)
-  pintoggle(WRn)
-  pintoggle(WRn)
-  ]
-
-'Read Register
-'  i := 0
-  PINWRITE (ADDR , IDM_DR)
-  PINF(DATA )
-     }
-  {
-  REPEAT BLEN
-'    PINL(RDn)
-    org
-    DRVL ##RDn
-    waitx #20
-    altgb datapin,#ina
-    getbyte tmpdata
-    WRBYTE tmpdata, RB
-    add RB, #1
-    DRVH ##RDn
-    end   }
-   ' byte[RB][i] := PINREAD (DATA )
-   { r := PINREAD (DATA )
-    byte[RB][i] := tmpdata   }
- '   i++
-
-'    PINH(RDn)
-   ' send( $0D, $0A)
-
-{  r := byte[RB]
-  PINH(CSn)   }
   return r
 
-PUB writereg(REGISTER,BS,BLEN,RB) : r | i , LADDRL ,  LADDRH
+PUB writereg(REGISTER,BS,BLEN,RB) : r | i , LADDRL ,  LADDRH , datapin , tmpdata
+
+org
 ' Parse register address
+  RDFAST #0,RB
+
+' Clear the return value
+  mov r,#0
+
+' Parse register address
+  mov LADDRL, REGISTER
+  mov LADDRH, REGISTER
+  and LADDRL, #$FF
+  shr LADDRH, #8
+
+' Set the data pins
+  mov datapin, #dpins
+
+' Setup the byte ingest counter
+  mov i,#0
+  add i,BLEN
+  add i,RB
+
+' Enable Chip Select on the W6100
+  DRVL  ##CSn
+
+' Load high byte
+  DRVL  ##A0 'ADDR bit 0
+  DRVL  ##A1 'ADDR bit 1
+
+'  DIRNOT #DATA
+  DRVL #DATA
+
+  altsb datapin, #outa
+  setbyte LADDRH
+
+  DRVL  ##WRn
+  waitx #10
+  DRVH  ##WRn
+
+'load low byte
+
+  DRVH  ##A0 'ADDR bit 0
+  DRVL  ##A1 'ADDR bit 1
+
+  altsb datapin, #outa
+  setbyte LADDRL
+
+  DRVL  ##WRn
+  waitx #10
+  DRVH  ##WRn
+
+'Set BS
+  DRVl  ##A0 'ADDR bit 0
+  DRVh  ##A1 'ADDR bit 1
+
+  altsb datapin, #outa
+  setbyte BS
+
+  DRVL  ##WRn
+  waitx #10
+  DRVH  ##WRn
+
+  DRVh  ##A0 'ADDR bit 0
+  DRVh  ##A1 'ADDR bit 1
+'  FLTL #DATA
+'end
+
+' Read i number of bytes.
+
+ 'RDBYTE tmpdata, RB
+label RFBYTE tmpdata
+      altsb datapin,#outa ' Where you gonna send that data?
+      setbyte tmpdata ' Set that data from tmpdata
+'      WRBYTE tmpdata, RB ' Write that data to the read buffer in HUBRAM.
+      DRVL ##WRn ' Disable Chip read
+      waitx #5  ' Wait cuz this is slow
+      DRVH ##WRn ' Enable Chip Write
+      add RB, #1 ' Increment the read buffer by 1 byte
+'      add r,tmpdata  ' Populate return value
+'      shl r,#8
+
+' R U Dun? (Compare i, which is where we stop where it is equal to the current read buffer value)
+      CMP i,RB wz
+if_nz jmp #label
+'      shr r,#8
+' Disable Chip Select
+      DRVH  ##CSn
+
+end
+ {
 
   LADDRL :=  REGISTER
   LADDRH :=  LADDRL
@@ -368,10 +414,12 @@ PUB writereg(REGISTER,BS,BLEN,RB) : r | i , LADDRL ,  LADDRH
   PINL(WRn)
   PINH(WRn)
 
+
 'Write Register
   i := 0
+  PINWRITE (ADDR , IDM_DR)
   REPEAT BLEN
-    PINWRITE (ADDR , IDM_DR)
+
     PINWRITE (DATA , byte[RB][i])
     i++
     'pintoggle(WRn)
@@ -379,6 +427,7 @@ PUB writereg(REGISTER,BS,BLEN,RB) : r | i , LADDRL ,  LADDRH
     PINH(WRn)
 
   PINH(CSn)
+ }
   return
 
 Pub Disconnect(socket)
@@ -466,13 +515,43 @@ pub ReceiveData(socket,tmov) : rtv | tmo
     'send("TMO: ")
     'vid.dec(tmo)
     'vid.nl()
-pub FastReceiveData(socket,tmov) : rtv | tmo
-    repeat until  readreg(REG_Sn_RX_RSR,socket,2,@REGBUFFER)  > 0
+pub FastReceiveData(socket,tmov) : rtv | tmo , rsr
+    rsr := readreg(REG_Sn_RX_RSR,socket,2,@REGBUFFER)
+    repeat until rsr > 0
+        rsr := readreg(REG_Sn_RX_RSR,socket,2,@REGBUFFER)
 
-    RX_RSR := REGBUFFER[0]
-    RX_RSR <<= 8
-    RX_RSR := RX_RSR + REGBUFFER[1]
+    RX_RSR := rsr
 
+pub FastReceiveProcess(socket,rxptr) : rtv
+
+    RX_RD := readreg(REG_Sn_RX_RD,socket,2,@REGBUFFER)
+
+{
+    RX_RD := REGBUFFER[0]
+    RX_RD <<= 8
+    RX_RD := RX_RD + REGBUFFER[1]
+ }
+
+'    send("Read buffer starting at: ")
+'    hex(REGBUFFER[0],2)
+'    hex(REGBUFFER[1],2)
+'    nl()
+    readreg(RX_RD,socket + $10,RX_RSR,rxptr)
+
+
+'    send("Update RX Buffer Start Address: ")
+    RX_RD := RX_RD + RX_RSR
+    REGBUFFER[0] := RX_RD.BYTE[1]
+    REGBUFFER[1] := RX_RD.BYTE[0]
+    writereg(REG_Sn_RX_RD,socket,2,@REGBUFFER)
+'    hex(REGBUFFER[0],2)
+'    hex(REGBUFFER[1],2)
+'    nl()
+    REGBUFFER[1] := CR_RECV
+    writereg(REG_Sn_CR,socket,1,@REGBUFFER+1)
+    repeat until readreg(REG_Sn_CR,socket,1,@REGBUFFER) == 0
+
+    rtv := RX_RSR
 
 pub ReceiveProcess(socket,rxptr) : rtv
 
@@ -506,6 +585,7 @@ pub ReceiveProcess(socket,rxptr) : rtv
     repeat until REGBUFFER[0] == 0
        readreg(REG_Sn_CR,socket,1,@REGBUFFER)
     rtv := RX_RSR
+
 pub SendData(socket,sendptr,ptrlen) : rtv | i
     readreg(REG_Sn_TX_WR,socket,2,@REGBUFFER)
     'send("TX Buffer Start Address: ")
