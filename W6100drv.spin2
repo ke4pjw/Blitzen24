@@ -522,9 +522,9 @@ pub FastReceiveData(socket,tmov) : rtv | tmo , rsr
 
     RX_RSR := rsr
 
-pub FastReceiveProcess(socket,rxptr) : rtv
+pub FastReceiveProcess(socket,rxptr,REGBUFFERTMP) |  i , LADDRL, LADDRH, tmpdata, RB, datapin, REGISTER, BLEN, BS, socket_rd, l_RX_RSR, l_RX_RD, r
 
-    RX_RD := readreg(REG_Sn_RX_RD,socket,2,@REGBUFFER)
+{    RX_RD := readreg(REG_Sn_RX_RD,socket,2,@REGBUFFER)
 
 {
     RX_RD := REGBUFFER[0]
@@ -551,7 +551,253 @@ pub FastReceiveProcess(socket,rxptr) : rtv
     writereg(REG_Sn_CR,socket,1,@REGBUFFER+1)
     repeat until readreg(REG_Sn_CR,socket,1,@REGBUFFER) == 0
 
-    rtv := RX_RSR
+'    rtv := RX_RSR   }
+org
+      mov BS, socket
+      mov socket_rd, socket 'Setup the socket rd register
+      add socket_rd, #$10   ' It is the value of the socket register + $10
+'      mov REGBUFFERTMP, #0
+' Find if there are any bytes in the rx buffer (RX_RSR)
+start mov REGISTER, ##REG_Sn_RX_RSR
+
+      mov BLEN, #2 ' get two bytes
+      mov RB, REGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      call #rx
+      cmp r, #0 wz  ' r is what is returned from rx. rx returns the last two bytes as a word.
+if_z  jmp #start ' If r is empty, go fish.
+      mov l_RX_RSR, r
+
+
+' Find the rx buffer address to start reading bytes (RX_RD)
+      mov REGISTER, ##REG_Sn_RX_RD
+      mov BLEN, #2 ' get two bytes
+      mov RB, REGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      call #rx
+      mov l_RX_RD, r ' r is what is returned from rx. rx returns the last two bytes as a word.
+
+' Not 638 bytes + 8 bytes header? skip it
+      CMP l_RX_RSR, ##$0286 wz
+      if_nz WRWORD l_RX_RSR,REGBUFFERTMP
+      if_nz jmp #skipit
+
+' Read the buffer into hub ram
+      mov REGISTER, l_RX_RD
+      mov BS, socket_rd
+      mov BLEN, l_RX_RSR
+      mov RB, rxptr ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      call #rx
+
+
+' Write the new RX address
+ '     and l_RX_RSR, ##$FFFF
+ skipit
+
+      mov BS, socket
+      add l_RX_RSR,l_RX_RD 'Determine new RX address
+
+      movbyts   l_RX_RSR, #%%2301
+      WRWORD l_RX_RSR,REGBUFFERTMP
+'      add REGBUFFERTMP, #1
+'      movbyts   l_RX_RSR, #%%3210
+'      WRBYTE l_RX_RSR, REGBUFFERTMP
+      mov REGISTER, ##REG_Sn_RX_RD
+      mov BLEN, #2 ' get two bytes
+'      sub REGBUFFERTMP, #1
+      mov RB, REGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      call #tx
+
+
+
+      WRBYTE ##CR_RECV, REGBUFFERTMP
+      mov REGISTER, ##REG_Sn_CR
+      mov BLEN, #1
+      mov RB, REGBUFFERTMP
+      call #tx
+
+
+
+
+
+      jmp #start
+
+
+' readreg(REGISTER,BS,BLEN,RB) : r | i , LADDRL, LADDRH, tmpdata, tmpptr, datapin,
+
+rx WRFAST #0,RB
+
+' Clear the return value
+  mov r,#0
+
+' Parse register address
+  mov LADDRL, REGISTER
+  mov LADDRH, REGISTER
+  and LADDRL, #$FF
+  shr LADDRH, #8
+
+' Set the data pins
+  mov datapin, #dpins
+
+' Setup the byte ingest counter
+  mov i,#0
+  add i,BLEN
+  add i,RB
+
+' Enable Chip Select on the W6100
+  DRVL  ##CSn
+
+' Load high byte
+  DRVL  ##A0 'ADDR bit 0
+  DRVL  ##A1 'ADDR bit 1
+
+'  DIRNOT #DATA
+  DRVL #DATA
+
+  altsb datapin, #outa
+  setbyte LADDRH
+
+  DRVL  ##WRn
+  waitx #50
+  DRVH  ##WRn
+
+'load low byte
+
+  DRVH  ##A0 'ADDR bit 0
+  DRVL  ##A1 'ADDR bit 1
+
+  altsb datapin, #outa
+  setbyte LADDRL
+
+  DRVL  ##WRn
+  waitx #50
+  DRVH  ##WRn
+
+'Set BS
+  DRVl  ##A0 'ADDR bit 0
+  DRVh  ##A1 'ADDR bit 1
+
+  altsb datapin, #outa
+  setbyte BS
+
+  DRVL  ##WRn
+  waitx #50
+  DRVH  ##WRn
+
+  DRVh  ##A0 'ADDR bit 0
+  DRVh  ##A1 'ADDR bit 1
+  FLTL #DATA
+
+' Read i number of bytes.
+
+rxloop DRVL ##RDn ' Enable Chip Read
+      waitx #50 ' Wait cuz this is slow
+      altgb datapin,#ina ' Where you gonna get that data?
+      getbyte tmpdata ' Get that data and put it in tmpdata
+'      WRBYTE tmpdata, RB ' Write that data to the read buffer in HUBRAM.
+      WFBYTE tmpdata
+      add RB, #1 ' Increment the read buffer by 1 byte
+      DRVH ##RDn ' Disable Chip read
+      waitx #50  ' Wait cuz this is slow
+
+      add r,tmpdata  ' Populate return value
+      shl r,#8
+
+' R U Dun? (Compare i, which is where we stop where it is equal to the current read buffer value)
+      CMP i,RB wz
+if_nz jmp #rxloop
+      shr r,#8
+' Disable Chip Select
+      DRVH  ##CSn
+      ret
+
+ ' Parse register address
+tx  RDFAST #0,RB
+
+' Clear the return value
+  mov r,#0
+
+' Parse register address
+  mov LADDRL, REGISTER
+  mov LADDRH, REGISTER
+  and LADDRL, #$FF
+  shr LADDRH, #8
+
+' Set the data pins
+  mov datapin, #dpins
+
+' Setup the byte ingest counter
+  mov i,#0
+  add i,BLEN
+  add i,RB
+
+' Enable Chip Select on the W6100
+  DRVL  ##CSn
+
+' Load high byte
+  DRVL  ##A0 'ADDR bit 0
+  DRVL  ##A1 'ADDR bit 1
+
+'  DIRNOT #DATA
+  DRVL #DATA
+
+  altsb datapin, #outa
+  setbyte LADDRH
+
+  DRVL  ##WRn
+  waitx #50
+  DRVH  ##WRn
+
+'load low byte
+
+  DRVH  ##A0 'ADDR bit 0
+  DRVL  ##A1 'ADDR bit 1
+
+  altsb datapin, #outa
+  setbyte LADDRL
+
+  DRVL  ##WRn
+  waitx #50
+  DRVH  ##WRn
+
+'Set BS
+  DRVl  ##A0 'ADDR bit 0
+  DRVh  ##A1 'ADDR bit 1
+
+  altsb datapin, #outa
+  setbyte BS
+
+  DRVL  ##WRn
+  waitx #50
+  DRVH  ##WRn
+
+  DRVh  ##A0 'ADDR bit 0
+  DRVh  ##A1 'ADDR bit 1
+'  FLTL #DATA
+'end
+
+' Read i number of bytes.
+
+ 'RDBYTE tmpdata, RB
+txloop RFBYTE tmpdata
+       waitx #50
+       altsb datapin,#outa ' Where you gonna send that data?
+       setbyte tmpdata ' Set that data from tmpdata
+'      WRBYTE tmpdata, RB ' Write that data to the read buffer in HUBRAM.
+       DRVL ##WRn ' Disable Chip read
+       waitx #50  ' Wait cuz this is slow
+       DRVH ##WRn ' Enable Chip Write
+       add RB, #1 ' Increment the read buffer by 1 byte
+'      add r,tmpdata  ' Populate return value
+'      shl r,#8
+
+' R U Dun? (Compare i, which is where we stop where it is equal to the current read buffer value)
+       CMP i,RB wz
+if_nz  jmp #txloop
+'      shr r,#8
+' Disable Chip Select
+       DRVH  ##CSn
+       ret
+exit  nop
+end
 
 pub ReceiveProcess(socket,rxptr) : rtv
 

@@ -36,6 +36,7 @@ VAR
   long E131cog
   byte PACKETBUFFER[2048]
   byte UNIVERSEone[512]
+  long TXBUFFER[8]
   word psize
 OBJ
         W6100: "W6100drv"
@@ -58,18 +59,29 @@ pub mymain(port,protocol,socket,sendptr)
 
     W6100.Open(port,protocol,socket)
     send := sendptr
-    WS2811.start_2811(@UNIVERSEone, 50, 1, 10)
+    WS2811.start_2812b(@PACKETBUFFER+134, 50, 1, 10)
     send("Listening for E1.31 packets on port 5568")
-    receive(@PACKETBUFFER,socket)
+'    receive(@PACKETBUFFER,socket)
 
-PUB receive(bufferptr,socket) | i , lpsize , o
+    W6100.FastReceiveProcess(socket,@PACKETBUFFER, @TXBUFFER )
+    send("TXBUFFER: ")
+    hex(TXBUFFER.BYTE[0],2)
+    hex(TXBUFFER.BYTE[1],2)
+    hex(TXBUFFER.BYTE[2],2)
+    hex(TXBUFFER.BYTE[3],2)
+    send( $0D, $0A)
+
+    repeat
+      waitms(100)
+
+{PUB receive(bufferptr,socket) | i , lpsize , o
 repeat
 '    Send("Socket: ")
 '    hex(socket,2)
 '    send( $0D, $0A)
 '   repeat until W6100.ReceiveData(socket,1) == 0
-    W6100.FastReceiveData(socket,1)
-    W6100.FastReceiveProcess(socket,bufferptr)
+    'W6100.FastReceiveData(socket,1)
+    W6100.FastReceiveProcess(socket,bufferptr,@REGBUFFER)
 '    hex(PACKETBUFFER[132],2)
     { i := 12
      repeat until i > 12+12 || PACKETBUFFER[i] == 0
@@ -103,7 +115,7 @@ repeat
 '    send( $0D, $0A,"-----end-----", $0D, $0A)
     'send("Received E1.31 packet")
 
-        }
+        }     }
 PUB hex(value, digits)
 ' Print a hexadecimal number
   value <<= (8 - digits) << 2
