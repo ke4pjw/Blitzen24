@@ -144,14 +144,17 @@ PUB helloworld() | i, j
   W6100.writereg(W6100.REG_NETLCKR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
   send( $0D, $0A)
 
-  Send("Configuring 8 sockets with 2K TX buffer.")
+  Send("Configuring 8 sockets with 4K TX buffer.")
   i := W6100.IDM_BSR_Socket0_Register
   WRITEBUFFER[0] := 2
-  repeat 8
+  repeat 4
     W6100.writereg(W6100.REG_Sn_TX_BSR,i,1,@WRITEBUFFER)
     Send(".")
     i := i + %001_00_000
   send( $0D, $0A)
+
+
+
 
   Send("Validate TX buffer: ")
   i := W6100.IDM_BSR_Socket0_Register
@@ -161,14 +164,15 @@ PUB helloworld() | i, j
     i := i + %001_00_000
   send( $0D, $0A)
 
-  Send("Configuring 8 sockets with 2K RX buffer.")
+  Send("Configuring 8 sockets with 4K RX buffer.")
   i := W6100.IDM_BSR_Socket0_Register
   WRITEBUFFER[0] := 2
-  repeat 8
+  repeat 4
     W6100.writereg(W6100.REG_Sn_RX_BSR,i,1,@WRITEBUFFER)
     Send(".")
     i := i + %001_00_000
   send( $0D, $0A)
+
 
   Send("Validate RX buffer: ")
   i := W6100.IDM_BSR_Socket0_Register
@@ -176,6 +180,12 @@ PUB helloworld() | i, j
     W6100.readreg(W6100.REG_Sn_RX_BSR,i,1,@READBUFFER)
     vid.hex(READBUFFER[0],2)
     i := i + %001_00_000
+  send( $0D, $0A)
+
+
+Send("Configure Interrupt for Socket 3")
+  WRITEBUFFER[0] := %0000_1000
+  W6100.writereg(W6100.REG_SIMR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
   send( $0D, $0A)
 
   send("Configuring Protocol Mode UDP on Socket 0")

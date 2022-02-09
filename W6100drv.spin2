@@ -116,6 +116,7 @@ CON
   REG_Sn_RX_RSR = $0224
   REG_Sn_RX_RD  = $0228
   REG_Sn_IMR    = $0024
+  REG_SIMR      = $2114
 
 ' Protocol Mode
   PM_SOCKET_Closed   = %0000
@@ -557,6 +558,13 @@ org
       mov socket_rd, socket 'Setup the socket rd register
       add socket_rd, #$10   ' It is the value of the socket register + $10
 '      mov REGBUFFERTMP, #0
+'      SETINT1 #start
+
+
+
+
+
+
 ' Find if there are any bytes in the rx buffer (RX_RSR)
 start mov REGISTER, ##REG_Sn_RX_RSR
 
@@ -567,6 +575,16 @@ start mov REGISTER, ##REG_Sn_RX_RSR
 if_z  jmp #start ' If r is empty, go fish.
       mov l_RX_RSR, r
 
+' Check it again to be sure
+      mov REGISTER, ##REG_Sn_RX_RSR
+      mov BLEN, #2 ' get two bytes
+      mov RB, REGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      call #rx
+      cmp r, l_RX_RSR wz  ' r is what is returned from rx. rx returns the last two bytes as a word.
+if_nz  jmp #start ' If r is not the same as l_RX_RSR, go fish.
+
+
+
 
 ' Find the rx buffer address to start reading bytes (RX_RD)
       mov REGISTER, ##REG_Sn_RX_RD
@@ -574,12 +592,12 @@ if_z  jmp #start ' If r is empty, go fish.
       mov RB, REGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
       call #rx
       mov l_RX_RD, r ' r is what is returned from rx. rx returns the last two bytes as a word.
-
-' Not 638 bytes + 8 bytes header? skip it
+{
+' Not 638 bytes
       CMP l_RX_RSR, ##$0286 wz
       if_nz WRWORD l_RX_RSR,REGBUFFERTMP
       if_nz jmp #skipit
-
+}
 ' Read the buffer into hub ram
       mov REGISTER, l_RX_RD
       mov BS, socket_rd
@@ -614,6 +632,11 @@ if_z  jmp #start ' If r is empty, go fish.
       mov RB, REGBUFFERTMP
       call #tx
 
+      WRBYTE $FF, REGBUFFERTMP
+      mov REGISTER, ##REG_Sn_IRCLR
+      mov BLEN, #1
+      mov RB, REGBUFFERTMP
+      call #tx
 
 
 
