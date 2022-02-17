@@ -59,7 +59,7 @@ pub mymain(port,protocol,socket,sendptr)
 
     W6100.Open(port,protocol,socket)
     send := sendptr
-    WS2811.start_2812b(@PACKETBUFFER+134, 50, 1, 10)
+    WS2811.start_2812b(@PACKETBUFFER+134, 51, 1, 10)
     send("Listening for E1.31 packets on port 5568")
 '    receive(@PACKETBUFFER,socket)
 
