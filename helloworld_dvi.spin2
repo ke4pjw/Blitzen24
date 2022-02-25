@@ -33,6 +33,9 @@ con { terminal }
 
 
 VAR
+        long TXBUFFER[8]
+        byte PACKETBUFFER[2048]
+        byte BADBUFFER[2048]
         byte version
         byte regi[2]
         byte MACADDRESS[6]  ' Must be unique per layer 2 network
@@ -60,8 +63,8 @@ OBJ
         vid: "p2textdrv"
         W6100: "W6100drv"
         prng: "jm_prng"
-        E131: "E1.31drv"
-
+'        E131: "E1.31drv"
+        WS2811: "jm_rgbx_pixel"
 
 PUB helloworld() | i, j
 ' initialize the display to desired resolution (eg, VGA, WVGA etc)
@@ -610,13 +613,13 @@ Send("Configure Interrupt for Socket 3")
   vid.hex(W6100.readreg(W6100.REG_SYSR,W6100.IDM_BSR_Common_Register,1,@READBUFFER),2)
   send( $0D, $0A)
 
-{    socket := W6100.IDM_BSR_Socket3_Register
-    protocol := W6100.PM_UDP4
-    port := 5568}
-'  E131.start(@vid.tx)
-  E131.mymain(5568,W6100.PM_UDP4,W6100.IDM_BSR_Socket3_Register,@vid.tx)
+  WS2811.start_2812b(@PACKETBUFFER+134, 51, 1, 10)
+  W6100.Open(5568,W6100.PM_UDP4,W6100.IDM_BSR_Socket3_Register)
+  PINFLOAT(W6100.DATA)
+  W6100.startfastrx(W6100.IDM_BSR_Socket3_Register,@PACKETBUFFER,@TXBUFFER)
+
   repeat
-     W6100.Timeout()
+
 
   send("Starting web server")
   send( $0D, $0A)

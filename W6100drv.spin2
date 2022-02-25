@@ -27,6 +27,10 @@ THE SOFTWARE.
 }
 
 CON
+
+  DOWNLOAD_BAUD = 2_000_000
+  DEBUG_BAUD = DOWNLOAD_BAUD
+
   MOD   = 16
   ADDR  = 18 ADDPINS 1
   RSET  = 23
@@ -39,6 +43,9 @@ CON
   DPINS = 24 / 8
   A0    = 18
   A1    = 19
+
+  LED1  = 56
+  LED2  = 57
 
 ' Parallel Bus Symbols
   IDM_ARH = %00
@@ -178,12 +185,19 @@ CON
    SYSR_NETU    = $3A ' Lock Net
    SYSR_PHYL    = $53 ' Unlock PHY Lock Register
 VAR
+  long E131Socket
+  long E131PACKETBUFFER
+  long E131TXBUFFER
   long  ADDRH
   long  ADDRL
   byte  REGBUFFER[2]
   word  TX_WR
   word  RX_RD
   word  RX_RSR
+
+
+
+
 OBJ
        vid: "p2textdrv"
 
@@ -567,10 +581,15 @@ org
 
 ' Find if there are any bytes in the rx buffer (RX_RSR)
 start mov REGISTER, ##REG_Sn_RX_RSR
-
+      debug(uhex(REGISTER))
       mov BLEN, #2 ' get two bytes
+      debug(uhex(BLEN))
       mov RB, REGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      debug(uhex(RB))
       call #rx
+      debug(uhex(r))
+hstop jmp #hstop
+
       cmp r, #0 wz  ' r is what is returned from rx. rx returns the last two bytes as a word.
 if_z  jmp #start ' If r is empty, go fish.
       mov l_RX_RSR, r
@@ -677,6 +696,7 @@ rx WRFAST #0,RB
 
   altsb datapin, #outa
   setbyte LADDRH
+  debug(uhex(LADDRH))
 
   DRVL  ##WRn
   waitx #50
@@ -689,6 +709,7 @@ rx WRFAST #0,RB
 
   altsb datapin, #outa
   setbyte LADDRL
+  debug(uhex(LADDRL))
 
   DRVL  ##WRn
   waitx #50
@@ -700,6 +721,7 @@ rx WRFAST #0,RB
 
   altsb datapin, #outa
   setbyte BS
+  debug(uhex(BS))
 
   DRVL  ##WRn
   waitx #50
@@ -708,14 +730,16 @@ rx WRFAST #0,RB
   DRVh  ##A0 'ADDR bit 0
   DRVh  ##A1 'ADDR bit 1
   FLTL #DATA
-
+  debug(uhex(#DATA))
 ' Read i number of bytes.
 
 rxloop DRVL ##RDn ' Enable Chip Read
+      debug(uhex(DIRA))
       waitx #50 ' Wait cuz this is slow
       altgb datapin,#ina ' Where you gonna get that data?
       getbyte tmpdata ' Get that data and put it in tmpdata
 '      WRBYTE tmpdata, RB ' Write that data to the read buffer in HUBRAM.
+      debug(uhex(tmpdata))
       WFBYTE tmpdata
       add RB, #1 ' Increment the read buffer by 1 byte
       DRVH ##RDn ' Disable Chip read
@@ -931,3 +955,336 @@ PUB hex(value, digits)
     send(lookupz(value & $F : "0".."9", "A".."F"))
 PUB nl()
  send( $0D, $0A)
+PUB startfastrx(skt,pbf,txb) : e131cog
+    longmove(@E131Socket, @skt, 3)
+'    hex(E131PACKETBUFFER,8)
+org
+debug(uhex(DIRA))
+FLTL ##CSn
+FLTL ##A0
+FLTL ##A1
+FLTL ##WRn
+FLTL ##RDn
+debug(uhex(DIRA))
+
+end
+    e131cog := coginit(COGEXEC_NEW, @cogx, @E131Socket)  + 1
+
+    return
+
+DAT
+        org   0
+
+cogx
+      DRVH ##WRn
+      DRVH ##RDn
+      DRVH ##CSn
+      DRVL ##CLK
+      DRVH ##RSET
+      DRVH ##MOD
+      setq      #3-1
+      rdlong    lsocket, ptra
+
+
+
+
+'      mov l_BS, l_socket
+'      mov l_socket_rd, l_socket 'Setup the l_socket rd register
+'      add l_socket_rd, #$10   ' It is the value of the l_socket register + $10
+'pub FastReceiveProcess(socket,lrxptr,lREGBUFFERTMP) |  i , lLADDRL, lLADDRH, ltmpdata, lRB, ldatapin, lREGISTER, lBLEN, lBS, socket_rd, ll_RX_RSR, ll_RX_RD, lr
+
+
+      mov lBS, lsocket
+      mov lsocket_rd, lsocket 'Setup the lsocket rd register
+      add lsocket_rd, #$10   ' It is the value of the lsocket register + $10
+'      mov lREGBUFFERTMP, #0
+'      SETINT1 #lstart
+
+
+
+
+
+
+' Find if there are any bytes in the rx buffer (RX_RSR)
+lstart mov lREGISTER, ##REG_Sn_RX_RSR
+
+      mov lBLEN, #2 ' get two bytes
+      mov lRB, lREGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      debug(uhex(lREGISTER))
+      debug(uhex(lBLEN))
+      debug(uhex(lRB))
+      call #lrx
+      debug(uhex(lr))
+'stop  nop
+'      jmp #stop
+      cmp lr, #0 wz  ' lr is what is returned from rx. rx returns the last two bytes as a word.
+if_z  jmp #lstart ' If r is empty, go fish.
+      mov ll_RX_RSR, lr
+
+' Check it again to be sure
+      mov lREGISTER, ##REG_Sn_RX_RSR
+      mov lBLEN, #2 ' get two bytes
+      mov lRB, lREGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      call #lrx
+      cmp lr, ll_RX_RSR wz  ' lr is what is returned from rx. rx returns the last two bytes as a word.
+if_nz  jmp #lstart ' If lr is not the same as ll_RX_RSR, go fish.
+
+
+
+
+' Find the rx buffer address to start reading bytes (RX_RD)
+      mov lREGISTER, ##REG_Sn_RX_RD
+      mov lBLEN, #2 ' get two bytes
+      mov lRB, lREGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      call #lrx
+      mov ll_RX_RD, lr ' lr is what is returned from rx. rx returns the last two bytes as a word.
+{
+' Not 638 bytes
+      CMP ll_RX_RSR, ##$0286 wz
+      if_nz WRWORD ll_RX_RSR,lREGBUFFERTMP
+      if_nz jmp #skipit
+}
+' Read the buffer into hub ram
+      mov lREGISTER, ll_RX_RD
+      mov lBS, lsocket_rd
+      mov lBLEN, ll_RX_RSR
+      mov lRB, lrxptr ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      call #lrx
+
+
+' Write the new RX address
+ '     and ll_RX_RSR, ##$FFFF
+ lskipit
+
+      mov lBS, lsocket
+      add ll_RX_RSR,ll_RX_RD 'Determine new RX address
+
+      movbyts   ll_RX_RSR, #%%2301
+      WRWORD ll_RX_RSR,lREGBUFFERTMP
+'      add lREGBUFFERTMP, #1
+'      movbyts   ll_RX_RSR, #%%3210
+'      WRBYTE ll_RX_RSR, lREGBUFFERTMP
+      mov lREGISTER, ##REG_Sn_RX_RD
+      mov lBLEN, #2 ' get two bytes
+'      sub lREGBUFFERTMP, #1
+      mov lRB, lREGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      call #ltx
+
+
+
+      WRBYTE ##CR_RECV, lREGBUFFERTMP
+      mov lREGISTER, ##REG_Sn_CR
+      mov lBLEN, #1
+      mov lRB, lREGBUFFERTMP
+      call #ltx
+
+      WRBYTE $FF, lREGBUFFERTMP
+      mov lREGISTER, ##REG_Sn_IRCLR
+      mov lBLEN, #1
+      mov lRB, lREGBUFFERTMP
+      call #ltx
+
+
+
+
+      jmp #lstart
+
+
+' readreg(lREGISTER,lBS,lBLEN,lRB) : lr | i , lLADDRL, lLADDRH, ltmpdata, tmpptr, ldatapin,
+
+lrx   WRFAST #0,lRB
+
+' Clear the return value
+      mov lr,#0
+
+' Parse register address
+      mov lLADDRL, lREGISTER
+      mov lLADDRH, lREGISTER
+      and lLADDRL, #$FF
+      shr lLADDRH, #8
+
+' Set the data pins
+      mov ldatapin, #dpins
+
+' Setup the byte ingest counter
+      mov li,#0
+      add li,lBLEN
+      add li,lRB
+
+' Enable Chip Select on the W6100
+      DRVL  ##CSn
+
+' Load high byte
+      DRVL  ##A0 'ADDR bit 0
+      DRVL  ##A1 'ADDR bit 1
+
+'  DIRNOT #DATA
+      DRVL #DATA
+      altsb ldatapin, #outa
+      setbyte lLADDRH
+      debug(uhex(lLADDRH))
+
+      DRVL  ##WRn
+      waitx #50
+      DRVH  ##WRn
+
+'load low byte
+
+      DRVH  ##A0 'ADDR bit 0
+      DRVL  ##A1 'ADDR bit 1
+
+      altsb ldatapin, #outa
+      setbyte lLADDRL
+      debug(uhex(lLADDRL))
+      DRVL  ##WRn
+      waitx #50
+      DRVH  ##WRn
+
+'Set lBS
+      DRVL  ##A0 'ADDR bit 0
+      DRVH  ##A1 'ADDR bit 1
+
+      altsb ldatapin, #outa
+      setbyte lBS
+      debug(uhex(lBS))
+
+      DRVL  ##WRn
+      waitx #50
+      DRVH  ##WRn
+
+      DRVh  ##A0 'ADDR bit 0
+      DRVh  ##A1 'ADDR bit 1
+      FLTL  #DATA
+      debug(uhex(#DATA ))
+' Read i number of bytes.
+      waitx #50
+lrxloop DRVL ##RDn ' Enable Chip Read
+      debug(uhex(DIRA))
+      waitx #50 ' Wait cuz this is slow
+      debug(uhex(ldatapin))
+      altgb ldatapin, #ina ' Where you gonna get that data?
+      getbyte ltmpdata ' Get that data and put it in ltmpdata
+      debug(uhex(ltmpdata))
+'      WRBYTE ltmpdata, RB ' Write that data to the read buffer in HUBRAM.
+      WFBYTE ltmpdata
+      add lRB, #1 ' Increment the read buffer by 1 byte
+      DRVH ##RDn ' Disable Chip read
+      waitx #50  ' Wait cuz this is slow
+
+      add lr,ltmpdata  ' Populate return value
+      shl lr,#8
+
+' R U Dun? (Compare i, which is where we stop where it is equal to the current read buffer value)
+      CMP li,lRB wz
+if_nz jmp #lrxloop
+      shr lr,#8
+' Disable Chip Select
+      DRVH  ##CSn
+      ret
+
+ ' Parse register address
+ltx  RDFAST #0,lRB
+
+' Clear the return value
+      mov lr,#0
+
+' Parse register address
+      mov lLADDRL, lREGISTER
+      mov lLADDRH, lREGISTER
+      and lLADDRL, #$FF
+      shr lLADDRH, #8
+
+' Set the data pins
+      mov ldatapin, #dpins
+
+' Setup the byte ingest counter
+      mov li,#0
+      add li,lBLEN
+      add li,lRB
+
+' Enable Chip Select on the W6100
+      DRVL  ##CSn
+
+' Load high byte
+      DRVL  ##A0 'ADDR bit 0
+      DRVL  ##A1 'ADDR bit 1
+
+'  DIRNOT #DATA
+      DRVL #DATA
+
+      altsb ldatapin, #outa
+      setbyte lLADDRH
+
+      DRVL  ##WRn
+      waitx #50
+      DRVH  ##WRn
+
+'load low byte
+
+      DRVH  ##A0 'ADDR bit 0
+      DRVL  ##A1 'ADDR bit 1
+
+      altsb ldatapin, #outa
+      setbyte lLADDRL
+
+      DRVL  ##WRn
+      waitx #50
+      DRVH  ##WRn
+
+'Set lBS
+      DRVl  ##A0 'ADDR bit 0
+      DRVh  ##A1 'ADDR bit 1
+
+      altsb ldatapin, #outa
+      setbyte lBS
+
+      DRVL  ##WRn
+      waitx #50
+      DRVH  ##WRn
+
+      DRVh  ##A0 'ADDR bit 0
+      DRVh  ##A1 'ADDR bit 1
+'  FLTL #DATA
+'end
+
+' Read i number of bytes.
+
+ 'RDBYTE ltmpdata, lRB
+ltxloop RFBYTE ltmpdata
+       waitx #50
+       altsb ldatapin,#outa ' Where you gonna send that data?
+       setbyte ltmpdata ' Set that data from ltmpdata
+'      WRBYTE ltmpdata, lRB ' Write that data to the read buffer in HUBRAM.
+       DRVL ##WRn ' Disable Chip read
+       waitx #50  ' Wait cuz this is slow
+       DRVH ##WRn ' Enable Chip Write
+       add lRB, #1 ' Increment the read buffer by 1 byte
+'      add lr,ltmpdata  ' Populate return value
+'      shl lr,#8
+
+' R U Dun? (Compare i, which is where we stop where it is equal to the current read buffer value)
+       CMP li,lRB wz
+if_nz  jmp #ltxloop
+'      shr lr,#8
+' Disable Chip Select
+       DRVH  ##CSn
+       ret
+
+lsocket             RES  1
+lrxptr              RES  1
+lREGBUFFERTMP       RES  1
+li                  RES  1
+lLADDRL             RES  1
+lLADDRH             RES  1
+ltmpdata            RES  1
+lRB                 RES  1
+ldatapin            RES  1
+lREGISTER           RES  1
+lBLEN               RES  1
+lBS                 RES  1
+lsocket_rd          RES  1
+ll_RX_RSR           RES  1
+ll_RX_RD            RES  1
+lr                  RES  1
+
+con { license }

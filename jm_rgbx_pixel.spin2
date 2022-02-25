@@ -206,8 +206,6 @@ pub startx(p_buf, count, pin, holdoff, rgswap, bits, ns0h, ns1h) : result | usti
 
   cog := coginit(COGEXEC_NEW, @pix_driver, @newconnection) + 1  ' start the cog
 
-  if (cog)                                                      ' if it started
-    repeat until (newconnection == 0)                           '  wait until ready
 
   return cog
 
