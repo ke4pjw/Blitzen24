@@ -14,9 +14,11 @@ CON
   PGM_TX   = 62  { O }
 
 VAR
-
+        long PIXELCONFIG[90]
+        long E131CONFIG[432]
         long TXBUFFER[8]
         byte PACKETBUFFER[2048]
+        byte PIXELBUFFER[73768]
         byte BADBUFFER[2048]
         byte version
         byte regi[2]
@@ -125,10 +127,10 @@ PUB main() | i, j
   W6100.writereg(W6100.REG_NETLCKR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
   send( $0D, $0A)
 
-  Send("Configuring 8 sockets with 4K TX buffer.")
+  Send("Configuring 8 sockets with 2K TX buffer.")
   i := W6100.IDM_BSR_Socket0_Register
   WRITEBUFFER[0] := 2
-  repeat 4
+  repeat 8
     W6100.writereg(W6100.REG_Sn_TX_BSR,i,1,@WRITEBUFFER)
     Send(".")
     i := i + %001_00_000
@@ -145,10 +147,10 @@ PUB main() | i, j
     i := i + %001_00_000
   send( $0D, $0A)
 
-  Send("Configuring 8 sockets with 4K RX buffer.")
+  Send("Configuring 8 sockets with 2K RX buffer.")
   i := W6100.IDM_BSR_Socket0_Register
   WRITEBUFFER[0] := 2
-  repeat 4
+  repeat 8
     W6100.writereg(W6100.REG_Sn_RX_BSR,i,1,@WRITEBUFFER)
     Send(".")
     i := i + %001_00_000
@@ -169,6 +171,7 @@ PUB main() | i, j
   W6100.writereg(W6100.REG_SIMR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
   send( $0D, $0A)
 
+{
   send("Configuring Protocol Mode UDP on Socket 0")
   W6100.Open(68,W6100.PM_UDP4,W6100.IDM_BSR_Socket0_Register)
 
@@ -530,6 +533,21 @@ PUB main() | i, j
   if DHCPMESSAGETYPE <> 5
     send("DHCP Failure")
     return
+}
+  GATEWAY[0] :=  192
+  GATEWAY[1] :=  168
+  GATEWAY[2] :=  137
+  GATEWAY[3] :=  1
+
+  SUBNETMASK[0] := 255
+  SUBNETMASK[1] := 255
+  SUBNETMASK[2] := 255
+  SUBNETMASK[3] := 0
+
+  IPADDRESS[0] := 192
+  IPADDRESS[1] := 168
+  IPADDRESS[2] := 137
+  IPADDRESS[3] := 2
 
   send("Network Configuration Unlocked.")
   WRITEBUFFER[0] := $3A
@@ -591,13 +609,57 @@ PUB main() | i, j
   vid.hex(W6100.readreg(W6100.REG_SYSR,W6100.IDM_BSR_Common_Register,1,@READBUFFER),2)
   send( $0D, $0A)
 
-  WS2811.start_2812b(@PACKETBUFFER+134, 51, 1, 10)
+  send("Configuring pixel config.")
+  longfill(@PIXELCONFIG,0,90)
+  longfill(@E131CONFIG,0,432)
+
+  PIXELCONFIG[0] := 1 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[1] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[2] := 800 'Pixel holdoff time
+  PIXELCONFIG[3] := @pixelbuffer
+  PIXELCONFIG[4] := 0 ' Pixelcount in this pin
+
+
+  E131CONFIG[0] := 1 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[1] := 2 ' E1.31 Universe
+  E131CONFIG[2] := 25 ' Pixels in this universe
+  E131CONFIG[3] := 0
+
+  E131CONFIG[4] := 1 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[5] := 3 ' E1.31 Universe
+  E131CONFIG[6] := 25 ' Pixels in this universe
+  E131CONFIG[7] := 0
+
+  ConfigPixels()
+
+  WS2811.start_2812b(PIXELCONFIG[3], PIXELCONFIG[4],PIXELCONFIG[0], PIXELCONFIG[2])
   W6100.Open(5568,W6100.PM_UDP4,W6100.IDM_BSR_Socket3_Register)
   PINFLOAT(W6100.DATA)
-  W6100.startfastrx(W6100.IDM_BSR_Socket3_Register,@PACKETBUFFER,@TXBUFFER)
+  W6100.startfastrx(W6100.IDM_BSR_Socket3_Register,@pixelbuffer,@TXBUFFER)
 '  W6100.FastReceiveProcess(W6100.IDM_BSR_Socket3_Register,@PACKETBUFFER,@TXBUFFER)
   repeat
       waitms(3000)
+
+
+pub ConfigPixels() |  pixelcount, pixeloffset, i, ei
+
+
+  pixeloffset := 0
+  i := 0
+  ei := 0
+  repeat until PIXELCONFIG[i] == 0
+    pixelcount :=  0
+    PIXELCONFIG[i+3] := pixeloffset + @pixelbuffer
+       repeat until E131CONFIG[ei] == 0
+          if E131CONFIG[ei] == PIXELCONFIG[i]
+
+               E131CONFIG[ei+3] := pixeloffset + @pixelbuffer
+               pixeloffset := pixeloffset + 1 + (E131CONFIG[ei+2] * 3)
+               pixelcount := pixelcount + E131CONFIG[ei+2]
+          ei := ei + 4
+    PIXELCONFIG[i + 4] := pixelcount
+    i := i + 5
+
 {  repeat 5
     send( $0D, $0A)
     vid.hex(packetbuffer[137],2)

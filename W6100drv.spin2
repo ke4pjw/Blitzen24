@@ -1010,11 +1010,11 @@ lstart mov lREGISTER, ##REG_Sn_RX_RSR
 
       mov lBLEN, #2 ' get two bytes
       mov lRB, lREGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
-      debug(uhex(lREGISTER))
-      debug(uhex(lBLEN))
-      debug(uhex(lRB))
+'      debug(uhex(lREGISTER))
+'      debug(uhex(lBLEN))
+'      debug(uhex(lRB))
       call #lrx
-      debug(uhex(lr))
+'      debug(uhex(lr))
 'stop  nop
 '      jmp #stop
       cmp lr, #0 wz  ' lr is what is returned from rx. rx returns the last two bytes as a word.
@@ -1038,16 +1038,28 @@ if_nz  jmp #lstart ' If lr is not the same as ll_RX_RSR, go fish.
       mov lRB, lREGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
       call #lrx
       mov ll_RX_RD, lr ' lr is what is returned from rx. rx returns the last two bytes as a word.
-{
-' Not 638 bytes
-      CMP ll_RX_RSR, ##$0286 wz
-      if_nz WRWORD ll_RX_RSR,lREGBUFFERTMP
-      if_nz jmp #skipit
-}
-' Read the buffer into hub ram
-      mov lREGISTER, ll_RX_RD
+
+' Get the E1.31 Universe from the packet
+      mov E131ADDR, #121 ' Univrse is patcket is two bytes at addr 121
+      add E131ADDR, ll_RX_RD
+      mov lREGISTER, E131ADDR
       mov lBS, lsocket_rd
-      mov lBLEN, ll_RX_RSR
+      mov lBLEN, #2 ' get two bytes
+      mov lRB, lREGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      call #lrx
+'      debug(uhex(E131ADDR))
+      debug(uhex(lr))
+      mov tE131ADDR, lr '
+
+'      CMP tE131ADDR, #6 wz
+'if_nz jmp #lskipit
+
+' Read the buffer buffer into hub ram
+      mov lREGISTER, ll_RX_RD
+      add lREGISTER, #134
+      mov lBS, lsocket_rd
+'      mov lBLEN, ll_RX_RSR
+      mov lBLEN, #150
       mov lRB, lrxptr ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
       call #lrx
 
@@ -1122,7 +1134,7 @@ lrx   WRFAST #0,lRB
       DRVL #DATA
       altsb ldatapin, #outa
       setbyte lLADDRH
-      debug(uhex(lLADDRH))
+'      debug(uhex(lLADDRH))
 
       DRVL  ##WRn
       waitx #50
@@ -1135,7 +1147,7 @@ lrx   WRFAST #0,lRB
 
       altsb ldatapin, #outa
       setbyte lLADDRL
-      debug(uhex(lLADDRL))
+'      debug(uhex(lLADDRL))
       DRVL  ##WRn
       waitx #50
       DRVH  ##WRn
@@ -1146,7 +1158,7 @@ lrx   WRFAST #0,lRB
 
       altsb ldatapin, #outa
       setbyte lBS
-      debug(uhex(lBS))
+'      debug(uhex(lBS))
 
       DRVL  ##WRn
       waitx #50
@@ -1155,16 +1167,16 @@ lrx   WRFAST #0,lRB
       DRVh  ##A0 'ADDR bit 0
       DRVh  ##A1 'ADDR bit 1
       FLTL  #DATA
-      debug(uhex(#DATA ))
+'      debug(uhex(#DATA ))
 ' Read i number of bytes.
       waitx #50
 lrxloop DRVL ##RDn ' Enable Chip Read
-      debug(uhex(DIRA))
+'      debug(uhex(DIRA))
       waitx #50 ' Wait cuz this is slow
-      debug(uhex(ldatapin))
+'      debug(uhex(ldatapin))
       altgb ldatapin, #ina ' Where you gonna get that data?
       getbyte ltmpdata ' Get that data and put it in ltmpdata
-      debug(uhex(ltmpdata))
+'      debug(uhex(ltmpdata))
 '      WRBYTE ltmpdata, RB ' Write that data to the read buffer in HUBRAM.
       WFBYTE ltmpdata
       add lRB, #1 ' Increment the read buffer by 1 byte
@@ -1286,5 +1298,7 @@ lsocket_rd          RES  1
 ll_RX_RSR           RES  1
 ll_RX_RD            RES  1
 lr                  RES  1
+E131ADDR            RES  1
+tE131ADDR           RES  1
 
 con { license }
