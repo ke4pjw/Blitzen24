@@ -955,8 +955,8 @@ PUB hex(value, digits)
     send(lookupz(value & $F : "0".."9", "A".."F"))
 PUB nl()
  send( $0D, $0A)
-PUB startfastrx(skt,pbf,txb) : e131cog
-    longmove(@E131Socket, @skt, 3)
+PUB startfastrx(skt,pbf,txb,e131ptr) : e131cog
+    longmove(@E131Socket, @skt, 4)
 '    hex(E131PACKETBUFFER,8)
 org
 debug(uhex(DIRA))
@@ -982,10 +982,12 @@ cogx
       DRVL ##CLK
       DRVH ##RSET
       DRVH ##MOD
-      setq      #3-1
+' Populate config
+      setq      #4-1
       rdlong    lsocket, ptra
-
-
+' Populate E131 config in LUT
+      setq2     #432-1
+      rdlong   ($200-$200), E131CONFIGPTR
 
 
 '      mov l_BS, l_socket
@@ -1048,18 +1050,38 @@ if_nz  jmp #lstart ' If lr is not the same as ll_RX_RSR, go fish.
       mov lRB, lREGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
       call #lrx
 '      debug(uhex(E131ADDR))
-      debug(uhex(lr))
+'      debug(uhex(lr))
       mov tE131ADDR, lr '
+
+' Enumerate the lookup table for this universe, if not found, skip pulling this data and clear the W6100 buffer.
+      mov   E131ENUM, #1
+      mov   pixlen, #0
+e131lutenum
+      RDLUT tE131ENUM, E131ENUM  wz
+if_z  jmp #lskipit
+      CMP tE131ENUM, tE131ADDR wz
+if_nz ADD E131ENUM, #4
+if_nz jmp #e131lutenum
+      ADD E131ENUM, #1
+      RDLUT tpixlen,E131ENUM
+      ADD E131ENUM, #1
+      RDLUT lrxptr, E131ENUM
+'      REP     1, 3
+      ADD  pixlen, tpixlen
+      ADD  pixlen, tpixlen
+      ADD  pixlen, tpixlen
+'      debug(uhex(tE131ENUM))
+'      debug(uhex(pixlen))
 
 '      CMP tE131ADDR, #6 wz
 'if_nz jmp #lskipit
 
 ' Read the buffer buffer into hub ram
       mov lREGISTER, ll_RX_RD
-      add lREGISTER, #134
+      add lREGISTER, #134 'Constant where E131 data starts + RX_RD value
       mov lBS, lsocket_rd
 '      mov lBLEN, ll_RX_RSR
-      mov lBLEN, #150
+      mov lBLEN, pixlen  ' Number of bytes
       mov lRB, lrxptr ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
       call #lrx
 
@@ -1083,6 +1105,7 @@ if_nz  jmp #lstart ' If lr is not the same as ll_RX_RSR, go fish.
       call #ltx
 
 
+' Clear RX status and Interrupt
 
       WRBYTE ##CR_RECV, lREGBUFFERTMP
       mov lREGISTER, ##REG_Sn_CR
@@ -1285,6 +1308,7 @@ if_nz  jmp #ltxloop
 lsocket             RES  1
 lrxptr              RES  1
 lREGBUFFERTMP       RES  1
+E131CONFIGPTR       RES  1
 li                  RES  1
 lLADDRL             RES  1
 lLADDRH             RES  1
@@ -1300,5 +1324,8 @@ ll_RX_RD            RES  1
 lr                  RES  1
 E131ADDR            RES  1
 tE131ADDR           RES  1
-
+E131ENUM            RES  1
+tE131ENUM           RES  1
+tpixlen             RES  1
+pixlen              RES  1
 con { license }

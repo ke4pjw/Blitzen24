@@ -166,10 +166,6 @@ PUB main() | i, j
   send( $0D, $0A)
 
 
-  Send("Configure Interrupt for Socket 3")
-  WRITEBUFFER[0] := %0000_1000
-  W6100.writereg(W6100.REG_SIMR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
-  send( $0D, $0A)
 
 {
   send("Configuring Protocol Mode UDP on Socket 0")
@@ -635,7 +631,7 @@ PUB main() | i, j
   WS2811.start_2812b(PIXELCONFIG[3], PIXELCONFIG[4],PIXELCONFIG[0], PIXELCONFIG[2])
   W6100.Open(5568,W6100.PM_UDP4,W6100.IDM_BSR_Socket3_Register)
   PINFLOAT(W6100.DATA)
-  W6100.startfastrx(W6100.IDM_BSR_Socket3_Register,@pixelbuffer,@TXBUFFER)
+  W6100.startfastrx(W6100.IDM_BSR_Socket3_Register,@pixelbuffer,@TXBUFFER,@E131CONFIG)
 '  W6100.FastReceiveProcess(W6100.IDM_BSR_Socket3_Register,@PACKETBUFFER,@TXBUFFER)
   repeat
       waitms(3000)
@@ -654,7 +650,7 @@ pub ConfigPixels() |  pixelcount, pixeloffset, i, ei
           if E131CONFIG[ei] == PIXELCONFIG[i]
 
                E131CONFIG[ei+3] := pixeloffset + @pixelbuffer
-               pixeloffset := pixeloffset + 1 + (E131CONFIG[ei+2] * 3)
+               pixeloffset := pixeloffset + (E131CONFIG[ei+2] * 3)
                pixelcount := pixelcount + E131CONFIG[ei+2]
           ei := ei + 4
     PIXELCONFIG[i + 4] := pixelcount
