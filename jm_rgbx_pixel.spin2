@@ -512,12 +512,17 @@ pix_driver      setq      #10-1                                 ' get 10 longs f
 
                 mov       t1, #0
                 wrlong    t1, ptra                              ' tell hub we're connected
-
+               debug(uhex(bit0hi))
+               debug(uhex(bit1hi))
 rgbx_main       rdlong    newcon, ptra                  wz      ' check for new connection
     if_nz       jmp       #pix_driver
-
+                mov       tx2, tx
+                add       tx2, #1
                 mov       addr, p_hub                           ' point to rgbbuf[0]
                 mov       npix, pixcount                        ' set # active pixels
+
+'                mov       bit0hi, #49
+'                mov       bit1hi, #103
 
 frame_loop      rdlong    colorbits, addr                       ' read a channel
                 add       addr, #3                              ' TT changed this from 4 to 3- point to next
@@ -528,12 +533,28 @@ frame_loop      rdlong    colorbits, addr                       ' read a channel
 
 shift_out       getct     bittimer                              ' start timing frame
 
-                rep       #7, pixelbits                         ' loop through all bits
+                 rep      #21, pixelbits                         ' loop through all bits
                  shl      colorbits, #1                 wc      ' get MSB
-                 drvh     tx                                    ' pin on
+                 drvh     tx2                                    ' pin on
+                 drvh     tx
+                 drvh     #0
+                 drvh     #3
+                 drvh     #4
+                 drvh     #5
+                 drvh     #6
+                 drvh     #7
+'                 nop
     if_nc        waitx    bit0hi                                ' hold for bit timing
     if_c         waitx    bit1hi
                  drvl     tx                                    ' pin off
+'                 nop
+                 drvl     tx2
+                 drvl     #0
+                 drvl     #3
+                 drvl     #4
+                 drvl     #5
+                 drvl     #6
+                 drvl     #7
                  addct1   bittimer, cycletix                    ' update cycle timer
                  waitct1                                        ' let cycle finish
 
@@ -567,7 +588,13 @@ bittimer        res       1                                     ' timer for rese
 t1              res       1                                     ' work vars
 t2              res       1
 t3              res       1
-
+tx2             res       1
+tx3             res       1
+tx4             res       1
+tx5             res       1
+tx6             res       1
+tx7             res       1
+tx0             res       1
                 fit       496
 
 
