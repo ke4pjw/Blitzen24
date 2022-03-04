@@ -1,20 +1,27 @@
 # Introduction 
-TODO: Give a short introduction of your project. Let this section explain the objectives or the motivation behind this project. 
+The Blitzen 24 is an attempt to create a 24 port E1.31 pixel controller using the Parallax Propeller 2 (P2)
 
-# Getting Started
-TODO: Guide users through getting your code up and running on their own system. In this section you can talk about:
-1.	Installation process
-2.	Software dependencies
-3.	Latest releases
-4.	API references
+# Current State
+Currently all code is in the development stage. It utilizes several very nice objects from Jon McPhalen, that have been completely hacked up by me :)
+This project is dependant on the Wiznet W6100 ethernet controller. You will need the evaluation board until a custom board for the Blitzen is created.
 
-# Build and Test
-TODO: Describe and show how to build your code and run the tests. 
+https://eshop.wiznet.io/shop/module/network-module/wiz610mj/
+
+This evaluation board has the parallel interface available. No other eval board does.
+
+As of this writing, multiple universes can be mapped into pixel buffers on the same pixel output.
+
+#To Do 
+* Multiple pixel outputs per cog.
+* Cleanup pixel buffer so that it will accomodate RGBW pixels. (Convert to a single lon on input.)
+* Create a facility so that multiple cogs can access the W6100, with priority to the E1.31 cog.
+* Create feature so that the configuration can be managed by a web browser and saved to SD card.
+
+# Known Bugs
+* Color tearing is occouring on pixels that have very breif display times. I suspect this is related to the input from E1.31 being written to the buffer as bytes instead of longs. 
+
+# Build 
+This software has only been tested using the Propeller Tool.
 
 # Contribute
-TODO: Explain how other users and developers can contribute to make your code better. 
-
-If you want to learn more about creating good readme files then refer the following [guidelines](https://docs.microsoft.com/en-us/azure/devops/repos/git/create-a-readme?view=azure-devops). You can also seek inspiration from the below readme files:
-- [ASP.NET Core](https://github.com/aspnet/Home)
-- [Visual Studio Code](https://github.com/Microsoft/vscode)
-- [Chakra Core](https://github.com/Microsoft/ChakraCore)
+If you wish to contribute, please email me. ttrapp at ieee dot org
