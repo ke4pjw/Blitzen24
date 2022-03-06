@@ -93,6 +93,14 @@ var
   '
   long  newconnection                                           ' new conection when != 0
   long  p_pixels                                                ' pointer to active pixel buffer
+  long  p_pixels2                                                ' pointer to active pixel buffer
+  long  p_pixels3                                                ' pointer to active pixel buffer
+  long  p_pixels4                                                ' pointer to active pixel buffer
+  long  p_pixels5                                                ' pointer to active pixel buffer
+  long  p_pixels6                                                ' pointer to active pixel buffer
+  long  p_pixels7                                               ' pointer to active pixel buffer
+  long  p_pixels8                                                ' pointer to active pixel buffer
+
   long  npixels                                                 ' number of pixels in buffer
   long  txpin                                                   ' active transmit pin
   long  pixbits                                                 ' bits/pixel (24 or 32)
@@ -108,7 +116,7 @@ pub null()
 '' This is not a top-level object
 
 
-pub start_2811(p_buf, count, pin, holdoff) : result
+{pub start_2811(p_buf, count, pin, holdoff) : result
 
 '' Start pixel driver for WS2811 ICs
 '' -- p_buf is pointer to [long] array holding pixel data
@@ -130,9 +138,9 @@ pub start_2812(p_buf, count, pin, holdoff) : result
 ''    * units are 100us (0.1ms) 10 units = 1ms
 
   return startx(p_buf, count, pin, holdoff, true, 24, 350, 700)
+}
 
-
-pub start_2812b(p_buf, count, pin, holdoff) : result
+pub start_2812b(p_buf, p_buf2,  p_buf3, p_buf4, p_buf5, p_buf6, p_buf7, p_buf8, count, pin, holdoff) : result
 
 '' Start pixel driver for WS2812b LEDs
 '' -- p_buf is pointer to [long] array holding pixel data
@@ -141,9 +149,9 @@ pub start_2812b(p_buf, count, pin, holdoff) : result
 '' -- holdoff is the delay between data bursts
 ''    * units are 100us (0.1ms) 10 units = 1ms
 
-  return startx(p_buf, count, pin, holdoff, true, 24, 400, 800)
+  return startx(p_buf, p_buf2,  p_buf3, p_buf4, p_buf5, p_buf6, p_buf7, p_buf8, count, pin, holdoff, true, 24, 400, 800)
 
-
+{
 pub start_2813(p_buf, count, pin, holdoff) : result
 
 '' Start pixel driver for WS2813 LEDs
@@ -168,9 +176,9 @@ pub start_6812x(p_buf, count, pin, holdoff, bits) : result
 '' -- bits is 24 for SK6812, or 32 for SK6812RGBW
 
   return startx(p_buf, count, pin, holdoff, true, bits, 300, 600)
+}
 
-
-pub startx(p_buf, count, pin, holdoff, rgswap, bits, ns0h, ns1h) : result | ustix
+pub startx(p_buf, p_buf2,  p_buf3, p_buf4, p_buf5, p_buf6, p_buf7, p_buf8, count, pin, holdoff, rgswap, bits, ns0h, ns1h) : result | ustix
 
 '' Start smart pixel driver driver
 '' -- p_buf is pointer to [long] array holding pixel data
@@ -191,7 +199,7 @@ pub startx(p_buf, count, pin, holdoff, rgswap, bits, ns0h, ns1h) : result | usti
 
   ' set cog parameters
 
-  use(p_buf, count, pin, bits)                                  ' set connection details
+  use(p_buf, p_buf2,  p_buf3, p_buf4, p_buf5, p_buf6, p_buf7, p_buf8, count, pin, bits)                                  ' set connection details
 
   newconnection := true
 
@@ -219,7 +227,7 @@ pub stop()
     cog := 0
 
 
-pub use(p_buf, count, pin, bits) : c
+pub use(p_buf, p_buf2,  p_buf3, p_buf4, p_buf5, p_buf6, p_buf7, p_buf8, count, pin, bits) : c
 
 '' Assigns buffer at p_buf to pixel driver
 '' -- p_buf is pointer to long array
@@ -227,7 +235,7 @@ pub use(p_buf, count, pin, bits) : c
 '' -- pin is serial output to pixels
 '' -- bits is bit count for pixel type (24 or 32)
 
-  longmove(@p_pixels, @p_buf, 4)                                ' copy parameters
+  longmove(@p_pixels, @p_buf, 11)                                ' copy parameters
 
   if ((pixbits <> 24) && (pixbits <> 32))                       ' fix bits/pixel if broken
     pixbits := 24
@@ -507,54 +515,85 @@ dat { auto-run driver }
 
                 org       0
 
-pix_driver      setq      #10-1                                 ' get 10 longs from hub
+pix_driver      setq      #17-1                                 ' get 17 longs from hub
                 rdlong    newcon, ptra
 
                 mov       t1, #0
                 wrlong    t1, ptra                              ' tell hub we're connected
+
                debug(uhex(bit0hi))
                debug(uhex(bit1hi))
+                mov       tx2, tx
+                drvl      tx2
+                rep       #2, #7
+                add       tx2, #1
+                drvl      tx2
+
 rgbx_main       rdlong    newcon, ptra                  wz      ' check for new connection
     if_nz       jmp       #pix_driver
-                mov       tx2, tx
-                add       tx2, #1
-                mov       addr, p_hub                           ' point to rgbbuf[0]
-                mov       npix, pixcount                        ' set # active pixels
 
-'                mov       bit0hi, #49
-'                mov       bit1hi, #103
+
+
+                mov       addr, p_hub                           ' point to rgbbuf[0]
+                mov       addr2, p_hub2                           ' point to rgbbuf[0]
+                mov       addr3, p_hub3                           ' point to rgbbuf[0]
+                mov       addr4, p_hub4                           ' point to rgbbuf[0]
+                mov       addr5, p_hub5                           ' point to rgbbuf[0]
+                mov       addr6, p_hub6                           ' point to rgbbuf[0]
+                mov       addr7, p_hub7                           ' point to rgbbuf[0]
+                mov       addr8, p_hub8                           ' point to rgbbuf[0]
+
+               mov       npix, pixcount                        ' set # active pixels
 
 frame_loop      rdlong    colorbits, addr                       ' read a channel
                 add       addr, #3                              ' TT changed this from 4 to 3- point to next
+                rdlong    colorbits2, addr2                       ' read a channel
+                add       addr2, #3                              ' TT changed this from 4 to 3- point to next
+                rdlong    colorbits3, addr3                       ' read a channel
+                add       addr3, #3                              ' TT changed this from 4 to 3- point to next
+                rdlong    colorbits4, addr4                       ' read a channel
+                add       addr4, #3                              ' TT changed this from 4 to 3- point to next
+                rdlong    colorbits5, addr5                       ' read a channel
+                add       addr5, #3                              ' TT changed this from 4 to 3- point to next
+                rdlong    colorbits6, addr6                       ' read a channel
+                add       addr6, #3                              ' TT changed this from 4 to 3- point to next
+                rdlong    colorbits7, addr7                       ' read a channel
+                add       addr7, #3                              ' TT changed this from 4 to 3- point to next
+                rdlong    colorbits8, addr8                       ' read a channel
+                add       addr8, #3                              ' TT changed this from 4 to 3- point to next
+
 '                tjz       swapflag, #shift_out                  ' skip fix if swap = 0
 
 '                movbyts   colorbits, #%%2310                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 movbyts   colorbits, #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
 
 shift_out       getct     bittimer                              ' start timing frame
-
-                 rep      #21, pixelbits                         ' loop through all bits
-                 shl      colorbits, #1                 wc      ' get MSB
-                 drvh     tx2                                    ' pin on
-                 drvh     tx
-                 drvh     #0
-                 drvh     #3
-                 drvh     #4
-                 drvh     #5
-                 drvh     #6
-                 drvh     #7
-'                 nop
-    if_nc        waitx    bit0hi                                ' hold for bit timing
-    if_c         waitx    bit1hi
-                 drvl     tx                                    ' pin off
-'                 nop
-                 drvl     tx2
-                 drvl     #0
-                 drvl     #3
-                 drvl     #4
-                 drvl     #5
-                 drvl     #6
-                 drvl     #7
+                 rep      #27, pixelbits                         ' loop through all bits
+                 mov      pinbyte, #$00                         ' Clear pinbyte
+                 shl      colorbits8, #1                 wc      ' get MSB
+                 rcl      pinbyte, #1                           ' Populate pin 7
+                 shl      colorbits7, #1                 wc      ' get MSB
+                 rcl      pinbyte, #1                           ' Populate pin 6
+                 shl      colorbits6, #1                 wc      ' get MSB
+                 rcl      pinbyte, #1                           ' Populate pin 5
+                 shl      colorbits5, #1                 wc      ' get MSB
+                 rcl      pinbyte, #1                           ' Populate pin 4
+                 shl      colorbits4, #1                 wc      ' get MSB
+                 rcl      pinbyte, #1                           ' Populate pin 3
+                 shl      colorbits3, #1                 wc      ' get MSB
+                 rcl      pinbyte, #1                           ' Populate pin 2
+                 shl      colorbits2, #1                 wc      ' get MSB
+                 rcl      pinbyte, #1                           ' Populate pin 1
+                 shl      colorbits, #1                  wc      ' get MSB
+                 rcl      pinbyte, #1                           ' Populate pin 0
+                 altsb     tx, #outa                            ' What is the base PIN?
+                 setbyte   #$FF                                 ' Turn them all on, because pixeldata always starts with a 1
+                 waitx    bit0hi                                ' Wait for .4us
+                 altsb     tx,#outa                             ' What is the base PIN?
+                 setbyte pinbyte                                ' Turn off the pins with 0 code
+                 waitx    bit0hi                                ' Wait for .4us, therefore 0 code only on for .4us and 1 code on for .8us
+                 altsb     tx, #outa                            ' What is the base PIN?
+                 setbyte   #$00                                   ' Turn them all off, because pixeldata always end with a 0
                  addct1   bittimer, cycletix                    ' update cycle timer
                  waitct1                                        ' let cycle finish
 
@@ -570,6 +609,13 @@ reset_delay     getct     bittimer                              ' reset delay
 
 newcon          res       1                                     ' new connection flag
 p_hub           res       1                                     ' pointer to pixel buffer in use
+p_hub2          res       1                                     ' pointer to pixel buffer in use
+p_hub3          res       1                                     ' pointer to pixel buffer in use
+p_hub4          res       1                                     ' pointer to pixel buffer in use
+p_hub5          res       1                                     ' pointer to pixel buffer in use
+p_hub6          res       1                                     ' pointer to pixel buffer in use
+p_hub7          res       1                                     ' pointer to pixel buffer in use
+p_hub8          res       1                                     ' pointer to pixel buffer in use
 pixcount        res       1                                     ' # pixels in buffer
 tx              res       1                                     ' output pin
 pixelbits       res       1                                     ' bits per pixel
@@ -595,6 +641,21 @@ tx5             res       1
 tx6             res       1
 tx7             res       1
 tx0             res       1
+pinbyte         res       1
+addr2           res       1                                     ' address of current rgbw pixel
+addr3           res       1                                     ' address of current rgbw pixel
+addr4           res       1                                     ' address of current rgbw pixel
+addr5           res       1                                     ' address of current rgbw pixel
+addr6           res       1                                     ' address of current rgbw pixel
+addr7           res       1                                     ' address of current rgbw pixel
+addr8           res       1                                     ' address of current rgbw pixel
+colorbits2      res       1                                     ' rgbw for current pixel
+colorbits3      res       1                                     ' rgbw for current pixel
+colorbits4      res       1                                     ' rgbw for current pixel
+colorbits5      res       1                                     ' rgbw for current pixel
+colorbits6      res       1                                     ' rgbw for current pixel
+colorbits7      res       1                                     ' rgbw for current pixel
+colorbits8      res       1                                     ' rgbw for current pixel
                 fit       496
 
 

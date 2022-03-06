@@ -1066,10 +1066,10 @@ if_nz jmp #e131lutenum
       RDLUT tpixlen,E131ENUM
       ADD E131ENUM, #1
       RDLUT lrxptr, E131ENUM
-'      REP     1, 3
+      REP     #1, #3
       ADD  pixlen, tpixlen
-      ADD  pixlen, tpixlen
-      ADD  pixlen, tpixlen
+'      ADD  pixlen, tpixlen
+'      ADD  pixlen, tpixlen
 '      debug(uhex(tE131ENUM))
 '      debug(uhex(pixlen))
 

@@ -17,7 +17,7 @@ VAR
         long PIXELCONFIG[90]
         long E131CONFIG[432]
         long TXBUFFER[8]
-        byte PACKETBUFFER[2048]
+        byte PACKETBUFFER[4098]
         byte PIXELBUFFER[73768]
         byte BADBUFFER[2048]
         byte version
@@ -615,20 +615,93 @@ PUB main() | i, j
   PIXELCONFIG[3] := @pixelbuffer
   PIXELCONFIG[4] := 0 ' Pixelcount in this pin
 
+  PIXELCONFIG[5] := 2 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[6] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[7] := 800 'Pixel holdoff time
+  PIXELCONFIG[8] := @pixelbuffer
+  PIXELCONFIG[9] := 0 ' Pixelcount in this pin
+
+  PIXELCONFIG[10] := 3 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[11] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[12] := 800 'Pixel holdoff time
+  PIXELCONFIG[13] := @pixelbuffer
+  PIXELCONFIG[14] := 0 ' Pixelcount in this pin
+
+  PIXELCONFIG[15] := 4 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[16] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[17] := 800 'Pixel holdoff time
+  PIXELCONFIG[18] := @pixelbuffer
+  PIXELCONFIG[19] := 0 ' Pixelcount in this pin
+
+  PIXELCONFIG[20] := 5 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[21] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[22] := 800 'Pixel holdoff time
+  PIXELCONFIG[23] := @pixelbuffer
+  PIXELCONFIG[24] := 0 ' Pixelcount in this pin
+
+  PIXELCONFIG[25] := 6 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[26] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[27] := 800 'Pixel holdoff time
+  PIXELCONFIG[28] := @pixelbuffer
+  PIXELCONFIG[29] := 0 ' Pixelcount in this pin
+
+  PIXELCONFIG[30] := 7 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[31] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[32] := 800 'Pixel holdoff time
+  PIXELCONFIG[33] := @pixelbuffer
+  PIXELCONFIG[34] := 0 ' Pixelcount in this pin
+
+  PIXELCONFIG[35] := 8 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[36] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[37] := 800 'Pixel holdoff time
+  PIXELCONFIG[38] := @pixelbuffer
+  PIXELCONFIG[39] := 0 ' Pixelcount in this pin
+
 
   E131CONFIG[0] := 1 ' Pin + 1, this is the many to one key to the PIXELCONFIG
   E131CONFIG[1] := 2 ' E1.31 Universe
-  E131CONFIG[2] := 25 ' Pixels in this universe
+  E131CONFIG[2] := 100 ' Pixels in this universe
   E131CONFIG[3] := 0
 
-  E131CONFIG[4] := 1 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[4] := 2 ' Pin + 1, this is the many to one key to the PIXELCONFIG
   E131CONFIG[5] := 3 ' E1.31 Universe
-  E131CONFIG[6] := 25 ' Pixels in this universe
+  E131CONFIG[6] := 100 ' Pixels in this universe
   E131CONFIG[7] := 0
+
+  E131CONFIG[8] := 3 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[9] := 4 ' E1.31 Universe
+  E131CONFIG[10] := 100 ' Pixels in this universe
+  E131CONFIG[11] := 0
+
+  E131CONFIG[12] := 4 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[13] := 5 ' E1.31 Universe
+  E131CONFIG[14] := 100 ' Pixels in this universe
+  E131CONFIG[15] := 0
+
+  E131CONFIG[16] := 5 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[17] := 6 ' E1.31 Universe
+  E131CONFIG[18] := 100 ' Pixels in this universe
+  E131CONFIG[19] := 0
+
+  E131CONFIG[20] := 6 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[21] := 7 ' E1.31 Universe
+  E131CONFIG[22] := 100 ' Pixels in this universe
+  E131CONFIG[24] := 0
+
+  E131CONFIG[25] := 7 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[26] := 8 ' E1.31 Universe
+  E131CONFIG[27] := 100 ' Pixels in this universe
+  E131CONFIG[28] := 0
+
+  E131CONFIG[29] := 8 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[30] := 9 ' E1.31 Universe
+  E131CONFIG[31] := 100 ' Pixels in this universe
+  E131CONFIG[32] := 0
+
 
   ConfigPixels()
 
-  WS2811.start_2812b(PIXELCONFIG[3], PIXELCONFIG[4],PIXELCONFIG[0], PIXELCONFIG[2])
+  WS2811.start_2812b(PIXELCONFIG[3], PIXELCONFIG[8],PIXELCONFIG[13],PIXELCONFIG[18],PIXELCONFIG[23],PIXELCONFIG[28],PIXELCONFIG[33],PIXELCONFIG[38], PIXELCONFIG[4],PIXELCONFIG[0] - 1, PIXELCONFIG[2])
   W6100.Open(5568,W6100.PM_UDP4,W6100.IDM_BSR_Socket3_Register)
   PINFLOAT(W6100.DATA)
   W6100.startfastrx(W6100.IDM_BSR_Socket3_Register,@pixelbuffer,@TXBUFFER,@E131CONFIG)
@@ -646,7 +719,7 @@ pub ConfigPixels() |  pixelcount, pixeloffset, i, ei
   repeat until PIXELCONFIG[i] == 0
     pixelcount :=  0
     PIXELCONFIG[i+3] := pixeloffset + @pixelbuffer
-       repeat until E131CONFIG[ei] == 0
+       repeat until E131CONFIG[ei] <> PIXELCONFIG[i]
           if E131CONFIG[ei] == PIXELCONFIG[i]
 
                E131CONFIG[ei+3] := pixeloffset + @pixelbuffer
