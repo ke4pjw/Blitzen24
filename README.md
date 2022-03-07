@@ -18,7 +18,7 @@ As of this writing, multiple universes can be mapped into pixel buffers on the s
 * Create feature so that the configuration can be managed by a web browser and saved to SD card.
 
 # Known Bugs
-* Color tearing is occouring on pixels that have very breif display times. I suspect this is related to the input from E1.31 being written to the buffer as bytes instead of longs. 
+* ~~Color tearing is occouring on pixels that have very breif display times. I suspect this is related to the input from E1.31 being written to the buffer as bytes instead of longs.~~ 
 
 # Build 
 This software has only been tested using the Propeller Tool.
