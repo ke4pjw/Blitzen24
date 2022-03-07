@@ -577,6 +577,7 @@ frame_loop      rdlong    colorbits, addr                       ' read a channel
 '                tjz       swapflag, #shift_out                  ' skip fix if swap = 0
 
 '                movbyts   colorbits, #%%2310                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+'                movbyts   colorbits,  #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 movbyts   colorbits,  #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 movbyts   colorbits2, #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 movbyts   colorbits3, #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
