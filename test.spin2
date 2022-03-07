@@ -165,6 +165,10 @@ PUB main() | i, j
     i := i + %001_00_000
   send( $0D, $0A)
 
+  Send("Configure Interrupt for Socket 3")
+  WRITEBUFFER[0] := %0000_1000
+  W6100.writereg(W6100.REG_SIMR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
+  send( $0D, $0A)
 
 
 {
@@ -686,17 +690,17 @@ PUB main() | i, j
   E131CONFIG[20] := 6 ' Pin + 1, this is the many to one key to the PIXELCONFIG
   E131CONFIG[21] := 7 ' E1.31 Universe
   E131CONFIG[22] := 100 ' Pixels in this universe
-  E131CONFIG[24] := 0
+  E131CONFIG[23] := 0
 
-  E131CONFIG[25] := 7 ' Pin + 1, this is the many to one key to the PIXELCONFIG
-  E131CONFIG[26] := 8 ' E1.31 Universe
-  E131CONFIG[27] := 100 ' Pixels in this universe
-  E131CONFIG[28] := 0
+  E131CONFIG[24] := 7 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[25] := 8 ' E1.31 Universe
+  E131CONFIG[26] := 100 ' Pixels in this universe
+  E131CONFIG[27] := 0
 
-  E131CONFIG[29] := 8 ' Pin + 1, this is the many to one key to the PIXELCONFIG
-  E131CONFIG[30] := 9 ' E1.31 Universe
-  E131CONFIG[31] := 100 ' Pixels in this universe
-  E131CONFIG[32] := 0
+  E131CONFIG[28] := 8 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[29] := 9 ' E1.31 Universe
+  E131CONFIG[30] := 100 ' Pixels in this universe
+  E131CONFIG[31] := 0
 
 
   ConfigPixels()

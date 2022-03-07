@@ -581,13 +581,13 @@ org
 
 ' Find if there are any bytes in the rx buffer (RX_RSR)
 start mov REGISTER, ##REG_Sn_RX_RSR
-      debug(uhex(REGISTER))
+'      debug(uhex(REGISTER))
       mov BLEN, #2 ' get two bytes
-      debug(uhex(BLEN))
+'      debug(uhex(BLEN))
       mov RB, REGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
-      debug(uhex(RB))
+'      debug(uhex(RB))
       call #rx
-      debug(uhex(r))
+'      debug(uhex(r))
 hstop jmp #hstop
 
       cmp r, #0 wz  ' r is what is returned from rx. rx returns the last two bytes as a word.
@@ -696,7 +696,7 @@ rx WRFAST #0,RB
 
   altsb datapin, #outa
   setbyte LADDRH
-  debug(uhex(LADDRH))
+'  debug(uhex(LADDRH))
 
   DRVL  ##WRn
   waitx #50
@@ -709,7 +709,7 @@ rx WRFAST #0,RB
 
   altsb datapin, #outa
   setbyte LADDRL
-  debug(uhex(LADDRL))
+'  debug(uhex(LADDRL))
 
   DRVL  ##WRn
   waitx #50
@@ -721,7 +721,7 @@ rx WRFAST #0,RB
 
   altsb datapin, #outa
   setbyte BS
-  debug(uhex(BS))
+'  debug(uhex(BS))
 
   DRVL  ##WRn
   waitx #50
@@ -730,16 +730,16 @@ rx WRFAST #0,RB
   DRVh  ##A0 'ADDR bit 0
   DRVh  ##A1 'ADDR bit 1
   FLTL #DATA
-  debug(uhex(#DATA))
+'  debug(uhex(#DATA))
 ' Read i number of bytes.
 
 rxloop DRVL ##RDn ' Enable Chip Read
-      debug(uhex(DIRA))
+'      debug(uhex(DIRA))
       waitx #50 ' Wait cuz this is slow
       altgb datapin,#ina ' Where you gonna get that data?
       getbyte tmpdata ' Get that data and put it in tmpdata
 '      WRBYTE tmpdata, RB ' Write that data to the read buffer in HUBRAM.
-      debug(uhex(tmpdata))
+'      debug(uhex(tmpdata))
       WFBYTE tmpdata
       add RB, #1 ' Increment the read buffer by 1 byte
       DRVH ##RDn ' Disable Chip read
@@ -959,13 +959,13 @@ PUB startfastrx(skt,pbf,txb,e131ptr) : e131cog
     longmove(@E131Socket, @skt, 4)
 '    hex(E131PACKETBUFFER,8)
 org
-debug(uhex(DIRA))
+'debug(uhex(DIRA))
 FLTL ##CSn
 FLTL ##A0
 FLTL ##A1
 FLTL ##WRn
 FLTL ##RDn
-debug(uhex(DIRA))
+'debug(uhex(DIRA))
 
 end
     e131cog := coginit(COGEXEC_NEW, @cogx, @E131Socket)  + 1
@@ -1082,6 +1082,7 @@ if_nz jmp #e131lutenum
       mov lBS, lsocket_rd
 '      mov lBLEN, ll_RX_RSR
       mov lBLEN, pixlen  ' Number of bytes
+'      debug(uhex(pixlen))
       mov lRB, lrxptr ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
       call #lrx
 
@@ -1113,14 +1114,11 @@ if_nz jmp #e131lutenum
       mov lRB, lREGBUFFERTMP
       call #ltx
 
-      WRBYTE $FF, lREGBUFFERTMP
+      WRBYTE #$FF, lREGBUFFERTMP
       mov lREGISTER, ##REG_Sn_IRCLR
       mov lBLEN, #1
       mov lRB, lREGBUFFERTMP
       call #ltx
-
-
-
 
       jmp #lstart
 

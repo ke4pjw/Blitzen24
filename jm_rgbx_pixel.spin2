@@ -203,7 +203,7 @@ pub startx(p_buf, p_buf2,  p_buf3, p_buf4, p_buf5, p_buf6, p_buf7, p_buf8, count
 
   newconnection := true
 
-  longmove(@p_pixels, @p_buf, 3)                                ' connection details
+  longmove(@p_pixels, @p_buf, 11)                                ' connection details was 3
 
   pixbits    := bits                                            ' set bit count
   resetticks := ustix * 100 * (1 #> holdoff <# 50)              ' note: 80us min reset timing
@@ -521,13 +521,25 @@ pix_driver      setq      #17-1                                 ' get 17 longs f
                 mov       t1, #0
                 wrlong    t1, ptra                              ' tell hub we're connected
 
-               debug(uhex(bit0hi))
-               debug(uhex(bit1hi))
+'               debug(uhex(bit0hi))
+'               debug(uhex(bit1hi))
                 mov       tx2, tx
                 drvl      tx2
                 rep       #2, #7
                 add       tx2, #1
                 drvl      tx2
+
+               debug(uhex(p_hub))
+               debug(uhex(p_hub2))
+               debug(uhex(p_hub3))
+               debug(uhex(p_hub4))
+               debug(uhex(p_hub5))
+               debug(uhex(p_hub6))
+               debug(uhex(p_hub7))
+               debug(uhex(p_hub8))
+
+
+
 
 rgbx_main       rdlong    newcon, ptra                  wz      ' check for new connection
     if_nz       jmp       #pix_driver
@@ -535,13 +547,13 @@ rgbx_main       rdlong    newcon, ptra                  wz      ' check for new 
 
 
                 mov       addr, p_hub                           ' point to rgbbuf[0]
-                mov       addr2, p_hub2                           ' point to rgbbuf[0]
-                mov       addr3, p_hub3                           ' point to rgbbuf[0]
-                mov       addr4, p_hub4                           ' point to rgbbuf[0]
-                mov       addr5, p_hub5                           ' point to rgbbuf[0]
-                mov       addr6, p_hub6                           ' point to rgbbuf[0]
-                mov       addr7, p_hub7                           ' point to rgbbuf[0]
-                mov       addr8, p_hub8                           ' point to rgbbuf[0]
+                mov       addr2, p_hub2
+                mov       addr3, p_hub3
+                mov       addr4, p_hub4
+                mov       addr5, p_hub5
+                mov       addr6, p_hub6
+                mov       addr7, p_hub7
+                mov       addr8, p_hub8
 
                mov       npix, pixcount                        ' set # active pixels
 
@@ -565,26 +577,33 @@ frame_loop      rdlong    colorbits, addr                       ' read a channel
 '                tjz       swapflag, #shift_out                  ' skip fix if swap = 0
 
 '                movbyts   colorbits, #%%2310                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
-                movbyts   colorbits, #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits,  #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits2, #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits3, #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits4, #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits5, #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits6, #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits7, #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits8, #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
 
 shift_out       getct     bittimer                              ' start timing frame
-                 rep      #27, pixelbits                         ' loop through all bits
+                 rep      #27, pixelbits                        ' loop through all bits
                  mov      pinbyte, #$00                         ' Clear pinbyte
-                 shl      colorbits8, #1                 wc      ' get MSB
+                 shl      colorbits8, #1                 wc     ' get MSB 7
                  rcl      pinbyte, #1                           ' Populate pin 7
-                 shl      colorbits7, #1                 wc      ' get MSB
+                 shl      colorbits7, #1                 wc     ' get MSB 6
                  rcl      pinbyte, #1                           ' Populate pin 6
-                 shl      colorbits6, #1                 wc      ' get MSB
+                 shl      colorbits6, #1                 wc     ' get MSB 5
                  rcl      pinbyte, #1                           ' Populate pin 5
-                 shl      colorbits5, #1                 wc      ' get MSB
+                 shl      colorbits5, #1                 wc     ' get MSB 4
                  rcl      pinbyte, #1                           ' Populate pin 4
-                 shl      colorbits4, #1                 wc      ' get MSB
+                 shl      colorbits4, #1                 wc     ' get MSB 3
                  rcl      pinbyte, #1                           ' Populate pin 3
-                 shl      colorbits3, #1                 wc      ' get MSB
+                 shl      colorbits3, #1                 wc     ' get MSB 2
                  rcl      pinbyte, #1                           ' Populate pin 2
-                 shl      colorbits2, #1                 wc      ' get MSB
+                 shl      colorbits2, #1                 wc     ' get MSB 1
                  rcl      pinbyte, #1                           ' Populate pin 1
-                 shl      colorbits, #1                  wc      ' get MSB
+                 shl      colorbits, #1                  wc     ' get MSB 0
                  rcl      pinbyte, #1                           ' Populate pin 0
                  altsb     tx, #outa                            ' What is the base PIN?
                  setbyte   #$FF                                 ' Turn them all on, because pixeldata always starts with a 1
