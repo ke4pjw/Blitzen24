@@ -563,28 +563,28 @@ frame_loop
 
                 rdlong    colorbits, addr                       ' read a channel
                 add       addr, #3                              ' TT changed this from 4 to 3- point to next
-                movbyts   colorbits,  #%%3210                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits,  #%%0123                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 rdlong    colorbits2, addr2                       ' read a channel
                 add       addr2, #3                              ' TT changed this from 4 to 3- point to next
-                movbyts   colorbits2, #%%3210                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits2, #%%0123                   ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 rdlong    colorbits3, addr3                       ' read a channel
                 add       addr3, #3                              ' TT changed this from 4 to 3- point to next
-                movbyts   colorbits3, #%%3210                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits3, #%%0123                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 rdlong    colorbits4, addr4                       ' read a channel
                 add       addr4, #3                              ' TT changed this from 4 to 3- point to next
-                movbyts   colorbits4, #%%3210                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits4, #%%0123                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 rdlong    colorbits5, addr5                       ' read a channel
                 add       addr5, #3                              ' TT changed this from 4 to 3- point to next
-                movbyts   colorbits5, #%%3210                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits5, #%%0123                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 rdlong    colorbits6, addr6                       ' read a channel
                 add       addr6, #3                              ' TT changed this from 4 to 3- point to next
-                movbyts   colorbits6, #%%3210                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits6, #%%0123                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 rdlong    colorbits7, addr7                       ' read a channel
                 add       addr7, #3                              ' TT changed this from 4 to 3- point to next
-                movbyts   colorbits7, #%%3210                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits7, #%%0123                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 rdlong    colorbits8, addr8                       ' read a channel
                 add       addr8, #3                              ' TT changed this from 4 to 3- point to next
-                movbyts   colorbits8, #%%3210                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits8, #%%0123                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
 '                tjz       swapflag, #shift_out                  ' skip fix if swap = 0
 
 '                movbyts   colorbits, #%%2310                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
