@@ -208,9 +208,10 @@ pub startx(p_buf, p_buf2,  p_buf3, p_buf4, p_buf5, p_buf6, p_buf7, p_buf8, count
   pixbits    := bits                                            ' set bit count
   resetticks := ustix * 100 * (1 #> holdoff <# 50)              ' note: 80us min reset timing
   rgfix      := rgswap <> 0                                     ' promote non-zero to true
-  t0h        := ustix * ns0h / 1000 - 9                         ' pulse widths in ticks (adjusted)
-  t1h        := ustix * ns1h / 1000 - 9
-  cycleticks := ustix * 1_25 / 1_00                             ' ticks in 1.25us (800kHz)
+  t0h        := ustix * 325 / 1000                       ' pulse widths in ticks (adjusted)
+  t1h        := ustix * 400 / 1000
+'  cycleticks := ustix * 1_25 / 1_00                             ' ticks in 1.25us (800kHz)
+  cycleticks := clkfreq / 800_000                            ' ticks in 1.25us (800kHz)
 
   cog := coginit(COGEXEC_NEW, @pix_driver, @newconnection) + 1  ' start the cog
 
@@ -557,38 +558,55 @@ rgbx_main       rdlong    newcon, ptra                  wz      ' check for new 
 
                mov       npix, pixcount                        ' set # active pixels
 
-frame_loop      rdlong    colorbits, addr                       ' read a channel
+frame_loop
+
+
+                rdlong    colorbits, addr                       ' read a channel
                 add       addr, #3                              ' TT changed this from 4 to 3- point to next
+                movbyts   colorbits,  #%%3210                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 rdlong    colorbits2, addr2                       ' read a channel
                 add       addr2, #3                              ' TT changed this from 4 to 3- point to next
+                movbyts   colorbits2, #%%3210                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 rdlong    colorbits3, addr3                       ' read a channel
                 add       addr3, #3                              ' TT changed this from 4 to 3- point to next
+                movbyts   colorbits3, #%%3210                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 rdlong    colorbits4, addr4                       ' read a channel
                 add       addr4, #3                              ' TT changed this from 4 to 3- point to next
+                movbyts   colorbits4, #%%3210                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 rdlong    colorbits5, addr5                       ' read a channel
                 add       addr5, #3                              ' TT changed this from 4 to 3- point to next
+                movbyts   colorbits5, #%%3210                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 rdlong    colorbits6, addr6                       ' read a channel
                 add       addr6, #3                              ' TT changed this from 4 to 3- point to next
+                movbyts   colorbits6, #%%3210                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 rdlong    colorbits7, addr7                       ' read a channel
                 add       addr7, #3                              ' TT changed this from 4 to 3- point to next
+                movbyts   colorbits7, #%%3210                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 rdlong    colorbits8, addr8                       ' read a channel
                 add       addr8, #3                              ' TT changed this from 4 to 3- point to next
-
+                movbyts   colorbits8, #%%3210                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
 '                tjz       swapflag, #shift_out                  ' skip fix if swap = 0
 
 '                movbyts   colorbits, #%%2310                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
 '                movbyts   colorbits,  #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
-                movbyts   colorbits,  #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
-                movbyts   colorbits2, #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
-                movbyts   colorbits3, #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
-                movbyts   colorbits4, #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
-                movbyts   colorbits5, #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
-                movbyts   colorbits6, #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
-                movbyts   colorbits7, #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
-                movbyts   colorbits8, #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
 
-shift_out       getct     bittimer                              ' start timing frame
-                 rep      #27, pixelbits                        ' loop through all bits
+
+
+
+
+
+
+                mov       obits, #24
+
+                getct     bittimer
+
+shift_out                                     ' start timing frame
+                 mov       hittimer, bittimer
+'                 rep      #30, pixelbits                        ' loop through all bits
+                 getct     hittimer
+                 altsb     tx, #outa                            ' What is the base PIN?
+                 setbyte   #$FF                                 ' Turn them all on, because pixeldata always starts with a 1
+
                  mov      pinbyte, #$00                         ' Clear pinbyte
                  shl      colorbits8, #1                 wc     ' get MSB 7
                  rcl      pinbyte, #1                           ' Populate pin 7
@@ -606,16 +624,25 @@ shift_out       getct     bittimer                              ' start timing f
                  rcl      pinbyte, #1                           ' Populate pin 1
                  shl      colorbits, #1                  wc     ' get MSB 0
                  rcl      pinbyte, #1                           ' Populate pin 0
-                 altsb     tx, #outa                            ' What is the base PIN?
-                 setbyte   #$FF                                 ' Turn them all on, because pixeldata always starts with a 1
-                 waitx    bit0hi                                ' Wait for .4us
+'                 waitx    bit0hi                                ' Wait for .4us
+                addct1    hittimer, bit0hi                       ' run 0 bit timing
+                waitct1
+
                  altsb     tx,#outa                             ' What is the base PIN?
                  setbyte pinbyte                                ' Turn off the pins with 0 code
-                 waitx    bit0hi                                ' Wait for .4us, therefore 0 code only on for .4us and 1 code on for .8us
+'                 waitx    bit0hi                                ' Wait for .4us, therefore 0 code only on for .4us and 1 code on for .8us
+ '                  sub    hittimer, bit0hi
+                addct1    hittimer, bit1hi                       ' run 0 bit timing
+                waitct1
+
                  altsb     tx, #outa                            ' What is the base PIN?
                  setbyte   #$00                                   ' Turn them all off, because pixeldata always end with a 0
-                 addct1   bittimer, cycletix                    ' update cycle timer
-                 waitct1                                        ' let cycle finish
+
+                 addct2   bittimer, cycletix                    ' update cycle timer
+                 waitct2                                        ' let cycle finish
+
+                djnz      obits, #shift_out                     ' done with all bits in the color?
+
 
 next_pixel      djnz      npix, #frame_loop                     ' done with all leds?
 
@@ -650,6 +677,7 @@ npix            res       1                                     ' # of pixels to
 colorbits       res       1                                     ' rgbw for current pixel
 
 bittimer        res       1                                     ' timer for reset/bit
+hittimer        res       1
 
 t1              res       1                                     ' work vars
 t2              res       1
@@ -676,6 +704,7 @@ colorbits5      res       1                                     ' rgbw for curre
 colorbits6      res       1                                     ' rgbw for current pixel
 colorbits7      res       1                                     ' rgbw for current pixel
 colorbits8      res       1                                     ' rgbw for current pixel
+obits            res       1
                 fit       496
 
 
