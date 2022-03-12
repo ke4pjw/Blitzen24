@@ -1,6 +1,6 @@
 # Introduction 
 The Blitzen 24 is an attempt to create a 24 port E1.31 pixel controller using the Parallax Propeller 2 (P2)
-
+[![Video Example](https://img.youtube.com/vi/km8EvoIjuHE/0.jpg)](https://www.youtube.com/watch?v=km8EvoIjuHE)
 # Current State
 Currently all code is in the development stage. It utilizes several very nice objects from Jon McPhalen, that have been completely hacked up by me :)
 This project is dependant on the Wiznet W6100 ethernet controller. You will need the evaluation board until a custom board for the Blitzen is created.
