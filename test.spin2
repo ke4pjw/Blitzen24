@@ -47,6 +47,7 @@ OBJ
         vid: "p2textdrv"
         prng: "jm_prng"
         WS2811: "jm_rgbx_pixel"
+        WS28112: "jm_rgbx_pixel"
 PUB main() | i, j
   vid.initDvi(-1, DVI_BASE_PIN, 0, vid.FLASH_TEXT, vid.WVGA)
 
@@ -661,6 +662,30 @@ PUB main() | i, j
   PIXELCONFIG[38] := @pixelbuffer
   PIXELCONFIG[39] := 0 ' Pixelcount in this pin
 
+  PIXELCONFIG[40] := 9 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[41] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[42] := 800 'Pixel holdoff time
+  PIXELCONFIG[43] := @pixelbuffer
+  PIXELCONFIG[44] := 0 ' Pixelcount in this pin
+
+  PIXELCONFIG[45] := 10 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[46] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[47] := 800 'Pixel holdoff time
+  PIXELCONFIG[48] := @pixelbuffer
+  PIXELCONFIG[49] := 0 ' Pixelcount in this pin
+
+  PIXELCONFIG[50] := 11 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[51] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[52] := 800 'Pixel holdoff time
+  PIXELCONFIG[53] := @pixelbuffer
+  PIXELCONFIG[54] := 0 ' Pixelcount in this pin
+
+  PIXELCONFIG[55] := 12 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[56] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[57] := 800 'Pixel holdoff time
+  PIXELCONFIG[58] := @pixelbuffer
+  PIXELCONFIG[59] := 0 ' Pixelcount in this pin
+
 
   E131CONFIG[0] := 1 ' Pin + 1, this is the many to one key to the PIXELCONFIG
   E131CONFIG[1] := 2 ' E1.31 Universe
@@ -702,10 +727,31 @@ PUB main() | i, j
   E131CONFIG[30] := 100 ' Pixels in this universe
   E131CONFIG[31] := 0
 
+  E131CONFIG[32] := 9 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[33] := 10 ' E1.31 Universe
+  E131CONFIG[34] := 100 ' Pixels in this universe
+  E131CONFIG[35] := 0
+
+  E131CONFIG[36] := 10 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[37] := 11 ' E1.31 Universe
+  E131CONFIG[38] := 100 ' Pixels in this universe
+  E131CONFIG[39] := 0
+
+  E131CONFIG[40] := 11 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[41] := 12 ' E1.31 Universe
+  E131CONFIG[42] := 100 ' Pixels in this universe
+  E131CONFIG[43] := 0
+
+  E131CONFIG[44] := 12 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[45] := 13 ' E1.31 Universe
+  E131CONFIG[46] := 100 ' Pixels in this universe
+  E131CONFIG[47] := 0
 
   ConfigPixels()
 
   WS2811.start_2812b(PIXELCONFIG[3], PIXELCONFIG[8],PIXELCONFIG[13],PIXELCONFIG[18],PIXELCONFIG[23],PIXELCONFIG[28],PIXELCONFIG[33],PIXELCONFIG[38], PIXELCONFIG[4],PIXELCONFIG[0] - 1, PIXELCONFIG[2])
+  WS28112.start_2812b(PIXELCONFIG[43], PIXELCONFIG[48],PIXELCONFIG[53],PIXELCONFIG[58],PIXELCONFIG[43],PIXELCONFIG[48],PIXELCONFIG[53],PIXELCONFIG[58], PIXELCONFIG[44],PIXELCONFIG[40] - 1, PIXELCONFIG[42])
+  debug(uhex( PIXELCONFIG[42]))
   W6100.Open(5568,W6100.PM_UDP4,W6100.IDM_BSR_Socket3_Register)
   PINFLOAT(W6100.DATA)
   W6100.startfastrx(W6100.IDM_BSR_Socket3_Register,@pixelbuffer,@TXBUFFER,@E131CONFIG)
@@ -730,7 +776,11 @@ pub ConfigPixels() |  pixelcount, pixeloffset, i, ei
                pixeloffset := pixeloffset + (E131CONFIG[ei+2] * 3)
                pixelcount := pixelcount + E131CONFIG[ei+2]
           ei := ei + 4
+
     PIXELCONFIG[i + 4] := pixelcount
+
+    debug("Pin: ")
+    debug( uhex(PIXELCONFIG[i]))
     i := i + 5
 
 {  repeat 5

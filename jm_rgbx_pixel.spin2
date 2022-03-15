@@ -525,11 +525,13 @@ pix_driver      setq      #17-1                                 ' get 17 longs f
 '               debug(uhex(bit0hi))
 '               debug(uhex(bit1hi))
                 mov       tx2, tx
+                debug(uhex(tx2))
                 drvl      tx2
                 rep       #2, #7
                 add       tx2, #1
                 drvl      tx2
-
+                shr       tx, #3
+               debug(uhex(tx2))
                debug(uhex(p_hub))
                debug(uhex(p_hub2))
                debug(uhex(p_hub3))
@@ -538,7 +540,7 @@ pix_driver      setq      #17-1                                 ' get 17 longs f
                debug(uhex(p_hub6))
                debug(uhex(p_hub7))
                debug(uhex(p_hub8))
-
+               debug(uhex(tx))
 
 
 
