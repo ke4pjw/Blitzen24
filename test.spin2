@@ -46,8 +46,8 @@ OBJ
         W6100: "W6100drv"
         vid: "p2textdrv"
         prng: "jm_prng"
-        WS2811: "jm_rgbx_pixel"
-        WS28112: "jm_rgbx_pixel"
+        WS2811: "tt_rgbx_pixel"
+        WS28112: "tt_rgbx_pixel"
 PUB main() | i, j
   vid.initDvi(-1, DVI_BASE_PIN, 0, vid.FLASH_TEXT, vid.WVGA)
 
