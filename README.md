@@ -14,7 +14,7 @@ As of this writing, multiple universes can be mapped into pixel buffers on the s
 #To Do 
 * ~~Multiple pixel outputs per cog.~~
 * Cleanup pixel buffer so that it will accomodate RGBW pixels. (Convert to a single lon on input.)
-* Create a facility so that multiple cogs can access the W6100, with priority to the E1.31 cog.
+* ~~Create a facility so that multiple cogs can access the W6100, with priority to the E1.31 cog.~~
 * Create feature so that the configuration can be managed by a web browser and saved to SD card.
 
 # Known Bugs
