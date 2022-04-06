@@ -13,6 +13,11 @@ CON
   PGM_RX   = 63  { I }                                          ' programming / debug
   PGM_TX   = 62  { O }
 
+  DOPin = 58
+  CLKPin = 61
+  DIPin = 59
+  CSPin = 60
+
 VAR
         long PIXELCONFIG[90]
         long E131CONFIG[432]
@@ -36,20 +41,35 @@ VAR
         byte READBUFFER[2024]
         byte WRITEBUFFER[2024]
 '        byte REGBUFFER[2]
+        BYTE results[255]
         long resp_ptr
+        long resp_jpg_ptr
+        long resp_ico_ptr
         long resp_404_ptr
         long req_ptr
-        long pageviews
         word psize
+        BYTE FILEPATH[2048]
+        BYTE RDATA[64000]
+        byte webbuff[64000]
+        long rdsize
+        long elock
 
 OBJ
+        FS: "FAT32"
         W6100: "W6100drv"
         vid: "p2textdrv"
         prng: "jm_prng"
         WS2811: "tt_rgbx_pixel"
         WS28112: "tt_rgbx_pixel"
+        str: "jm_strings"
 PUB main() | i, j
   vid.initDvi(-1, DVI_BASE_PIN, 0, vid.FLASH_TEXT, vid.WVGA)
+
+  resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_ico_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: image/x-icon", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_404_ptr := String("HTTP/1.1 404 Not Found", $0D, $0A, "Connection: close", $0D, $0A, "Content-Type: text/html", $0D, $0A, $0D, $0A, "<HTML><BODY><H1>Nope, not here.</H2></BODY></HTML>", $0D, $0A)
+  req_ptr      := String("test.htm")
 
 
 '     vid.tstart(BR_TERM)
@@ -79,6 +99,12 @@ PUB main() | i, j
   vid.dec(clkfreq)
   send( $0D, $0A)
 
+  send("Starting SD driver and mounting filesystem")
+  send( $0D, $0A)
+      FS.FATEngineStart(DOPin, CLKPin, DIPin, CSPin, 0)
+      FS.mountPartition(0)
+
+{
   send("Setting Mode: 010")
   W6100.setmod010()
   send( $0D, $0A)
@@ -93,8 +119,12 @@ PUB main() | i, j
   waitms(3000)
   send("Reset complete")
   send( $0D, $0A)
+ }
 
-
+  send("Initialize Ethernet:")
+  elock := W6100.initparallel()
+  vid.hex(elock.long,4)
+  send( $0D, $0A)
 
   send("Chip Identification: ")
 
@@ -752,13 +782,17 @@ PUB main() | i, j
   WS2811.start_2812b(PIXELCONFIG[3], PIXELCONFIG[8],PIXELCONFIG[13],PIXELCONFIG[18],PIXELCONFIG[23],PIXELCONFIG[28],PIXELCONFIG[33],PIXELCONFIG[38], PIXELCONFIG[4],PIXELCONFIG[0] - 1, PIXELCONFIG[2])
   WS28112.start_2812b(PIXELCONFIG[43], PIXELCONFIG[48],PIXELCONFIG[53],PIXELCONFIG[58],PIXELCONFIG[43],PIXELCONFIG[48],PIXELCONFIG[53],PIXELCONFIG[58], PIXELCONFIG[44],PIXELCONFIG[40] - 1, PIXELCONFIG[42])
   debug(uhex( PIXELCONFIG[42]))
+
+  'Maybe move the listener into the startastrx object
   W6100.Open(5568,W6100.PM_UDP4,W6100.IDM_BSR_Socket3_Register)
   PINFLOAT(W6100.DATA)
   W6100.startfastrx(W6100.IDM_BSR_Socket3_Register,@pixelbuffer,@TXBUFFER,@E131CONFIG)
-'  W6100.FastReceiveProcess(W6100.IDM_BSR_Socket3_Register,@PACKETBUFFER,@TXBUFFER)
-  repeat
-      waitms(3000)
 
+  send("Starting web server")
+  send( $0D, $0A)
+  repeat
+   debug(uhex( PIXELBUFFER[2]))
+     httpd(80,W6100.PM_TCP4,W6100.IDM_BSR_Socket1_Register)
 
 pub ConfigPixels() |  pixelcount, pixeloffset, i, ei
 
@@ -799,3 +833,110 @@ pub ConfigPixels() |  pixelcount, pixeloffset, i, ei
      waitms(3000)
      vid.hex(BADBUFFER[0],2)
      vid.hex(BADBUFFER[1],2)       }
+
+pub httpd(port,PM,socket) : i
+
+
+
+  send("Configuring Protocol Mode TCP on Socket 1")
+  send( $0D, $0A)
+  W6100.Open(port,PM,socket)
+
+  send("Configuring listener on Socket 1")
+  send( $0D, $0A)
+   ' Instantiate Stay Puff listener on opened socket.
+  if W6100.ListenTCP(socket) <> W6100.SOCK_LISTEN
+     Return
+
+  send("Waiting for TCP request on Socket 1 port 80")
+  send( $0D, $0A)
+  if (W6100.EstablishTCP(socket) <> W6100.Sn_IR_TIMEOUT)
+    W6100.readreg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket1_Register,4,@READBUFFER)
+    send("Connection Established from ")
+    vid.dec(READBUFFER[0])
+    Send(".")
+    vid.dec(READBUFFER[1])
+    Send(".")
+    vid.dec(READBUFFER[2])
+    Send(".")
+    vid.dec(READBUFFER[3])
+    send( $0D, $0A)
+
+
+  send("Checking Sn_RX_RSR Socket Status/number of bytes in buffer: ")
+
+    If ( W6100.ReceiveData(socket,50000) <> W6100.Sn_IR_TIMEOUT)
+      psize := W6100.ReceiveProcess(socket,@READBUFFER)
+      send("Received: ")
+      send( $0D, $0A)
+      i:=0
+      repeat until i == psize 'or i > 256
+        if READBUFFER[i] > 31 and READBUFFER[i] < 128
+           send(READBUFFER[i])
+        else
+           send("`")
+        i++
+      send( $0D, $0A)
+
+      send("Packet Length: ")
+
+      send( vid.dec(i), $0D, $0A)
+      send("Start Filename: ")
+      send(vid.dec(str.instr(@READBUFFER,string("GET /"))+5))
+      send( $0D, $0A)
+      send("End Filename: ")
+      send(vid.dec(str.instr(@READBUFFER,string("HTTP/1.1"))-1))
+      send( $0D, $0A)
+      READBUFFER[500] := 0
+      if str.instr(@READBUFFER,string("HTTP/1.1")) <> -1 and str.instr(@READBUFFER,string("HTTP/1.1")) > str.instr(@READBUFFER,string("GET /")) and str.instr(@READBUFFER,string("GET /")) <> -1
+
+        send("Filename: ")
+        str.mid(@filepath, @READBUFFER, str.instr(@READBUFFER,string("GET /"))+5, (str.instr(@READBUFFER,string("HTTP/1.1"))) - (str.instr(@READBUFFER,string("GET /"))) - 6 )
+
+        send( $0D, $0A)
+        str.ucstr(@filepath)
+
+
+
+      'results := FS.openfile(string("test.txt"),string("R"))
+
+'      if str.strncmp(@filepath,str.rtrim(FS.openfile(@filepath,string("R"))),strsize(@filepath)) == 0
+        if not \FS.openfile(@filepath,string("R"))
+           FS.readdata(@RDATA, FS.fileSize())
+ '          vid.printStr(@RDATA)
+            if str.instr(@filepath,string(".JPG")) == (strsize(@filepath) - 4)
+              rdsize :=  strsize(resp_jpg_ptr)
+              bytemove(@webbuff,resp_jpg_ptr,rdsize)
+
+            else
+              if str.instr(@filepath,string(".ICO")) == (strsize(@filepath) - 4)
+                 rdsize :=  strsize(resp_ico_ptr)
+                 bytemove(@webbuff,resp_ico_ptr,rdsize)
+              else
+
+                rdsize :=  strsize(resp_ptr)
+                bytemove(@webbuff,resp_ptr,rdsize)
+
+
+           bytemove((@webbuff + rdsize),@RDATA,FS.fileSize())
+
+           rdsize := rdsize + FS.fileSize()
+'          vid.printStr(@webbuff)
+          FS.closeFile()
+        else
+'
+          bytemove(@webbuff,resp_404_ptr,strsize(resp_404_ptr))
+          rdsize :=  strsize(resp_404_ptr)
+
+        webbuff[rdsize] := 0
+        i := 0
+        repeat until rdsize <= 1000
+          W6100.SendData(socket,@webbuff+i,1000)
+          i := i + 1000
+          rdsize := rdsize - 1000
+        W6100.SendData(socket,@webbuff+i,rdsize)
+'      W6100.SendDataTCP(socket,resp_ptr,strsize(resp_ptr))' Send the page
+'      W6100.SendDataTCP(socket,@RDATA,strsize(RDATA))' Send the page
+'      W6100.EndDataTCP(socket)
+
+  W6100.Disconnect(socket)

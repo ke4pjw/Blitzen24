@@ -185,6 +185,7 @@ CON
    SYSR_NETU    = $3A ' Lock Net
    SYSR_PHYL    = $53 ' Unlock PHY Lock Register
 VAR
+  long EthernetLock
   long E131Socket
   long E131PACKETBUFFER
   long E131TXBUFFER
@@ -201,7 +202,6 @@ VAR
 OBJ
        vid: "p2textdrv"
 
-
 PUB reset()
   PINL (RSET)
   PINH (WRn)
@@ -214,10 +214,19 @@ PUB reset()
 PUB setmod010()
   PINH (MOD)
 
-PUB initparallel()
-  reset()
-  setmod010()
+PUB initparallel() : r
+  EthernetLock := locknew()
+   if EthernetLock >= 0  and  EthernetLock <= 15
+    reset()
+    waitms (3000)
+    waitms (3000)
+    waitms (3000)
+    setmod010()
+  return EthernetLock
+
+
 PUB readreg(REGISTER,BS,BLEN,RB) : r | i , LADDRL, LADDRH, tmpdata, tmpptr, datapin
+repeat until locktry(EthernetLock) < 0
 
 org
 ' Set the HUB FIFO
@@ -307,10 +316,19 @@ if_nz jmp #label
 ' Disable Chip Select
       DRVH  ##CSn
 
+      FLTL ##A0
+      FLTL ##A1
+      FLTL ##WRn
+      FLTL ##RDn
+      FLTL ##CSn
+      FLTL #DATA
 end
-  return r
+
+lockrel(ethernetlock)
+return r
 
 PUB writereg(REGISTER,BS,BLEN,RB) : r | i , LADDRL ,  LADDRH , datapin , tmpdata
+repeat until locktry(EthernetLock) < 0
 
 org
 ' Parse register address
@@ -399,6 +417,12 @@ if_nz jmp #label
 ' Disable Chip Select
       DRVH  ##CSn
 
+      FLTL ##A0
+      FLTL ##A1
+      FLTL ##WRn
+      FLTL ##RDn
+      FLTL ##CSn
+      FLTL #DATA
 end
  {
 
@@ -443,7 +467,8 @@ end
 
   PINH(CSn)
  }
-  return
+lockrel(ethernetlock)
+return
 
 Pub Disconnect(socket)
     'send("Disconnect attempt")
@@ -567,6 +592,7 @@ pub FastReceiveProcess(socket,rxptr,REGBUFFERTMP) |  i , LADDRL, LADDRH, tmpdata
     repeat until readreg(REG_Sn_CR,socket,1,@REGBUFFER) == 0
 
 '    rtv := RX_RSR   }
+repeat until locktry(EthernetLock) < 0
 org
       mov BS, socket
       mov socket_rd, socket 'Setup the socket rd register
@@ -754,6 +780,13 @@ if_nz jmp #rxloop
       shr r,#8
 ' Disable Chip Select
       DRVH  ##CSn
+
+      FLTL ##A0
+      FLTL ##A1
+      FLTL ##WRn
+      FLTL ##RDn
+      FLTL ##CSn
+      FLTL #DATA
       ret
 
  ' Parse register address
@@ -842,9 +875,17 @@ if_nz  jmp #txloop
 '      shr r,#8
 ' Disable Chip Select
        DRVH  ##CSn
-       ret
+
+      FLTL ##A0
+      FLTL ##A1
+      FLTL ##WRn
+      FLTL ##RDn
+      FLTL ##CSn
+      FLTL #DATA
+      ret
 exit  nop
 end
+lockrel(ethernetlock)
 
 pub ReceiveProcess(socket,rxptr) : rtv
 
@@ -943,6 +984,37 @@ pub SendData(socket,sendptr,ptrlen) : rtv | i
     'send("Webpage Sent")
     'vid.nl()
 
+pub SendDataTCP(socket,sendptr,ptrlen) : rtv | i
+    readreg(REG_Sn_TX_WR,socket,2,@REGBUFFER)
+    TX_WR := REGBUFFER[0]
+    TX_WR <<= 8
+    TX_WR := TX_WR + REGBUFFER[1]
+    writereg(TX_WR,socket + $08,ptrlen,sendptr)
+
+    'send("Update TX Buffer Start Address: ")
+
+    TX_WR := TX_WR + ptrlen
+    REGBUFFER[0] := TX_WR.BYTE[1]
+    REGBUFFER[1] := TX_WR.BYTE[0]
+
+    writereg(REG_Sn_TX_WR,socket,2,@REGBUFFER)
+
+pub EndDataTCP(socket) : rtv | i
+    'send("Sending Webpage")
+    'vid.nl()
+    REGBUFFER[0] := CR_SEND
+    writereg(REG_Sn_CR,socket,1,@REGBUFFER)
+    repeat until REGBUFFER[0] == 0
+       readreg(REG_Sn_CR,socket,1,@REGBUFFER)
+    repeat while (REGBUFFER[0] & $18) == $00
+       readreg(REG_Sn_IMR,socket,1,@REGBUFFER)
+
+    if (REGBUFFER[0] & $18) == $10
+         REGBUFFER[0] := $10
+         writereg(REG_Sn_IRCLR,socket,1,@REGBUFFER)
+    'send("Webpage Sent")
+    'vid.nl()
+
 
 
 pub Timeout()
@@ -966,9 +1038,10 @@ FLTL ##A1
 FLTL ##WRn
 FLTL ##RDn
 'debug(uhex(DIRA))
-
 end
-    e131cog := coginit(COGEXEC_NEW, @cogx, @E131Socket)  + 1
+
+debug(uhex(ethernetlock))
+    e131cog := coginit(COGEXEC_NEW, @cogx, @ethernetlock)  + 1
 
     return
 
@@ -976,15 +1049,20 @@ DAT
         org   0
 
 cogx
-      DRVH ##WRn
-      DRVH ##RDn
-      DRVH ##CSn
+
+inlk  LOCKTRY lelock wc
+if_nc  jmp #inlk
+'      DRVH ##WRn
+'      DRVH ##RDn
+'      DRVH ##CSn
       DRVL ##CLK
       DRVH ##RSET
       DRVH ##MOD
+      LOCKREL lelock
+
 ' Populate config
-      setq      #4-1
-      rdlong    lsocket, ptra
+      setq      #5-1
+      rdlong    lelock, ptra
 ' Populate E131 config in LUT
       setq2     #432-1
       rdlong   ($200-$200), E131CONFIGPTR
@@ -1127,6 +1205,13 @@ if_nz jmp #e131lutenum
 
 lrx   WRFAST #0,lRB
 
+rxlk  LOCKTRY lelock wc
+if_nc  jmp #rxlk
+'      debug(uhex(lelock))
+      DRVH ##WRn
+      DRVH ##RDn
+      DRVH ##CSn
+
 ' Clear the return value
       mov lr,#0
 
@@ -1199,6 +1284,7 @@ lrxloop DRVL ##RDn ' Enable Chip Read
       getbyte ltmpdata ' Get that data and put it in ltmpdata
 '      debug(uhex(ltmpdata))
 '      WRBYTE ltmpdata, RB ' Write that data to the read buffer in HUBRAM.
+'      debug(uhex(ltmpdata))
       WFBYTE ltmpdata
       add lRB, #1 ' Increment the read buffer by 1 byte
       DRVH ##RDn ' Disable Chip read
@@ -1213,10 +1299,25 @@ if_nz jmp #lrxloop
       shr lr,#8
 ' Disable Chip Select
       DRVH  ##CSn
+
+      FLTL ##CSn
+      FLTL ##A0
+      FLTL ##A1
+      FLTL ##WRn
+      FLTL ##RDn
+      FLTL #DATA
+
+      lockrel lelock
       ret
 
  ' Parse register address
 ltx  RDFAST #0,lRB
+txlk  LOCKTRY lelock wc
+if_nc  jmp #txlk
+
+      DRVH ##WRn
+      DRVH ##RDn
+      DRVH ##CSn
 
 ' Clear the return value
       mov lr,#0
@@ -1301,8 +1402,19 @@ if_nz  jmp #ltxloop
 '      shr lr,#8
 ' Disable Chip Select
        DRVH  ##CSn
+
+
+      FLTL ##A0
+      FLTL ##A1
+      FLTL ##WRn
+      FLTL ##RDn
+      FLTL ##CSn
+      FLTL #DATA
+
+       lockrel lelock
        ret
 
+lelock              RES  1
 lsocket             RES  1
 lrxptr              RES  1
 lREGBUFFERTMP       RES  1
