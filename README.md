@@ -16,6 +16,7 @@ As of this writing, multiple universes can be mapped into pixel buffers on the s
 * Cleanup pixel buffer so that it will accomodate RGBW pixels. (Convert to a single lon on input.)
 * ~~Create a facility so that multiple cogs can access the W6100, with priority to the E1.31 cog.~~
 * Create feature so that the configuration can be managed by a web browser and saved to SD card.
+* Configure W6100 so that it only negotiates 10Mbps.
 
 # Known Bugs
 * ~~Color tearing is occouring on pixels that have very breif display times. I suspect this is related to the input from E1.31 being written to the buffer as bytes instead of longs.~~ 
