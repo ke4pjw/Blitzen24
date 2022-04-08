@@ -21,6 +21,7 @@ As of this writing, multiple universes can be mapped into pixel buffers on the s
 # Known Bugs
 * ~~Color tearing is occouring on pixels that have very breif display times. I suspect this is related to the input from E1.31 being written to the buffer as bytes instead of longs.~~ 
 * Webserver files over 64K cause the system to crash. This can be resolved by rewriting how the filesystem is accessed.
+* AT 10 Mbps, the web server chokes sending data larger than the buffer. A .75ms delay was added as a workaround.
 
 # Build 
 This software has only been tested using the Propeller Tool.
