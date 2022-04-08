@@ -981,6 +981,8 @@ pub SendData(socket,sendptr,ptrlen) : rtv | i
     if (REGBUFFER[0] & $18) == $10
          REGBUFFER[0] := $10
          writereg(REG_Sn_IRCLR,socket,1,@REGBUFFER)
+
+    waitus(750)
     'send("Webpage Sent")
     'vid.nl()
 
