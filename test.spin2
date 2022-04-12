@@ -44,10 +44,13 @@ VAR
 '        byte REGBUFFER[2]
         BYTE results[255]
         long resp_ptr
+        long resp_css_ptr
         long resp_jpg_ptr
+        long resp_png_ptr
         long resp_ico_ptr
         long resp_404_ptr
         long req_ptr
+        long dhcp_ptr
         word psize
         BYTE FILEPATH[2048]
         BYTE RDATA[64000]
@@ -67,11 +70,13 @@ PUB main() | i, j
   vid.initDvi(-1, DVI_BASE_PIN, 0, vid.FLASH_TEXT, vid.WVGA)
 
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_png_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: image/png", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_ico_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: image/x-icon", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_404_ptr := String("HTTP/1.1 404 Not Found", $0D, $0A, "Connection: close", $0D, $0A, "Content-Type: text/html", $0D, $0A, $0D, $0A, "<HTML><BODY><H1>Nope, not here.</H2></BODY></HTML>", $0D, $0A)
-  req_ptr      := String("test.htm")
-
+'  req_ptr      := String("test.htm")
+      dhcp_ptr := String("document.getElementById('DHCP').checked = true;", $0D, $0A)
 
 '     vid.tstart(BR_TERM)
 
@@ -560,8 +565,19 @@ pub httpd(port,PM,socket) | i
                  bytemove(@webbuff,resp_ico_ptr,rdsize)
               else
 
-                rdsize :=  strsize(resp_ptr)
-                bytemove(@webbuff,resp_ptr,rdsize)
+               if str.instr(@filepath,string(".PNG")) == (strsize(@filepath) - 4)
+                  rdsize :=  strsize(resp_png_ptr)
+                  bytemove(@webbuff,resp_png_ptr,rdsize)
+               else
+
+
+                 if str.instr(@filepath,string(".CSS")) == (strsize(@filepath) - 4)
+                    rdsize :=  strsize(resp_css_ptr)
+                    bytemove(@webbuff,resp_css_ptr,rdsize)
+                 else
+
+                   rdsize :=  strsize(resp_ptr)
+                   bytemove(@webbuff,resp_ptr,rdsize)
 
 
            bytemove((@webbuff + rdsize),@RDATA,FS.fileSize())
@@ -570,9 +586,11 @@ pub httpd(port,PM,socket) | i
 '          vid.printStr(@webbuff)
           FS.closeFile()
         else
-'
-          bytemove(@webbuff,resp_404_ptr,strsize(resp_404_ptr))
-          rdsize :=  strsize(resp_404_ptr)
+          if str.instr(@filepath,string("NET.JS")) <> -1
+            netjs()
+          else
+            bytemove(@webbuff,resp_404_ptr,strsize(resp_404_ptr))
+            rdsize :=  strsize(resp_404_ptr)
 
         webbuff[rdsize] := 0
         i := 0
@@ -581,11 +599,64 @@ pub httpd(port,PM,socket) | i
           i := i + 1000
           rdsize := rdsize - 1000
         W6100.SendData(socket,@webbuff+i,rdsize)
+
 '      W6100.SendDataTCP(socket,resp_ptr,strsize(resp_ptr))' Send the page
 '      W6100.SendDataTCP(socket,@RDATA,strsize(RDATA))' Send the page
 '      W6100.EndDataTCP(socket)
 
   W6100.Disconnect(socket)
+pub netjs()
+
+   bytefill(@webbuff, 0, 1000)
+   str.append_str(@webbuff,resp_ptr)
+' set checkbox if DHCP is enabled
+  if DHCP == 1
+     str.append_str(@webbuff, dhcp_ptr)
+
+' Set IP Address in form
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('IPADDRESS0').value='"))
+  str.append_str(@webbuff,str.dec(IPADDRESS[0],-1))
+  str.append_str(@webbuff, string("';"))
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('IPADDRESS1').value='"))
+  str.append_str(@webbuff,str.dec(IPADDRESS[1],-1))
+  str.append_str(@webbuff, string("';"))
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('IPADDRESS2').value='"))
+  str.append_str(@webbuff,str.dec(IPADDRESS[2],-1))
+  str.append_str(@webbuff, string("';"))
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('IPADDRESS3').value='"))
+  str.append_str(@webbuff,str.dec(IPADDRESS[3],-1))
+  str.append_str(@webbuff, string("';"))
+
+' Set Subnet in form
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('SUBNETMASK0').value='"))
+  str.append_str(@webbuff,str.dec(SUBNETMASK[0],-1))
+  str.append_str(@webbuff, string("';"))
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('SUBNETMASK1').value='"))
+  str.append_str(@webbuff,str.dec(SUBNETMASK[1],-1))
+  str.append_str(@webbuff, string("';"))
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('SUBNETMASK2').value='"))
+  str.append_str(@webbuff,str.dec(SUBNETMASK[2],-1))
+  str.append_str(@webbuff, string("';"))
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('SUBNETMASK3').value='"))
+  str.append_str(@webbuff,str.dec(SUBNETMASK[3],-1))
+  str.append_str(@webbuff, string("';"))
+
+' Set Gateway in form
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('GATEWAY0').value='"))
+  str.append_str(@webbuff,str.dec(GATEWAY[0],-1))
+  str.append_str(@webbuff, string("';"))
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('GATEWAY1').value='"))
+  str.append_str(@webbuff,str.dec(GATEWAY[1],-1))
+  str.append_str(@webbuff, string("';"))
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('GATEWAY2').value='"))
+  str.append_str(@webbuff,str.dec(GATEWAY[2],-1))
+  str.append_str(@webbuff, string("';"))
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('GATEWAY3').value='"))
+  str.append_str(@webbuff,str.dec(GATEWAY[3],-1))
+  str.append_str(@webbuff, string("';"))
+
+
+  rdsize := strsize(@webbuff)
 
 pub dhcpclient() | i
 
