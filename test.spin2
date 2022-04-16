@@ -71,9 +71,9 @@ PUB main() | i, j
 
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
-  resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
-  resp_png_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: image/png", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
-  resp_ico_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: image/x-icon", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=3600", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_png_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=3600", $0D, $0A,  "Content-Type: image/png", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_ico_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=3600", $0D, $0A,  "Content-Type: image/x-icon", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_404_ptr := String("HTTP/1.1 404 Not Found", $0D, $0A, "Connection: close", $0D, $0A, "Content-Type: text/html", $0D, $0A, $0D, $0A, "<HTML><BODY><H1>Nope, not here.</H2></BODY></HTML>", $0D, $0A)
 '  req_ptr      := String("test.htm")
       dhcp_ptr := String("document.getElementById('DHCP').checked = true;", $0D, $0A)
@@ -481,7 +481,7 @@ PUB main() | i, j
   send("Starting web server")
   send( $0D, $0A)
   repeat
-   debug(uhex( PIXELBUFFER[2]))
+
      httpd(80,W6100.PM_TCP4,W6100.IDM_BSR_Socket1_Register)
 
 pub ConfigPixels() |  pixelcount, pixeloffset, i, ei
@@ -497,7 +497,7 @@ pub ConfigPixels() |  pixelcount, pixeloffset, i, ei
           if E131CONFIG[ei] == PIXELCONFIG[i]
 
                E131CONFIG[ei+3] := pixeloffset + @pixelbuffer
-               pixeloffset := pixeloffset + (E131CONFIG[ei+2] * 3)
+               pixeloffset := pixeloffset + (E131CONFIG[ei+2] * 3) 'Probably going to need to change this for RGBW
                pixelcount := pixelcount + E131CONFIG[ei+2]
           ei := ei + 4
 
@@ -555,7 +555,7 @@ pub httpd(port,PM,socket) | i
 
   send("Checking Sn_RX_RSR Socket Status/number of bytes in buffer: ")
 
-    If ( W6100.ReceiveData(socket,50000) <> W6100.Sn_IR_TIMEOUT)
+    If ( W6100.ReceiveData(socket,5000) <> W6100.Sn_IR_TIMEOUT)
       psize := W6100.ReceiveProcess(socket,@READBUFFER)
       send("Received: ")
       send( $0D, $0A)
@@ -638,8 +638,12 @@ pub httpd(port,PM,socket) | i
             rdsize := rdsize + FS.fileSize()
             FS.closeFile()
          else
-            if str.instr(@filepath,string("NET.JS")) <> -1
-               netjs()
+            if str.instr(@filepath,string(".JS")) <> -1
+               if str.instr(@filepath,string("NET.JS")) <> -1
+                  netjs()
+               if str.instr(@filepath,string("E131.JS")) <> -1
+                  e131js()
+
             else
                bytemove(@webbuff,resp_404_ptr,strsize(resp_404_ptr))
                rdsize :=  strsize(resp_404_ptr)
@@ -694,6 +698,42 @@ pub netpost()
       send("Unable to write config. Aborting.", $0D, $0A)
       abort
 
+pub e131js() | output, u, ei
+
+' Set output
+   output := str2dec(@READBUFFER + str.instr(@READBUFFER,string("output="))+ 7, 2)
+
+' Zero out buffer
+   webbuff[0] := 0
+
+' send header
+   str.append_str(@webbuff,resp_ptr)
+
+   u  := 1
+   ei := 0
+
+   repeat until E131CONFIG[ei] == 0
+      if E131CONFIG[ei] == output
+
+
+               str.append_str(@webbuff, string($0D, $0A, "document.getElementById('U"))
+               str.append_str(@webbuff,str.dec(u,-1))
+               str.append_str(@webbuff, string("').value='"))
+               str.append_str(@webbuff,str.dec(E131CONFIG[ei+1],-1))
+               str.append_str(@webbuff, string("';"))
+
+               str.append_str(@webbuff, string($0D, $0A, "document.getElementById('P"))
+               str.append_str(@webbuff,str.dec(u,-1))
+               str.append_str(@webbuff, string("').value='"))
+               str.append_str(@webbuff,str.dec(E131CONFIG[ei+2],-1))
+               str.append_str(@webbuff, string("';"))
+
+               u := u + 1
+
+      ei := ei + 4
+
+
+  rdsize := strsize(@webbuff)
 pub netjs()
 
 ' Zero out buffer
