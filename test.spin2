@@ -41,7 +41,7 @@ VAR
         long readptr
         byte READBUFFER[2024]
         byte WRITEBUFFER[2024]
-'        byte REGBUFFER[2]
+        byte REGBUFFER[2]
         BYTE results[255]
         long resp_ptr
         long resp_css_ptr
@@ -57,7 +57,10 @@ VAR
         byte webbuff[64000]
         long rdsize
         long elock
-
+        long tPIXELCONFIG[90]
+        long tE131CONFIG[432]
+        byte eutmp[4]
+        byte pcnt[4]
 OBJ
         FS: "FAT32"
         W6100: "W6100drv"
@@ -406,7 +409,7 @@ PUB main() | i, j
   PIXELCONFIG[58] := @pixelbuffer
   PIXELCONFIG[59] := 0 ' Pixelcount in this pin
 
-
+  longfill(@E131CONFIG,0,432)
   E131CONFIG[0] := 1 ' Pin + 1, this is the many to one key to the PIXELCONFIG
   E131CONFIG[1] := 2 ' E1.31 Universe
   E131CONFIG[2] := 100 ' Pixels in this universe
@@ -592,8 +595,8 @@ pub httpd(port,PM,socket) | i
           str.ucstr(@filepath)
           if str.instr(@filepath,string("NET.HTM")) <> -1
             netpost()
-
-
+          if str.instr(@filepath,string("E131.HTM")) <> -1
+            e131post()
         vid.printStr(@filepath)
         vid.crlf()
 
@@ -697,6 +700,55 @@ pub netpost()
 
       send("Unable to write config. Aborting.", $0D, $0A)
       abort
+pub e131post() | output, ei, eti, u , uascii
+    longfill(@tE131CONFIG,0,432) ' Clean up the tmp space
+    eutmp[0] := 0
+    pcnt[0] := 0
+    output := str2dec(@READBUFFER + str.instr(@READBUFFER,string("output="))+ 7, 2)
+    u  := 1
+    ei := 0
+    eti := 0
+    repeat until (E131CONFIG[ei] == output) or (E131CONFIG[ei] == 0) 'Do this until you get to the current e131 config
+      longmove(@tE131CONFIG+(ei*4),@E131CONFIG+(ei*4),4)
+      ei := ei + 4
+      eti := ei
+    str.append_str(@eutmp,string("U"))
+    str.append_str(@eutmp,str.dec(u,1))
+    str.append_str(@eutmp,string("="))
+    str.append_str(@pcnt,string("P"))
+    str.append_str(@pcnt,str.dec(u,1))
+    str.append_str(@pcnt,string("="))
+
+    repeat until str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ 3, 6) == 0
+      tE131CONFIG[ei] := output
+      tE131CONFIG[ei+1] := str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ 3, 6)
+      tE131CONFIG[ei+2] := str2dec(@READBUFFER + str.instr(@READBUFFER,@pcnt)+ 3, 3)
+
+       vid.dec(str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ 3, 6))
+       vid.dec(str2dec(@READBUFFER + str.instr(@READBUFFER,@pcnt)+ 3, 3))
+      u := u + 1
+      eutmp[0] := 0
+      pcnt[0] := 0
+      str.append_str(@eutmp,string("U"))
+      str.append_str(@eutmp,str.dec(u,1))
+      str.append_str(@eutmp,string("="))
+      str.append_str(@pcnt,string("P"))
+      str.append_str(@pcnt,str.dec(u,1))
+      str.append_str(@pcnt,string("="))
+      ei := ei + 4
+       waitms(3000)
+
+    repeat until (E131CONFIG[eti] <> output) or (E131CONFIG[eti] == 0) or eti >= 432
+        eti := eti + 4
+
+ '   ei := ei - 4
+    repeat until (E131CONFIG[eti] == 0) or eti >= 432
+        longmove(@tE131CONFIG+(ei*4),@E131CONFIG+(eti*4),4)
+        eti := eti + 4
+        ei := ei + 4
+
+    longmove(@E131CONFIG,@tE131CONFIG,432)
+
 
 pub e131js() | output, u, ei
 
