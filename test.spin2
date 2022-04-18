@@ -724,8 +724,8 @@ pub e131post() | output, ei, eti, u , uascii
       tE131CONFIG[ei+1] := str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ 3, 6)
       tE131CONFIG[ei+2] := str2dec(@READBUFFER + str.instr(@READBUFFER,@pcnt)+ 3, 3)
 
-       vid.dec(str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ 3, 6))
-       vid.dec(str2dec(@READBUFFER + str.instr(@READBUFFER,@pcnt)+ 3, 3))
+       'vid.dec(str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ 3, 6))
+       'vid.dec(str2dec(@READBUFFER + str.instr(@READBUFFER,@pcnt)+ 3, 3))
       u := u + 1
       eutmp[0] := 0
       pcnt[0] := 0
@@ -736,7 +736,7 @@ pub e131post() | output, ei, eti, u , uascii
       str.append_str(@pcnt,str.dec(u,1))
       str.append_str(@pcnt,string("="))
       ei := ei + 4
-       waitms(3000)
+       'waitms(3000)
 
     repeat until (E131CONFIG[eti] <> output) or (E131CONFIG[eti] == 0) or eti >= 432
         eti := eti + 4
