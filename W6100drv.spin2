@@ -195,7 +195,7 @@ VAR
   word  TX_WR
   word  RX_RD
   word  RX_RSR
-
+  long  e131cog
 
 
 
@@ -1029,7 +1029,7 @@ PUB hex(value, digits)
     send(lookupz(value & $F : "0".."9", "A".."F"))
 PUB nl()
  send( $0D, $0A)
-PUB startfastrx(skt,pbf,txb,e131ptr) : e131cog
+PUB startfastrx(skt,pbf,txb,e131ptr)
     longmove(@E131Socket, @skt, 4)
 '    hex(E131PACKETBUFFER,8)
 org
@@ -1046,6 +1046,13 @@ debug(uhex(ethernetlock))
     e131cog := coginit(COGEXEC_NEW, @cogx, @ethernetlock)  + 1
 
     return
+pub stopfastrx()
+
+'' Stops pixel driver cog (if running)
+
+  if (e131cog)
+    cogstop(e131cog - 1)
+    e131cog := 0
 
 DAT
         org   0
