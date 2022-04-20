@@ -51,6 +51,7 @@ VAR
         long resp_404_ptr
         long req_ptr
         long dhcp_ptr
+        long resp_dl_ptr
         word psize
         BYTE FILEPATH[2048]
         BYTE RDATA[64000]
@@ -78,6 +79,8 @@ PUB main() | i, j
   resp_png_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=3600", $0D, $0A,  "Content-Type: image/png", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_ico_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=3600", $0D, $0A,  "Content-Type: image/x-icon", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_404_ptr := String("HTTP/1.1 404 Not Found", $0D, $0A, "Connection: close", $0D, $0A, "Content-Type: text/html", $0D, $0A, $0D, $0A, "<HTML><BODY><H1>Nope, not here.</H2></BODY></HTML>", $0D, $0A)
+  resp_dl_ptr  := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: application/octet-stream", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+
 '  req_ptr      := String("test.htm")
       dhcp_ptr := String("document.getElementById('DHCP').checked = true;", $0D, $0A)
 
@@ -588,6 +591,11 @@ pub httpd(port,PM,socket) | i
           str.mid(@filepath, @READBUFFER, str.instr(@READBUFFER,string("GET /"))+5, (str.instr(@READBUFFER,string("HTTP/1.1"))) - (str.instr(@READBUFFER,string("GET /"))) - 6 )
        '  Set filename to all uppercase
           str.ucstr(@filepath)
+
+         ' Save config if token is in GET request
+          if str.instr(@filepath,string("?SAVE=Y")) <> -1
+              writeconfig()
+
         else
 
           str.mid(@filepath, @READBUFFER, str.instr(@READBUFFER,string("POST /"))+6, (str.instr(@READBUFFER,string("HTTP/1.1"))) - (str.instr(@READBUFFER,string("POST /"))) - 7 )
@@ -604,6 +612,8 @@ pub httpd(port,PM,socket) | i
          if (str.instr(@READBUFFER,string("HTTP/1.1"))-1) == 5
            filepath[0] := 0
            str.append_str(@filepath,string("index.htm"))
+
+
 
       'results := FS.openfile(string("test.txt"),string("R"))
 
@@ -634,9 +644,6 @@ pub httpd(port,PM,socket) | i
               rdsize :=  strsize(resp_css_ptr)
               bytemove(@webbuff,resp_css_ptr,rdsize)
 
-
-
-
             bytemove((@webbuff + rdsize),@RDATA,FS.fileSize())
             rdsize := rdsize + FS.fileSize()
             FS.closeFile()
@@ -648,8 +655,12 @@ pub httpd(port,PM,socket) | i
                   e131js()
 
             else
-               bytemove(@webbuff,resp_404_ptr,strsize(resp_404_ptr))
-               rdsize :=  strsize(resp_404_ptr)
+               if str.instr(@filepath,string("RUNNINGCONFIG.CFG")) <> -1
+                  downloadconfig()
+               else
+
+                  bytemove(@webbuff,resp_404_ptr,strsize(resp_404_ptr))
+                  rdsize :=  strsize(resp_404_ptr)
 
          webbuff[rdsize] := 0
          i := 0
@@ -690,6 +701,10 @@ pub netpost()
     GATEWAY[2] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("GATEWAY2="))+ 9, 3)
     GATEWAY[3] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("GATEWAY3="))+ 9, 3)
 
+    writeconfig()
+
+pub writeconfig()
+
     if not \FS.openfile(string("blitzen.cfg"),"W")
 
       send("Writing Configuration to SD Card.", $0D, $0A)
@@ -700,6 +715,7 @@ pub netpost()
 
       send("Unable to write config. Aborting.", $0D, $0A)
       abort
+
 pub e131post() | output, ei, eti, u , uascii
     longfill(@tE131CONFIG,0,432) ' Clean up the tmp space
     eutmp[0] := 0
@@ -848,6 +864,17 @@ pub netjs()
 
 
   rdsize := strsize(@webbuff)
+pub downloadconfig()
+' Zero out buffer
+  webbuff[0] := 0
+
+' send header
+  str.append_str(@webbuff,resp_dl_ptr)
+  rdsize := strsize(@webbuff)
+' Copy running config into web buffer
+  bytemove(@webbuff + rdsize, @PIXELCONFIG, @DHCP - @PIXELCONFIG + 1)
+  rdsize := rdsize + (@DHCP - @PIXELCONFIG) + 1
+
 
 pub dhcpclient() | i
 
