@@ -23,25 +23,26 @@
 		</nav>
 	</header>
 	<section>
-		<strong>Network Configuration.</strong>
+		<strong>Configuration Management</strong>
 	</section>
 	<section id="pageContent">
 		<main role="main">
-			<FORM METHOD="POST">
-				<INPUT TYPE="CHECKBOX" VALUE="1" ID="DHCP" NAME="DHCP">DHCP ENABLED<BR>
-				IP Address <INPUT TYPE="TEXT" ID="IPADDRESS0" NAME="IPADDRESS0" SIZE="3" maxlength="3">.<INPUT TYPE="TEXT" ID="IPADDRESS1" NAME="IPADDRESS1" SIZE="3" maxlength="3">.<INPUT TYPE="TEXT" ID="IPADDRESS2" NAME="IPADDRESS2" SIZE="3" maxlength="3">.<INPUT TYPE="TEXT" ID="IPADDRESS3" NAME="IPADDRESS3" SIZE="3" maxlength="3"><br>
-				Subnet <INPUT TYPE="TEXT" ID="SUBNETMASK0" NAME="SUBNETMASK0" SIZE="3" maxlength="3">.<INPUT TYPE="TEXT" ID="SUBNETMASK1" NAME="SUBNETMASK1" SIZE="3" maxlength="3">.<INPUT TYPE="TEXT" ID="SUBNETMASK2" NAME="SUBNETMASK2" SIZE="3" maxlength="3">.<INPUT TYPE="TEXT" ID="SUBNETMASK3" NAME="SUBNETMASK3" SIZE="3" maxlength="3"><br>
-				Gateway <INPUT TYPE="TEXT" ID="GATEWAY0" NAME="GATEWAY0" SIZE="3" maxlength="3">.<INPUT TYPE="TEXT" ID="GATEWAY1" NAME="GATEWAY1" SIZE="3" maxlength="3">.<INPUT TYPE="TEXT" ID="GATEWAY2" NAME="GATEWAY2" SIZE="3" maxlength="3">.<INPUT TYPE="TEXT" ID="GATEWAY3" NAME="GATEWAY3" SIZE="3" maxlength="3"><br>
-				<INPUT TYPE="SUBMIT" Name="Save" Value="Save">
+		<div>
+			<A HREF="configs.htm?save=y">Save Running Configuration to Boot Config</A>
+		</div>
+		<div>
+			Upload Configuration File<br>
+  			<FORM METHOD="POST" ACTION="configs.htm" enctype="multipart/form-data">
+				<input type="file" Name="config" id="config"  accept=".cfg">
+				<INPUT TYPE="SUBMIT" Name="Upload" Value="Upload">
 			</FORM> 
-		<BR><BR>
+		</div>
 		</main>
-<!--		<aside>
-			<div>Sidebar 1</div>
-			<div>Sidebar 2</div>
-			<div>Sidebar 3</div>
+		<aside>
+			<div><A href="runningconfig.cfg">Download<br>Running Configuration</A></div>
+			<div><A href="blitzen.cfg">Download<br>Boot Configuration</A></div>
 		</aside>
--->	</section>
+	</section>
 
 	<footer>
 		<p>&copy; 2022 GriswoldFX. This is free software licensed under the MIT license. Visit <a HREF="http://www.griswoldfx.com">GriswoldFX.com</A> for more infromation.</p>
@@ -50,5 +51,4 @@
 
 
 </body>
-    <script src="net.js"></script>
 </html>
