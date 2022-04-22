@@ -62,6 +62,7 @@ VAR
         long tE131CONFIG[432]
         byte eutmp[4]
         byte pcnt[4]
+        byte boundary[71]
 OBJ
         FS: "FAT32"
         W6100: "W6100drv"
@@ -75,9 +76,9 @@ PUB main() | i, j
 
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
-  resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=3600", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
-  resp_png_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=3600", $0D, $0A,  "Content-Type: image/png", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
-  resp_ico_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=3600", $0D, $0A,  "Content-Type: image/x-icon", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=360", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_png_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=360", $0D, $0A,  "Content-Type: image/png", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_ico_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=360", $0D, $0A,  "Content-Type: image/x-icon", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_404_ptr := String("HTTP/1.1 404 Not Found", $0D, $0A, "Connection: close", $0D, $0A, "Content-Type: text/html", $0D, $0A, $0D, $0A, "<HTML><BODY><H1>Nope, not here.</H2></BODY></HTML>", $0D, $0A)
   resp_dl_ptr  := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: application/octet-stream", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
 
@@ -605,6 +606,9 @@ pub httpd(port,PM,socket) | i
             netpost()
           if str.instr(@filepath,string("E131.HTM")) <> -1
             e131post()
+          if str.instr(@filepath,string("CONFIGS.HTM")) <> -1
+            configspost(socket)
+
         vid.printStr(@filepath)
         vid.crlf()
 
@@ -715,7 +719,51 @@ pub writeconfig()
 
       send("Unable to write config. Aborting.", $0D, $0A)
       abort
+pub configspost(socket) | length, startpoint, datarxed , bpos
+    boundary[0] := 0
+    if str.instr(@READBUFFER,string("boundary=")) <> -1
+      str.mid(@boundary, @READBUFFER, str.instr(@READBUFFER,string("boundary="))+9, (str.instr(@READBUFFER + str.instr(@READBUFFER,string("boundary="))+9 ,string( $0D, $0A))) )
+      send("Boundary: ")
+      vid.printStr(@boundary)
+      send("<-",$0D, $0A)
+      length := str2dec(@READBUFFER + str.instr(@READBUFFER,string("Content-Length: "))+ 16, 10)
+      send("Content Length: ")
+      vid.dec(length)
+      send($0D, $0A)
+      send("Packet Size: ")
+      vid.dec(psize)
+      send($0D, $0A)
+      startpoint := str.instr(@READBUFFER,string("Content-Type: application/octet-stream", $0D, $0A, $0D, $0A)) + 42
+      send("Data Startpoint: ")
+      vid.dec(startpoint)
+      send($0D, $0A)
+      datarxed := psize - startpoint
+      bpos := inbin(@READBUFFER + startpoint, @boundary,datarxed)
+      If bpos <> -1
+        send("Found Boundry in First Packet: ")
+        vid.dec(bpos)
+        send($0D, $0A)
+        datarxed :=  psize - startpoint - bpos
+      repeat until W6100.ReceiveData(socket,5000) == W6100.Sn_IR_TIMEOUT
 
+             psize := W6100.ReceiveProcess(socket,@READBUFFER)
+
+             send("Packet Size: ")
+             vid.dec(psize)
+             send($0D, $0A)
+             bpos := inbin(@READBUFFER, @boundary, psize)
+             If bpos <> -1
+                send("Found Boundry in Subsequent Packet: ")
+                vid.dec(bpos)
+                send($0D, $0A)
+                datarxed :=  datarxed + bpos
+             else
+                datarxed :=  datarxed + psize
+      send("Total Bytes RXed: ")
+      vid.dec(datarxed)
+      send($0D, $0A)
+      waitms(3000)
+      waitms(3000)
 pub e131post() | output, ei, eti, u , uascii
     longfill(@tE131CONFIG,0,432) ' Clean up the tmp space
     eutmp[0] := 0
@@ -1272,3 +1320,26 @@ pub str2dec(p_str, len) : value |  ch
       quit
 
   return
+pub inbin(p_haystack, p_needle, slen) : pos | len1, len2, idx
+
+'' Returns position of p_needle in str1
+'' -- p_haystack is pointer to string to search
+'' -- p_needle is pointer to string to look for in p_haystack
+'' -- if p_needle not in p_haystack returns -1
+
+  pos  := -1
+
+  len1 := slen
+  len2 := strsize(p_needle)
+  idx  := 0
+
+  if (len1 >= len2)
+    repeat (len1 - len2 + 1)
+      if idx == slen
+        quit
+      else
+        if (str.strncmp(p_haystack++, p_needle, len2) == 0)
+          pos := idx
+          quit
+        else
+          ++idx
