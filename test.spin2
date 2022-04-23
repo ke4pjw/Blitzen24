@@ -648,6 +648,10 @@ pub httpd(port,PM,socket) | i
               rdsize :=  strsize(resp_css_ptr)
               bytemove(@webbuff,resp_css_ptr,rdsize)
 
+            if str.instr(@filepath,string(".CFG")) == (strsize(@filepath) - 4)
+              rdsize :=  strsize(resp_dl_ptr)
+              bytemove(@webbuff,resp_dl_ptr,rdsize)
+
             bytemove((@webbuff + rdsize),@RDATA,FS.fileSize())
             rdsize := rdsize + FS.fileSize()
             FS.closeFile()
