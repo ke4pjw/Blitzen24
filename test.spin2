@@ -584,7 +584,7 @@ pub httpd(port,PM,socket) | i
       send("End Filename: ")
       send(vid.dec(str.instr(@READBUFFER,string("HTTP/1.1"))-1))
       send( $0D, $0A)
-      READBUFFER[1000] := 0
+      READBUFFER[2000] := 0
       if str.instr(@READBUFFER,string("HTTP/1.1")) <> -1 and (str.instr(@READBUFFER,string("GET /")) <> -1  or str.instr(@READBUFFER,string("POST /")) <> -1  ) and (str.instr(@READBUFFER,string("HTTP/1.1")) > str.instr(@READBUFFER,string("GET /")) or str.instr(@READBUFFER,string("HTTP/1.1")) > str.instr(@READBUFFER,string("POST /")))
         bytefill(@filepath,0,25)
         send("Filename: ")
@@ -722,7 +722,7 @@ pub writeconfig()
 pub configspost(socket) | length, startpoint, datarxed , bpos
     boundary[0] := 0
     if str.instr(@READBUFFER,string("boundary=")) <> -1
-      str.mid(@boundary, @READBUFFER, str.instr(@READBUFFER,string("boundary="))+9, (str.instr(@READBUFFER + str.instr(@READBUFFER,string("boundary="))+9 ,string( $0D, $0A))) )
+      str.mid(@boundary, @READBUFFER, str.instr(@READBUFFER,string("boundary="))+9, (str.instr(@READBUFFER + str.instr(@READBUFFER,string("boundary="))+9 ,string( $0D, $0A)))  )
       send("Boundary: ")
       vid.printStr(@boundary)
       send("<-",$0D, $0A)
@@ -734,20 +734,24 @@ pub configspost(socket) | length, startpoint, datarxed , bpos
       vid.dec(psize)
       send($0D, $0A)
       startpoint := str.instr(@READBUFFER,string("Content-Type: application/octet-stream", $0D, $0A, $0D, $0A)) + 42
+      if  startpoint == 41
+        startpoint := str.instr(@READBUFFER,string("Content-Type: image/jpeg", $0D, $0A, $0D, $0A)) + 28
       send("Data Startpoint: ")
       vid.dec(startpoint)
       send($0D, $0A)
+      waitms(3000)
+      waitms(3000)
       datarxed := psize - startpoint
       bpos := inbin(@READBUFFER + startpoint, @boundary,datarxed)
       If bpos <> -1
         send("Found Boundry in First Packet: ")
         vid.dec(bpos)
         send($0D, $0A)
-        datarxed :=  psize - startpoint - bpos
+        datarxed :=  startpoint - bpos
       repeat until W6100.ReceiveData(socket,5000) == W6100.Sn_IR_TIMEOUT
 
              psize := W6100.ReceiveProcess(socket,@READBUFFER)
-
+             psize := psize
              send("Packet Size: ")
              vid.dec(psize)
              send($0D, $0A)
@@ -756,7 +760,7 @@ pub configspost(socket) | length, startpoint, datarxed , bpos
                 send("Found Boundry in Subsequent Packet: ")
                 vid.dec(bpos)
                 send($0D, $0A)
-                datarxed :=  datarxed + bpos
+                datarxed :=  datarxed + bpos - 4 ' -4 to remove CR LF and --
              else
                 datarxed :=  datarxed + psize
       send("Total Bytes RXed: ")
