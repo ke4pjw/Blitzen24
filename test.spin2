@@ -760,8 +760,8 @@ pub configspost(socket) | length, startpoint, datarxed, bpos, qc, cpysize
       send("Data size: ")
       vid.dec(datarxed)
       send($0D, $0A)
-      waitms(3000)
-      waitms(3000)
+'      waitms(3000)
+'      waitms(3000)
       repeat until W6100.ReceiveData(socket,5000) == W6100.Sn_IR_TIMEOUT
              startpoint := datarxed ' Set the last offset where you wrote to last.
              psize := W6100.ReceiveProcess(socket,@READBUFFER)
@@ -783,8 +783,8 @@ pub configspost(socket) | length, startpoint, datarxed, bpos, qc, cpysize
       send("Total Bytes RXed: ")
       vid.dec(datarxed)
       send($0D, $0A)
-      waitms(3000)
-      waitms(3000)
+'      waitms(3000)
+'      waitms(3000)
 pub e131post() | output, ei, eti, u , uascii
     longfill(@tE131CONFIG,0,432) ' Clean up the tmp space
     eutmp[0] := 0
@@ -870,6 +870,10 @@ pub e131js() | output, u, ei
                str.append_str(@webbuff, string("').value='"))
                str.append_str(@webbuff,str.dec(E131CONFIG[ei+2],-1))
                str.append_str(@webbuff, string("';"))
+               if  (E131CONFIG[ei+1] <> 0 and E131CONFIG[ei+2] <> 0) or (u ==1)
+                    str.append_str(@webbuff, string($0D, $0A, "document.getElementById('R"))
+                    str.append_str(@webbuff,str.dec(u,-1))
+                    str.append_str(@webbuff, string("').style.display = '';"))
 
                u := u + 1
 
