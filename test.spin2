@@ -478,7 +478,7 @@ PUB main() | i, j
 
   WS2811.start_2812b(PIXELCONFIG[3], PIXELCONFIG[8],PIXELCONFIG[13],PIXELCONFIG[18],PIXELCONFIG[23],PIXELCONFIG[28],PIXELCONFIG[33],PIXELCONFIG[38], PIXELCONFIG[4],PIXELCONFIG[0] - 1, PIXELCONFIG[2])
   WS28112.start_2812b(PIXELCONFIG[43], PIXELCONFIG[48],PIXELCONFIG[53],PIXELCONFIG[58],PIXELCONFIG[43],PIXELCONFIG[48],PIXELCONFIG[53],PIXELCONFIG[58], PIXELCONFIG[44],PIXELCONFIG[40] - 1, PIXELCONFIG[42])
-  debug(uhex( PIXELCONFIG[42]))
+
 
   'Maybe move the listener into the startastrx object
   W6100.Open(5568,W6100.PM_UDP4,W6100.IDM_BSR_Socket3_Register)
@@ -874,7 +874,13 @@ pub e131js() | output, u, ei
                     str.append_str(@webbuff, string($0D, $0A, "document.getElementById('R"))
                     str.append_str(@webbuff,str.dec(u,-1))
                     str.append_str(@webbuff, string("').style.display = '';"))
-
+                    if u > 2
+                      str.append_str(@webbuff, string($0D, $0A, "document.getElementById('A"))
+                      str.append_str(@webbuff,str.dec(u-1,-1))
+                      str.append_str(@webbuff, string("').style.display = 'None';"))
+                      str.append_str(@webbuff, string($0D, $0A, "document.getElementById('M"))
+                      str.append_str(@webbuff,str.dec(u-1,-1))
+                      str.append_str(@webbuff, string("').style.display = 'None';"))
                u := u + 1
 
       ei := ei + 4
