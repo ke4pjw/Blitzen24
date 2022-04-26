@@ -28,11 +28,11 @@
 	<section id="pageContent">
 		<main role="main">
 			<FORM METHOD="POST">
-				<INPUT TYPE="CHECKBOX" VALUE="1" ID="DHCP" NAME="DHCP">DHCP ENABLED<BR>
-				IP Address <INPUT TYPE="TEXT" ID="IPADDRESS0" NAME="IPADDRESS0" SIZE="3" maxlength="3">.<INPUT TYPE="TEXT" ID="IPADDRESS1" NAME="IPADDRESS1" SIZE="3" maxlength="3">.<INPUT TYPE="TEXT" ID="IPADDRESS2" NAME="IPADDRESS2" SIZE="3" maxlength="3">.<INPUT TYPE="TEXT" ID="IPADDRESS3" NAME="IPADDRESS3" SIZE="3" maxlength="3"><br>
-				Subnet <INPUT TYPE="TEXT" ID="SUBNETMASK0" NAME="SUBNETMASK0" SIZE="3" maxlength="3">.<INPUT TYPE="TEXT" ID="SUBNETMASK1" NAME="SUBNETMASK1" SIZE="3" maxlength="3">.<INPUT TYPE="TEXT" ID="SUBNETMASK2" NAME="SUBNETMASK2" SIZE="3" maxlength="3">.<INPUT TYPE="TEXT" ID="SUBNETMASK3" NAME="SUBNETMASK3" SIZE="3" maxlength="3"><br>
-				Gateway <INPUT TYPE="TEXT" ID="GATEWAY0" NAME="GATEWAY0" SIZE="3" maxlength="3">.<INPUT TYPE="TEXT" ID="GATEWAY1" NAME="GATEWAY1" SIZE="3" maxlength="3">.<INPUT TYPE="TEXT" ID="GATEWAY2" NAME="GATEWAY2" SIZE="3" maxlength="3">.<INPUT TYPE="TEXT" ID="GATEWAY3" NAME="GATEWAY3" SIZE="3" maxlength="3"><br>
-				<INPUT TYPE="SUBMIT" Name="Save" Value="Save">
+				<INPUT TYPE="CHECKBOX" VALUE="1" ID="DHCP" NAME="DHCP" >DHCP ENABLED<BR>
+				IP Address <INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="IPADDRESS0" NAME="IPADDRESS0" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="IPADDRESS1" NAME="IPADDRESS1" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="IPADDRESS2" NAME="IPADDRESS2" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="IPADDRESS3" NAME="IPADDRESS3" SIZE="3" maxlength="3"><br>
+				Subnet <INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="SUBNETMASK0" NAME="SUBNETMASK0" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="SUBNETMASK1" NAME="SUBNETMASK1" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="SUBNETMASK2" NAME="SUBNETMASK2" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="SUBNETMASK3" NAME="SUBNETMASK3" SIZE="3" maxlength="3"><br>
+				Gateway <INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="GATEWAY0" NAME="GATEWAY0" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="GATEWAY1" NAME="GATEWAY1" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="GATEWAY2" NAME="GATEWAY2" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="GATEWAY3" NAME="GATEWAY3" SIZE="3" maxlength="3"><br>
+				<INPUT TYPE="SUBMIT" Name="Save" Value="Save" OnClick='ChangeValidation();'>
 			</FORM> 
 		<BR><BR>
 		</main>
@@ -50,5 +50,39 @@
 
 
 </body>
+     <script>
+function ChangeValidation() {
+	if (document.getElementById("DHCP").checked) 
+		{ 
+		document.getElementById("IPADDRESS0").required = false;
+		document.getElementById("IPADDRESS1").required = false;
+		document.getElementById("IPADDRESS2").required = false;
+		document.getElementById("IPADDRESS3").required = false;
+		document.getElementById("SUBNETMASK0").required = false;
+		document.getElementById("SUBNETMASK1").required = false;
+		document.getElementById("SUBNETMASK2").required = false;
+		document.getElementById("SUBNETMASK3").required = false;
+		document.getElementById("GATEWAY0").required = false;
+		document.getElementById("GATEWAY1").required = false;
+		document.getElementById("GATEWAY2").required = false;
+		document.getElementById("GATEWAY3").required = false;
+		} else {
+		document.getElementById("IPADDRESS0").required = true;
+		document.getElementById("IPADDRESS1").required = true;
+		document.getElementById("IPADDRESS2").required = true;
+		document.getElementById("IPADDRESS3").required = true;
+		document.getElementById("SUBNETMASK0").required = true;
+		document.getElementById("SUBNETMASK1").required = true;
+		document.getElementById("SUBNETMASK2").required = true;
+		document.getElementById("SUBNETMASK3").required = true;
+		document.getElementById("GATEWAY0").required = true;
+		document.getElementById("GATEWAY1").required = true;
+		document.getElementById("GATEWAY2").required = true;
+		document.getElementById("GATEWAY3").required = true;
+		}
+	
+return true;   // Returns Value
+}
+   </script>
     <script src="net.js"></script>
 </html>
