@@ -95,14 +95,21 @@ var
   '
   long  newconnection                                           ' new conection when != 0
   long  p_pixels                                                ' pointer to active pixel buffer
+  long  p_rgbfix
   long  p_pixels2                                                ' pointer to active pixel buffer
+  long  p_rgbfix2
   long  p_pixels3                                                ' pointer to active pixel buffer
+  long  p_rgbfix3
   long  p_pixels4                                                ' pointer to active pixel buffer
+  long  p_rgbfix4
   long  p_pixels5                                                ' pointer to active pixel buffer
+  long  p_rgbfix5
   long  p_pixels6                                                ' pointer to active pixel buffer
+  long  p_rgbfix6
   long  p_pixels7                                               ' pointer to active pixel buffer
+  long  p_rgbfix7
   long  p_pixels8                                                ' pointer to active pixel buffer
-
+  long  p_rgbfix8
   long  npixels                                                 ' number of pixels in buffer
   long  txpin                                                   ' active transmit pin
   long  pixbits                                                 ' bits/pixel (24 or 32)
@@ -142,7 +149,7 @@ pub start_2812(p_buf, count, pin, holdoff) : result
   return startx(p_buf, count, pin, holdoff, true, 24, 350, 700)
 }
 
-pub start_2812b(p_buf, p_buf2,  p_buf3, p_buf4, p_buf5, p_buf6, p_buf7, p_buf8, count, pin, holdoff) : result
+pub start_2812b(p_buf,p_type, p_buf2,p_type2,p_buf3,p_type3,p_buf4,p_type4,p_buf5,p_type5,p_buf6,p_type6,p_buf7,p_type7,p_buf8,p_type8,count, pin, holdoff) : result
 
 '' Start pixel driver for WS2812b LEDs
 '' -- p_buf is pointer to [long] array holding pixel data
@@ -151,7 +158,7 @@ pub start_2812b(p_buf, p_buf2,  p_buf3, p_buf4, p_buf5, p_buf6, p_buf7, p_buf8, 
 '' -- holdoff is the delay between data bursts
 ''    * units are 100us (0.1ms) 10 units = 1ms
 
-  return startx(p_buf, p_buf2,  p_buf3, p_buf4, p_buf5, p_buf6, p_buf7, p_buf8, count, pin, holdoff, true, 24, 400, 800)
+  return startx(p_buf,p_type, p_buf2,p_type2,p_buf3,p_type3,p_buf4,p_type4,p_buf5,p_type5,p_buf6,p_type6,p_buf7,p_type7,p_buf8,p_type8, count, pin, holdoff, true, 24, 400, 800)
 
 {
 pub start_2813(p_buf, count, pin, holdoff) : result
@@ -180,7 +187,7 @@ pub start_6812x(p_buf, count, pin, holdoff, bits) : result
   return startx(p_buf, count, pin, holdoff, true, bits, 300, 600)
 }
 
-pub startx(p_buf, p_buf2,  p_buf3, p_buf4, p_buf5, p_buf6, p_buf7, p_buf8, count, pin, holdoff, rgswap, bits, ns0h, ns1h) : result | ustix
+pub startx(p_buf,p_type, p_buf2,p_type2,p_buf3,p_type3,p_buf4,p_type4,p_buf5,p_type5,p_buf6,p_type6,p_buf7,p_type7,p_buf8,p_type8,count, pin, holdoff, rgswap, bits, ns0h, ns1h) : result | ustix
 
 '' Start smart pixel driver driver
 '' -- p_buf is pointer to [long] array holding pixel data
@@ -201,11 +208,11 @@ pub startx(p_buf, p_buf2,  p_buf3, p_buf4, p_buf5, p_buf6, p_buf7, p_buf8, count
 
   ' set cog parameters
 
-  use(p_buf, p_buf2,  p_buf3, p_buf4, p_buf5, p_buf6, p_buf7, p_buf8, count, pin, bits)                                  ' set connection details
+'  use(p_buf,p_type, p_buf2,p_type2,p_buf3,p_type3,p_buf4,p_type4,p_buf5,p_type5,p_buf6,p_type6,p_buf7,p_type7,p_buf8,p_type8, count, pin, bits)                                  ' set connection details
 
   newconnection := true
 
-  longmove(@p_pixels, @p_buf, 11)                                ' connection details was 3
+  longmove(@p_pixels, @p_buf, 19)                                ' connection details was 3
 
   pixbits    := bits                                            ' set bit count
   resetticks := ustix * 100 * (1 #> holdoff <# 50)              ' note: 80us min reset timing
@@ -533,16 +540,16 @@ pix_driver      setq      #17-1                                 ' get 17 longs f
                 add       tx2, #1
                 drvl      tx2
                 shr       tx, #3
-               debug(uhex(tx2))
-               debug(uhex(p_hub))
-               debug(uhex(p_hub2))
-               debug(uhex(p_hub3))
-               debug(uhex(p_hub4))
-               debug(uhex(p_hub5))
-               debug(uhex(p_hub6))
-               debug(uhex(p_hub7))
-               debug(uhex(p_hub8))
-               debug(uhex(tx))
+'               debug(uhex(tx2))
+'               debug(uhex(p_hub))
+'               debug(uhex(p_hub2))
+'               debug(uhex(p_hub3))
+'               debug(uhex(p_hub4))
+'               debug(uhex(p_hub5))
+'               debug(uhex(p_hub6))
+'               debug(uhex(p_hub7))
+'               debug(uhex(p_hub8))
+'               debug(uhex(tx))
 
 
 
@@ -567,28 +574,29 @@ frame_loop
 
                 rdlong    colorbits, addr                       ' read a channel
                 add       addr, #3                              ' TT changed this from 4 to 3- point to next
-                movbyts   colorbits,  #%%0123                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+'                movbyts   colorbits,  #%%0123                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits,  l_type                   ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 rdlong    colorbits2, addr2                       ' read a channel
                 add       addr2, #3                              ' TT changed this from 4 to 3- point to next
-                movbyts   colorbits2, #%%0123                   ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits2, l_type2                   ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 rdlong    colorbits3, addr3                       ' read a channel
                 add       addr3, #3                              ' TT changed this from 4 to 3- point to next
-                movbyts   colorbits3, #%%0123                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits3, l_type3                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 rdlong    colorbits4, addr4                       ' read a channel
                 add       addr4, #3                              ' TT changed this from 4 to 3- point to next
-                movbyts   colorbits4, #%%0123                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits4, l_type4                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 rdlong    colorbits5, addr5                       ' read a channel
                 add       addr5, #3                              ' TT changed this from 4 to 3- point to next
-                movbyts   colorbits5, #%%0123                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits5, l_type5                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 rdlong    colorbits6, addr6                       ' read a channel
                 add       addr6, #3                              ' TT changed this from 4 to 3- point to next
-                movbyts   colorbits6, #%%0123                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits6, l_type6                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 rdlong    colorbits7, addr7                       ' read a channel
                 add       addr7, #3                              ' TT changed this from 4 to 3- point to next
-                movbyts   colorbits7, #%%0123                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits7, l_type7                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 rdlong    colorbits8, addr8                       ' read a channel
                 add       addr8, #3                              ' TT changed this from 4 to 3- point to next
-                movbyts   colorbits8, #%%0123                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                movbyts   colorbits8, l_type8                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
 '                tjz       swapflag, #shift_out                  ' skip fix if swap = 0
 
 '                movbyts   colorbits, #%%2310                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
@@ -660,13 +668,21 @@ reset_delay     getct     bittimer                              ' reset delay
 
 newcon          res       1                                     ' new connection flag
 p_hub           res       1                                     ' pointer to pixel buffer in use
+l_type          res       1
 p_hub2          res       1                                     ' pointer to pixel buffer in use
+l_type2         res       1
 p_hub3          res       1                                     ' pointer to pixel buffer in use
+l_type3         res       1
 p_hub4          res       1                                     ' pointer to pixel buffer in use
+l_type4         res       1
 p_hub5          res       1                                     ' pointer to pixel buffer in use
+l_type5         res       1
 p_hub6          res       1                                     ' pointer to pixel buffer in use
+l_type6         res       1
 p_hub7          res       1                                     ' pointer to pixel buffer in use
+l_type7         res       1
 p_hub8          res       1                                     ' pointer to pixel buffer in use
+l_type8         res       1
 pixcount        res       1                                     ' # pixels in buffer
 tx              res       1                                     ' output pin
 pixelbits       res       1                                     ' bits per pixel

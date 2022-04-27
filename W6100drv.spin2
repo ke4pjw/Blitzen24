@@ -982,7 +982,7 @@ pub SendData(socket,sendptr,ptrlen) : rtv | i
          REGBUFFER[0] := $10
          writereg(REG_Sn_IRCLR,socket,1,@REGBUFFER)
 
-    waitus(750)
+    waitus(850)
     'send("Webpage Sent")
     'vid.nl()
 
