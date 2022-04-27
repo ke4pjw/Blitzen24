@@ -342,31 +342,31 @@ PUB main() | i, j
   longfill(@E131CONFIG,0,432)
 
   PIXELCONFIG[0] := 1 ' Pin + 1, that way 0 is NULL
-  PIXELCONFIG[1] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[1] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
   PIXELCONFIG[2] := 800 'Pixel holdoff time
   PIXELCONFIG[3] := @pixelbuffer
   PIXELCONFIG[4] := 0 ' Pixelcount in this pin
 
   PIXELCONFIG[5] := 2 ' Pin + 1, that way 0 is NULL
-  PIXELCONFIG[6] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[6] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
   PIXELCONFIG[7] := 800 'Pixel holdoff time
   PIXELCONFIG[8] := @pixelbuffer
   PIXELCONFIG[9] := 0 ' Pixelcount in this pin
 
   PIXELCONFIG[10] := 3 ' Pin + 1, that way 0 is NULL
-  PIXELCONFIG[11] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[11] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
   PIXELCONFIG[12] := 800 'Pixel holdoff time
   PIXELCONFIG[13] := @pixelbuffer
   PIXELCONFIG[14] := 0 ' Pixelcount in this pin
 
   PIXELCONFIG[15] := 4 ' Pin + 1, that way 0 is NULL
-  PIXELCONFIG[16] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[16] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
   PIXELCONFIG[17] := 800 'Pixel holdoff time
   PIXELCONFIG[18] := @pixelbuffer
   PIXELCONFIG[19] := 0 ' Pixelcount in this pin
 
   PIXELCONFIG[20] := 5 ' Pin + 1, that way 0 is NULL
-  PIXELCONFIG[21] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[21] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
   PIXELCONFIG[22] := 800 'Pixel holdoff time
   PIXELCONFIG[23] := @pixelbuffer
   PIXELCONFIG[24] := 0 ' Pixelcount in this pin
@@ -378,37 +378,37 @@ PUB main() | i, j
   PIXELCONFIG[29] := 0 ' Pixelcount in this pin
 
   PIXELCONFIG[30] := 7 ' Pin + 1, that way 0 is NULL
-  PIXELCONFIG[31] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[31] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
   PIXELCONFIG[32] := 800 'Pixel holdoff time
   PIXELCONFIG[33] := @pixelbuffer
   PIXELCONFIG[34] := 0 ' Pixelcount in this pin
 
   PIXELCONFIG[35] := 8 ' Pin + 1, that way 0 is NULL
-  PIXELCONFIG[36] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[36] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
   PIXELCONFIG[37] := 800 'Pixel holdoff time
   PIXELCONFIG[38] := @pixelbuffer
   PIXELCONFIG[39] := 0 ' Pixelcount in this pin
 
   PIXELCONFIG[40] := 9 ' Pin + 1, that way 0 is NULL
-  PIXELCONFIG[41] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[41] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
   PIXELCONFIG[42] := 800 'Pixel holdoff time
   PIXELCONFIG[43] := @pixelbuffer
   PIXELCONFIG[44] := 0 ' Pixelcount in this pin
 
   PIXELCONFIG[45] := 10 ' Pin + 1, that way 0 is NULL
-  PIXELCONFIG[46] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[46] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
   PIXELCONFIG[47] := 800 'Pixel holdoff time
   PIXELCONFIG[48] := @pixelbuffer
   PIXELCONFIG[49] := 0 ' Pixelcount in this pin
 
   PIXELCONFIG[50] := 11 ' Pin + 1, that way 0 is NULL
-  PIXELCONFIG[51] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[51] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
   PIXELCONFIG[52] := 800 'Pixel holdoff time
   PIXELCONFIG[53] := @pixelbuffer
   PIXELCONFIG[54] := 0 ' Pixelcount in this pin
 
   PIXELCONFIG[55] := 12 ' Pin + 1, that way 0 is NULL
-  PIXELCONFIG[56] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[56] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
   PIXELCONFIG[57] := 800 'Pixel holdoff time
   PIXELCONFIG[58] := @pixelbuffer
   PIXELCONFIG[59] := 0 ' Pixelcount in this pin
@@ -476,8 +476,8 @@ PUB main() | i, j
 
   ConfigPixels()
 
-  WS2811.start_2812b(PIXELCONFIG[3], %%0123, PIXELCONFIG[8], %%0123, PIXELCONFIG[13], %%0123, PIXELCONFIG[18], %%0123,PIXELCONFIG[23], %%0123,PIXELCONFIG[28],%%0123,PIXELCONFIG[33],%%0123,PIXELCONFIG[38], %%0123, PIXELCONFIG[4],PIXELCONFIG[0] - 1, PIXELCONFIG[2])
-  WS28112.start_2812b(PIXELCONFIG[43], %%0123,PIXELCONFIG[48],%%0123,PIXELCONFIG[53],%%0123,PIXELCONFIG[58],%%0123,PIXELCONFIG[43],%%0123,PIXELCONFIG[48],%%0123,PIXELCONFIG[53],%%0123,PIXELCONFIG[58],%%0123, PIXELCONFIG[44],PIXELCONFIG[40] - 1, PIXELCONFIG[42])
+  WS2811.start_2812b(PIXELCONFIG[3], PIXELCONFIG[1], PIXELCONFIG[8], PIXELCONFIG[6], PIXELCONFIG[13], PIXELCONFIG[11], PIXELCONFIG[18], PIXELCONFIG[16],PIXELCONFIG[23], PIXELCONFIG[21],PIXELCONFIG[28], PIXELCONFIG[26],PIXELCONFIG[33], PIXELCONFIG[31],PIXELCONFIG[38], PIXELCONFIG[36], PIXELCONFIG[4],PIXELCONFIG[0] - 1, PIXELCONFIG[2])
+  WS28112.start_2812b(PIXELCONFIG[43], PIXELCONFIG[41],PIXELCONFIG[48],PIXELCONFIG[46],PIXELCONFIG[53], PIXELCONFIG[51],PIXELCONFIG[58], PIXELCONFIG[56],PIXELCONFIG[43], PIXELCONFIG[41],PIXELCONFIG[48], PIXELCONFIG[46],PIXELCONFIG[53], PIXELCONFIG[51],PIXELCONFIG[58], %%0123, PIXELCONFIG[44],PIXELCONFIG[40] - 1, PIXELCONFIG[42])
 
 
   'Maybe move the listener into the startastrx object

@@ -525,7 +525,7 @@ dat { auto-run driver }
 
                 org       0
 
-pix_driver      setq      #17-1                                 ' get 17 longs from hub
+pix_driver      setq      #25-1                                 ' get 17 longs from hub
                 rdlong    newcon, ptra
 
                 mov       t1, #0
