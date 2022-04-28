@@ -19,7 +19,7 @@ CON
   CSPin = 60
 
 VAR
-        long PIXELCONFIG[90]
+        long PIXELCONFIG[124]
         long E131CONFIG[432]
         byte MACADDRESS[6]  ' Must be unique per layer 2 network
         byte IPADDRESS[4]
@@ -145,6 +145,20 @@ PUB main() | i, j
     send($0D, $0A)
     send("Setting DHCP: True", $0D, $0A)
     DHCP := 1
+
+    send("Configuring pixel config.")
+    longfill(@PIXELCONFIG,0,124)
+    longfill(@E131CONFIG,0,432)
+
+    i := 0
+    repeat 23
+      PIXELCONFIG[i * 5] := i + 1 ' Pin + 1, that way 0 is NULL
+      PIXELCONFIG[(i * 5) + 1] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
+      PIXELCONFIG[(i * 5) + 2] := 800 'Pixel holdoff time
+      PIXELCONFIG[(i * 5) + 3] := @pixelbuffer
+      PIXELCONFIG[(i * 5) + 4] := 0 ' Pixelcount in this pin
+      i++
+
     FS.newFile(string("blitzen.cfg"))
     FS.closeFile()
     if not \FS.openfile(string("blitzen.cfg"),"W")
@@ -338,9 +352,10 @@ PUB main() | i, j
   send( $0D, $0A)
 
   send("Configuring pixel config.")
-  longfill(@PIXELCONFIG,0,90)
-  longfill(@E131CONFIG,0,432)
+'  longfill(@PIXELCONFIG,0,120)
+'  longfill(@E131CONFIG,0,432)
 
+{
   PIXELCONFIG[0] := 1 ' Pin + 1, that way 0 is NULL
   PIXELCONFIG[1] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
   PIXELCONFIG[2] := 800 'Pixel holdoff time
@@ -412,9 +427,9 @@ PUB main() | i, j
   PIXELCONFIG[57] := 800 'Pixel holdoff time
   PIXELCONFIG[58] := @pixelbuffer
   PIXELCONFIG[59] := 0 ' Pixelcount in this pin
-
-  longfill(@E131CONFIG,0,432)
-  E131CONFIG[0] := 1 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+ }
+'  longfill(@E131CONFIG,0,432)
+{  E131CONFIG[0] := 1 ' Pin + 1, this is the many to one key to the PIXELCONFIG
   E131CONFIG[1] := 2 ' E1.31 Universe
   E131CONFIG[2] := 100 ' Pixels in this universe
   E131CONFIG[3] := 0
@@ -473,7 +488,7 @@ PUB main() | i, j
   E131CONFIG[45] := 13 ' E1.31 Universe
   E131CONFIG[46] := 100 ' Pixels in this universe
   E131CONFIG[47] := 0
-
+}
   ConfigPixels()
 
   WS2811.start_2812b(PIXELCONFIG[3], PIXELCONFIG[1], PIXELCONFIG[8], PIXELCONFIG[6], PIXELCONFIG[13], PIXELCONFIG[11], PIXELCONFIG[18], PIXELCONFIG[16],PIXELCONFIG[23], PIXELCONFIG[21],PIXELCONFIG[28], PIXELCONFIG[26],PIXELCONFIG[33], PIXELCONFIG[31],PIXELCONFIG[38], PIXELCONFIG[36], PIXELCONFIG[4],PIXELCONFIG[0] - 1, PIXELCONFIG[2])
@@ -608,6 +623,8 @@ pub httpd(port,PM,socket) | i
             e131post()
           if str.instr(@filepath,string("CONFIGS.HTM")) <> -1
             configspost(socket)
+          if str.instr(@filepath,string("OUTPUTS.HTM")) <> -1
+            outputspost()
 
         vid.printStr(@filepath)
         vid.crlf()
@@ -661,6 +678,8 @@ pub httpd(port,PM,socket) | i
                   netjs()
                if str.instr(@filepath,string("E131.JS")) <> -1
                   e131js()
+               if str.instr(@filepath,string("OUTPUT.JS")) <> -1
+                  outputjs()
 
             else
                if str.instr(@filepath,string("RUNNINGCONFIG.CFG")) <> -1
@@ -687,6 +706,7 @@ pub httpd(port,PM,socket) | i
 '      W6100.EndDataTCP(socket)
 
   W6100.Disconnect(socket)
+
 
 pub netpost()
      if str.instr(@READBUFFER,string("DHCP=1")) <> -1
@@ -887,6 +907,44 @@ pub e131js() | output, u, ei
 
 
   rdsize := strsize(@webbuff)
+pub outputspost() | p
+    eutmp[0] := 0
+    p := 0
+    repeat 24
+      str.append_str(@eutmp,string("O"))
+      str.append_str(@eutmp,str.dec(p+1,1))
+      str.append_str(@eutmp,string("="))
+      PIXELCONFIG[(p * 5) + 1] := str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ strsize(@eutmp), 3)
+      eutmp[0] := 0
+'      vid.dec(PIXELCONFIG[(p * 5) + 1] )
+'      send( $0D, $0A)
+      p++
+
+'    waitms(3000)
+
+pub outputjs() | p,idx
+' Zero out buffer
+    webbuff[0] := 0
+
+' send header
+    str.append_str(@webbuff,resp_ptr)
+
+    p := 0
+    repeat 24
+      CASE PIXELCONFIG[(p * 5) + 1]
+        %%0123: idx:=0
+        %%2013: idx:=1
+        %%1023: idx:=2
+        %%0213: idx:=3
+        %%1203: idx:=4
+        %%2103: idx:=5
+      str.append_str(@webbuff, string($0D, $0A, "document.getElementById('O"))
+      str.append_str(@webbuff,str.dec(p+1,-1))
+      str.append_str(@webbuff, string("').selectedIndex = '"))
+      str.append_str(@webbuff,str.dec(idx,-1))
+      str.append_str(@webbuff, string("'; "))
+      p++
+    rdsize := strsize(@webbuff)
 pub netjs()
 
 ' Zero out buffer
