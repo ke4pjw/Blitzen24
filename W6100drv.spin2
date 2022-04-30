@@ -88,6 +88,8 @@ CON
   REG_CHPLCKR   = $41F4
   REG_NETLCKR   = $41F5
   REG_PHYLCKR   = $41F6
+  REG_PHYCR0    = $301C
+  REG_PHYCR1    = $301D
   REG_SYSR      = $2000
   REG_SHAR0     = $4120
   REG_SHAR1     = $4121
@@ -124,6 +126,7 @@ CON
   REG_Sn_RX_RD  = $0228
   REG_Sn_IMR    = $0024
   REG_SIMR      = $2114
+
 
 ' Protocol Mode
   PM_SOCKET_Closed   = %0000
@@ -184,6 +187,12 @@ CON
    SYSR_NETL    = $C5 ' Lock Net
    SYSR_NETU    = $3A ' Lock Net
    SYSR_PHYL    = $53 ' Unlock PHY Lock Register
+
+   TENBASETXHDX  = %00000_111
+   TENBASETXFDX  = %00000_110
+   HUNDREDBASETXHDX  = %00000_101
+   HUNDREDBASETXFDX  = %00000_100
+
 VAR
   long EthernetLock
   long E131Socket
@@ -218,9 +227,6 @@ PUB initparallel() : r
   EthernetLock := locknew()
    if EthernetLock >= 0  and  EthernetLock <= 15
     reset()
-    waitms (3000)
-    waitms (3000)
-    waitms (3000)
     setmod010()
   return EthernetLock
 

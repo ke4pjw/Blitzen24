@@ -197,6 +197,7 @@ PUB main() | i, j
   send( $0D, $0A)
  }
 
+
   send("Initialize Ethernet:")
   elock := W6100.initparallel()
   vid.hex(elock.long,4)
@@ -219,7 +220,30 @@ PUB main() | i, j
     byteindex++
   send( $0D, $0A)
 
-  send("Network Configuration Unlocked.")
+  send("Physical Configuration Unlocked")
+  WRITEBUFFER[0] := W6100.SYSR_PHYL
+  W6100.writereg(W6100.REG_PHYLCKR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
+  send( $0D, $0A)
+
+  send("Set physical interface to 10BASETXFDX")
+  WRITEBUFFER[0] := W6100.TENBASETXFDX
+  W6100.writereg(W6100.REG_PHYCR0,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
+  send( $0D, $0A)
+
+  WRITEBUFFER[0] := $41
+  W6100.writereg(W6100.REG_PHYCR1,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
+
+  waitms (3000)
+  waitms (3000)
+  waitms (3000)
+
+  send("Physical Configuration Locked")
+  WRITEBUFFER[0] := $00
+  W6100.writereg(W6100.REG_PHYLCKR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
+  send( $0D, $0A)
+
+
+  send("Network Configuration locked.")
   WRITEBUFFER[0] := W6100.SYSR_NETU
   W6100.writereg(W6100.REG_NETLCKR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
   send( $0D, $0A)
