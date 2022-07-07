@@ -18,6 +18,12 @@ CON
   DIPin = 59
   CSPin = 60
 
+  CS    = 50
+  RST   = 52
+  DC    = 51
+  CLK   = 49
+  DATA  = 48
+
 VAR
         long PIXELCONFIG[124]
         long E131CONFIG[432]
@@ -63,6 +69,8 @@ VAR
         byte eutmp[4]
         byte pcnt[4]
         byte boundary[71]
+        long watchdogstack[64]
+        byte bgtmp[64]
 OBJ
         FS: "FAT32"
         W6100: "W6100drv"
@@ -70,15 +78,20 @@ OBJ
         prng: "jm_prng"
         WS2811: "tt_rgbx_pixel"
         WS28112: "tt_rgbx_pixel"
+        DMX: "tt_dmx_tx"
         str: "jm_strings"
+        OLED: "oled_AsmDrv"
 PUB main() | i, j
+
+
+
   vid.initDvi(-1, DVI_BASE_PIN, 0, vid.FLASH_TEXT, vid.WVGA)
 
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
-  resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
-  resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=360", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
-  resp_png_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=360", $0D, $0A,  "Content-Type: image/png", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
-  resp_ico_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=360", $0D, $0A,  "Content-Type: image/x-icon", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=360", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=3600, stale-while-revalidate", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_png_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=3600, stale-while-revalidate", $0D, $0A,  "Content-Type: image/png", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_ico_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=3600, stale-while-revalidate", $0D, $0A,  "Content-Type: image/x-icon", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_404_ptr := String("HTTP/1.1 404 Not Found", $0D, $0A, "Connection: close", $0D, $0A, "Content-Type: text/html", $0D, $0A, $0D, $0A, "<HTML><BODY><H1>Nope, not here.</H2></BODY></HTML>", $0D, $0A)
   resp_dl_ptr  := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: application/octet-stream", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
 
@@ -97,6 +110,11 @@ PUB main() | i, j
   waitms(100)
 ' we can choose to map SEND to output to the text region
   send:=@vid.tx
+'  SEND := @OLED.TERMSEND
+  OLED.Init(CS,DC,DATA,CLK,RST)
+  OLED.AutoUpdateOff()
+  OLED.clearDisplay()
+
   vid.setTextColours(2,16)
 
 
@@ -108,8 +126,13 @@ PUB main() | i, j
 
   send("Starting SD driver and mounting filesystem")
   send( $0D, $0A)
-      FS.FATEngineStart(DOPin, CLKPin, DIPin, CSPin, 0)
-      FS.mountPartition(0)
+  if \FS.FATEngineStart(DOPin, CLKPin, DIPin, CSPin, 0)
+     OLED.TERMSEND(STRING("Missing SD Card?", OLED.CR, OLED.LF))
+     repeat
+  if \FS.mountPartition(0)
+     OLED.TERMSEND(STRING("Can't mount FS", OLED.CR, OLED.LF))
+     OLED.TERMSEND(STRING("Missing SD Card?", OLED.CR, OLED.LF))
+     repeat
   send("Config file Size: ")
   vid.dec(@DHCP - @PIXELCONFIG)
   send($0D, $0A)
@@ -119,6 +142,7 @@ PUB main() | i, j
     send("Opened", $0D, $0A)
     FS.readData(@PIXELCONFIG, @DHCP - @PIXELCONFIG + 1)
     FS.closeFile()
+    OLED.TERMSEND(STRING("Config Found!", OLED.CR, OLED.LF))
   else
     send("Failed", $0D, $0A)
     send("Zeroing Memory Configuration.")
@@ -166,11 +190,13 @@ PUB main() | i, j
       send("Writing Configuration to SD Card.", $0D, $0A)
       FS.writeData(@PIXELCONFIG, @DHCP - @PIXELCONFIG + 1)
       FS.closeFile()
-
+      OLED.TERMSEND(STRING("New config saved.", OLED.CR, OLED.LF))
     else
 
       send("Unable to write config. Aborting.", $0D, $0A)
-      abort
+      OLED.TERMSEND(STRING("Config save fail", OLED.CR, OLED.LF))
+      OLED.TERMSEND(STRING("Missing SD Card?", OLED.CR, OLED.LF))
+      repeat
 {
   MACADDRESS[0] := $00 'wiznet don't change
   MACADDRESS[1] := $08 'wiznet don't change
@@ -235,7 +261,16 @@ PUB main() | i, j
 
   waitms (3000)
   waitms (3000)
-  waitms (3000)
+
+  OLED.TERMPOSY(0)
+  OLED.TERMPOSX(0)
+  OLED.TERMSEND(string("Blitzen 24  "))
+  OLED.TERMPOSX(12)
+  OLED.SETFG(OLED.Red)
+  OLED.TERMSEND(string($81))
+  OLED.TERMPOSX(14)
+  OLED.TERMSEND(string($80))
+  OLED.SETFG(OLED.White)
 
   send("Physical Configuration Locked")
   WRITEBUFFER[0] := $00
@@ -262,6 +297,22 @@ PUB main() | i, j
   vid.hex(MACADDRESS[5],2)
   send($0D, $0A)
   W6100.writereg(W6100.REG_SHAR0,W6100.IDM_BSR_Common_Register,6,@MACADDRESS)
+
+  OLED.TERMPOSY(6)
+  OLED.TERMPOSX(0)
+
+  OLED.TERMSEND(string("MAC Address:", OLED.CR, OLED.LF))
+  OLED.hex(MACADDRESS[0],2)
+'  OLED.TERMSEND(string(":"))
+  OLED.hex(MACADDRESS[1],2)
+'  OLED.TERMSEND(string(":"))
+  OLED.hex(MACADDRESS[2],2)
+'  OLED.TERMSEND(string(":"))
+  OLED.hex(MACADDRESS[3],2)
+'  OLED.TERMSEND(string(":"))
+  OLED.hex(MACADDRESS[4],2)
+'  OLED.TERMSEND(string(":"))
+  OLED.hex(MACADDRESS[5],2)
 
 
   send("Network Configuration locked.")
@@ -364,6 +415,19 @@ PUB main() | i, j
   vid.dec(WRITEBUFFER[3] )
   send( $0D, $0A)
   W6100.writereg(W6100.REG_SIPR0,W6100.IDM_BSR_Common_Register,4,@WRITEBUFFER)
+
+  OLED.TERMPOSY(3)
+  OLED.TERMPOSX(0)
+  OLED.TERMSEND(string("IP Address:", OLED.CR, OLED.LF))
+  OLED.DEC(IPADDRESS[0])
+  OLED.TERMCHR(".")
+  OLED.DEC(IPADDRESS[1])
+  OLED.TERMCHR(".")
+'  OLED.TERMSEND( string($0D, $0A))
+  OLED.DEC(IPADDRESS[2])
+  OLED.TERMCHR(".")
+  OLED.DEC(IPADDRESS[3])
+
 
   send("Network Configuration locked.")
   WRITEBUFFER[0] := $C5
@@ -526,9 +590,43 @@ PUB main() | i, j
 
   send("Starting web server")
   send( $0D, $0A)
-  repeat
 
-     httpd(80,W6100.PM_TCP4,W6100.IDM_BSR_Socket1_Register)
+'  COGSPIN(NEWCOG, httpd(80,W6100.PM_TCP4,W6100.IDM_BSR_Socket1_Register), @httpdstack)
+  COGSPIN(NEWCOG,watchdogcog(), @watchdogstack)
+   repeat
+      httpd(80,W6100.PM_TCP4,W6100.IDM_BSR_Socket1_Register)
+
+
+pub watchdogcog()
+ repeat
+
+    W6100.readreg(W6100.REG_PHYSR,W6100.IDM_BSR_Common_Register,1,@bgtmp)
+    if (bgtmp[0] & 1) == 0
+        OLED.SETFG(OLED.Yellow)
+    If (bgtmp[0] & 128) == 128
+        OLED.SETFG(OLED.Red)
+    if (bgtmp[0] & 1) == 1
+        OLED.SETFG(OLED.Green)
+    OLED.TERMPOSY(0)
+    OLED.TERMPOSX(14)
+    OLED.TERMSEND(string($80))
+    OLED.SETFG(OLED.White)
+{
+    if wdcounter == W6100.Counter()
+      OLED.TERMPOSX(12)
+      OLED.SETFG(OLED.Red)
+    else
+      OLED.SETFG(OLED.Red)
+    if wddiscards <> W6100.Discards()
+      OLED.SETFG(OLED.Yellow)
+    OLED.TERMSEND(string($81))
+    OLED.SETFG(OLED.White)
+    wdcounter := W6100.Counter()
+    wddiscards := W6100.Discards()
+}
+    waitms(250)
+
+'    OLED.HEX(bgtmp[0],2)
 
 pub ConfigPixels() |  pixelcount, pixeloffset, i, ei
 
@@ -571,6 +669,7 @@ pub ConfigPixels() |  pixelcount, pixeloffset, i, ei
      vid.hex(BADBUFFER[1],2)       }
 
 pub httpd(port,PM,socket) | i
+ send:=@vid.tx
 
 
 
@@ -601,7 +700,7 @@ pub httpd(port,PM,socket) | i
 
   send("Checking Sn_RX_RSR Socket Status/number of bytes in buffer: ")
 
-    If ( W6100.ReceiveData(socket,5000) <> W6100.Sn_IR_TIMEOUT)
+  If ( W6100.ReceiveData(socket,10000) <> W6100.Sn_IR_TIMEOUT)
       psize := W6100.ReceiveProcess(socket,@READBUFFER)
       send("Received: ")
       send( $0D, $0A)

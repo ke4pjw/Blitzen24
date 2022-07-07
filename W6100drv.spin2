@@ -88,9 +88,11 @@ CON
   REG_CHPLCKR   = $41F4
   REG_NETLCKR   = $41F5
   REG_PHYLCKR   = $41F6
+  REG_PHYSR     = $3000
   REG_PHYCR0    = $301C
   REG_PHYCR1    = $301D
   REG_SYSR      = $2000
+  REG_SYCR1     = $2005
   REG_SHAR0     = $4120
   REG_SHAR1     = $4121
   REG_SHAR2     = $4122
@@ -984,11 +986,13 @@ pub SendData(socket,sendptr,ptrlen) : rtv | i
     repeat while (REGBUFFER[0] & $18) == $00
        readreg(REG_Sn_IMR,socket,1,@REGBUFFER)
 
+'Not sure we need this
+
     if (REGBUFFER[0] & $18) == $10
          REGBUFFER[0] := $10
          writereg(REG_Sn_IRCLR,socket,1,@REGBUFFER)
 
-    waitus(850)
+    waitms(1)
     'send("Webpage Sent")
     'vid.nl()
 
