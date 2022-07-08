@@ -200,6 +200,9 @@ VAR
   long E131Socket
   long E131PACKETBUFFER
   long E131TXBUFFER
+  long E131Ptr2Config
+  long E131Ptr2Counter
+  long E131Ptr2Discards
   long  ADDRH
   long  ADDRL
   byte  REGBUFFER[2]
@@ -207,7 +210,8 @@ VAR
   word  RX_RD
   word  RX_RSR
   long  e131cog
-
+  long  E131Counter
+  long  E131Discards
 
 
 OBJ
@@ -230,8 +234,12 @@ PUB initparallel() : r
    if EthernetLock >= 0  and  EthernetLock <= 15
     reset()
     setmod010()
-  return EthernetLock
 
+  return EthernetLock
+PUB Counter() : r
+    return E131Counter
+PUB Discards() : r
+    return E131Discards
 
 PUB readreg(REGISTER,BS,BLEN,RB) : r | i , LADDRL, LADDRH, tmpdata, tmpptr, datapin
 repeat until locktry(EthernetLock) < 0
@@ -992,7 +1000,7 @@ pub SendData(socket,sendptr,ptrlen) : rtv | i
          REGBUFFER[0] := $10
          writereg(REG_Sn_IRCLR,socket,1,@REGBUFFER)
 
-    waitms(1)
+    waitus(850)
     'send("Webpage Sent")
     'vid.nl()
 
@@ -1041,6 +1049,8 @@ PUB nl()
  send( $0D, $0A)
 PUB startfastrx(skt,pbf,txb,e131ptr)
     longmove(@E131Socket, @skt, 4)
+    E131Ptr2Counter  := @E131Counter
+    E131Ptr2Discards := @E131Discards
 '    hex(E131PACKETBUFFER,8)
 org
 'debug(uhex(DIRA))
@@ -1079,8 +1089,10 @@ if_nc  jmp #inlk
       DRVH ##MOD
       LOCKREL lelock
 
+      mov lE131Discards, #$00
+      mov lE131counter, #$00
 ' Populate config
-      setq      #5-1
+      setq      #7-1
       rdlong    lelock, ptra
 ' Populate E131 config in LUT
       setq2     #432-1
@@ -1128,9 +1140,6 @@ if_z  jmp #lstart ' If r is empty, go fish.
       cmp lr, ll_RX_RSR wz  ' lr is what is returned from rx. rx returns the last two bytes as a word.
 if_nz  jmp #lstart ' If lr is not the same as ll_RX_RSR, go fish.
 
-
-
-
 ' Find the rx buffer address to start reading bytes (RX_RD)
       mov lREGISTER, ##REG_Sn_RX_RD
       mov lBLEN, #2 ' get two bytes
@@ -1155,6 +1164,8 @@ if_nz  jmp #lstart ' If lr is not the same as ll_RX_RSR, go fish.
       mov   pixlen, #0
 e131lutenum
       RDLUT tE131ENUM, E131ENUM  wz
+if_z  ADD lE131Discards, #1    ' Increment E131 discard counter
+'debug(uhex(lE131Discards))
 if_z  jmp #lskipit
       CMP tE131ENUM, tE131ADDR wz
 if_nz ADD E131ENUM, #4
@@ -1183,7 +1194,8 @@ if_nz jmp #e131lutenum
       mov lRB, lrxptr ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
       call #lrx
 
-
+      ADD lE131Counter, #1  ' Increment E131 packet counter
+'debug(uhex(lE131Counter))
 ' Write the new RX address
  '     and ll_RX_RSR, ##$FFFF
  lskipit
@@ -1216,6 +1228,10 @@ if_nz jmp #e131lutenum
       mov lBLEN, #1
       mov lRB, lREGBUFFERTMP
       call #ltx
+
+      WRLONG lE131Counter, lE131Ptr2Counter   'Update the counters
+      WRLONG lE131Discards, lE131Ptr2Discards
+
 
       jmp #lstart
 
@@ -1438,6 +1454,8 @@ lsocket             RES  1
 lrxptr              RES  1
 lREGBUFFERTMP       RES  1
 E131CONFIGPTR       RES  1
+lE131Ptr2Counter    RES  1
+lE131Ptr2Discards   RES  1
 li                  RES  1
 lLADDRL             RES  1
 lLADDRH             RES  1
@@ -1457,4 +1475,6 @@ E131ENUM            RES  1
 tE131ENUM           RES  1
 tpixlen             RES  1
 pixlen              RES  1
+lE131Counter        RES  1
+lE131Discards       RES  1
 con { license }

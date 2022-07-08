@@ -69,8 +69,10 @@ VAR
         byte eutmp[4]
         byte pcnt[4]
         byte boundary[71]
-        long watchdogstack[64]
-        byte bgtmp[64]
+        byte bgtmp
+        long wdcounter
+        long wddiscards
+        long watchdogstack[128]
 OBJ
         FS: "FAT32"
         W6100: "W6100drv"
@@ -88,10 +90,10 @@ PUB main() | i, j
   vid.initDvi(-1, DVI_BASE_PIN, 0, vid.FLASH_TEXT, vid.WVGA)
 
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
-  resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=360", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
-  resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=3600, stale-while-revalidate", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
-  resp_png_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=3600, stale-while-revalidate", $0D, $0A,  "Content-Type: image/png", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
-  resp_ico_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=3600, stale-while-revalidate", $0D, $0A,  "Content-Type: image/x-icon", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_png_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/png", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_ico_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/x-icon", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_404_ptr := String("HTTP/1.1 404 Not Found", $0D, $0A, "Connection: close", $0D, $0A, "Content-Type: text/html", $0D, $0A, $0D, $0A, "<HTML><BODY><H1>Nope, not here.</H2></BODY></HTML>", $0D, $0A)
   resp_dl_ptr  := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: application/octet-stream", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
 
@@ -601,30 +603,37 @@ pub watchdogcog()
  repeat
 
     W6100.readreg(W6100.REG_PHYSR,W6100.IDM_BSR_Common_Register,1,@bgtmp)
-    if (bgtmp[0] & 1) == 0
+    if (bgtmp & 1) == 0
         OLED.SETFG(OLED.Yellow)
-    If (bgtmp[0] & 128) == 128
+    If (bgtmp & 128) == 128
         OLED.SETFG(OLED.Red)
-    if (bgtmp[0] & 1) == 1
+    if (bgtmp & 1) == 1
         OLED.SETFG(OLED.Green)
     OLED.TERMPOSY(0)
     OLED.TERMPOSX(14)
     OLED.TERMSEND(string($80))
     OLED.SETFG(OLED.White)
-{
-    if wdcounter == W6100.Counter()
-      OLED.TERMPOSX(12)
-      OLED.SETFG(OLED.Red)
+    OLED.TERMPOSX(12)
+
+    if wdcounter <> W6100.Counter()
+      OLED.SETFG(OLED.Green)
     else
       OLED.SETFG(OLED.Red)
     if wddiscards <> W6100.Discards()
       OLED.SETFG(OLED.Yellow)
     OLED.TERMSEND(string($81))
     OLED.SETFG(OLED.White)
+
     wdcounter := W6100.Counter()
     wddiscards := W6100.Discards()
-}
-    waitms(250)
+
+ {   OLED.TERMPOSY(1)
+    OLED.TERMPOSX(0)
+    OLED.dec(W6100.Discards())
+    OLED.TERMPOSY(2)
+    OLED.TERMPOSX(0)
+    OLED.dec(W6100.Counter()) }
+    waitms(1000)
 
 '    OLED.HEX(bgtmp[0],2)
 
@@ -671,7 +680,7 @@ pub ConfigPixels() |  pixelcount, pixeloffset, i, ei
 pub httpd(port,PM,socket) | i
  send:=@vid.tx
 
-
+repeat
 
   send("Configuring Protocol Mode TCP on Socket 1")
   send( $0D, $0A)
@@ -681,6 +690,8 @@ pub httpd(port,PM,socket) | i
   send( $0D, $0A)
    ' Instantiate Stay Puff listener on opened socket.
   if W6100.ListenTCP(socket) <> W6100.SOCK_LISTEN
+     send("Socket Listener failed!")
+     send( $0D, $0A)
      Return
 
   send("Waiting for TCP request on Socket 1 port 80")
@@ -700,22 +711,22 @@ pub httpd(port,PM,socket) | i
 
   send("Checking Sn_RX_RSR Socket Status/number of bytes in buffer: ")
 
-  If ( W6100.ReceiveData(socket,10000) <> W6100.Sn_IR_TIMEOUT)
+  If ( W6100.ReceiveData(socket,100000) <> W6100.Sn_IR_TIMEOUT)
       psize := W6100.ReceiveProcess(socket,@READBUFFER)
       send("Received: ")
       send( $0D, $0A)
       i:=0
-      repeat until i == psize 'or i > 256
+{      repeat until i == psize 'or i > 256
         if READBUFFER[i] > 31 and READBUFFER[i] < 128
            send(READBUFFER[i])
         else
            send("`")
         i++
       send( $0D, $0A)
-
+ }
       send("Packet Length: ")
 
-      send( vid.dec(i), $0D, $0A)
+      send( vid.dec(psize), $0D, $0A)
       send("Start Filename: ")
       send(vid.dec(str.instr(@READBUFFER,string("GET /"))+5))
       send( $0D, $0A)
