@@ -627,12 +627,13 @@ pub watchdogcog()
     wdcounter := W6100.Counter()
     wddiscards := W6100.Discards()
 
- {   OLED.TERMPOSY(1)
+    OLED.TERMPOSY(1)
     OLED.TERMPOSX(0)
     OLED.dec(W6100.Discards())
     OLED.TERMPOSY(2)
     OLED.TERMPOSX(0)
-    OLED.dec(W6100.Counter()) }
+    OLED.dec(W6100.Counter())
+
     waitms(1000)
 
 '    OLED.HEX(bgtmp[0],2)
@@ -711,19 +712,20 @@ repeat
 
   send("Checking Sn_RX_RSR Socket Status/number of bytes in buffer: ")
 
-  If ( W6100.ReceiveData(socket,100000) <> W6100.Sn_IR_TIMEOUT)
+  If ( W6100.ReceiveData(socket,10000) <> W6100.Sn_IR_TIMEOUT)
+ '     W6100.ReceiveData(socket,100000)
       psize := W6100.ReceiveProcess(socket,@READBUFFER)
       send("Received: ")
       send( $0D, $0A)
       i:=0
-{      repeat until i == psize 'or i > 256
+      repeat until i == psize 'or i > 256
         if READBUFFER[i] > 31 and READBUFFER[i] < 128
            send(READBUFFER[i])
         else
            send("`")
         i++
       send( $0D, $0A)
- }
+
       send("Packet Length: ")
 
       send( vid.dec(psize), $0D, $0A)
@@ -808,6 +810,8 @@ repeat
             FS.closeFile()
          else
             if str.instr(@filepath,string(".JS")) <> -1
+               if str.instr(@filepath,string("COUNTERS.JS")) <> -1
+                  countersjs()
                if str.instr(@filepath,string("NET.JS")) <> -1
                   netjs()
                if str.instr(@filepath,string("E131.JS")) <> -1
@@ -839,7 +843,7 @@ repeat
 '      W6100.SendDataTCP(socket,@RDATA,strsize(RDATA))' Send the page
 '      W6100.EndDataTCP(socket)
 
-  W6100.Disconnect(socket)
+        W6100.Disconnect(socket)
 
 
 pub netpost()
@@ -1135,6 +1139,25 @@ pub netjs()
 
 
   rdsize := strsize(@webbuff)
+
+PUB countersjs()
+' Zero out buffer
+   webbuff[0] := 0
+
+' send header
+   str.append_str(@webbuff,resp_ptr)
+
+   str.append_str(@webbuff, string($0D, $0A, "var myTable = document.getElementById('stats');"))
+
+   str.append_str(@webbuff, string($0D, $0A, "myTable.rows[0].cells[1].innerHTML = '"))
+   str.append_str(@webbuff,str.dec(W6100.Counter(),-1))
+   str.append_str(@webbuff, string("';"))
+   str.append_str(@webbuff, string($0D, $0A, "myTable.rows[1].cells[1].innerHTML = '"))
+   str.append_str(@webbuff,str.dec(W6100.Discards(),-1))
+   str.append_str(@webbuff, string("';"))
+
+   rdsize := strsize(@webbuff)
+
 pub downloadconfig()
 ' Zero out buffer
   webbuff[0] := 0
