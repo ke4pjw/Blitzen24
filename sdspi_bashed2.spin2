@@ -1,0 +1,668 @@
+{{ 'See end of file for license
+    SDSPI driver for P2-ES FastSpin/InlineASM RC4 - inline asm bit bashed
+    Cheezus Slice (Joe Heinz)  -   July - 2019
+    Thanks to all those out there in forum land!
+    Original spin version by Radical Eye Software Copyright 2008
+}}
+'13May20 RJA thinks he made some improvements :)
+'Added multi-block read with faster read loop.
+' 21May20:  Slight fix to readblocks() in sdspi_bashed, commented out a readresp().  Also removed some unused functions.
+
+con
+   sectorsize = 512
+   sectorshift = 9
+
+var
+   long di, do, clk, cs, starttime, sdhc, di_mask, do_mask, clk_mask, do_pin
+   long xwait
+
+pri send8(outv) | c, i, w, n       '   Send eight bits, then raise di.
+
+    i := di
+    c := clk
+    w:=xwait
+    n:=8
+    org
+            rol     outv,       #24
+'loop1
+            'rep     #.end_send, #8
+            rol     outv,       #1      wc
+            drvl    c
+            drvc    i
+            waitx   w 'rja moved this down one
+            drvh    c
+            waitx   w
+
+            rol     outv,       #1      wc
+            drvl    c
+            drvc    i
+            waitx   w 'rja moved this down one
+            drvh    c
+            waitx   w
+
+            rol     outv,       #1      wc
+            drvl    c
+            drvc    i
+            waitx   w 'rja moved this down one
+            drvh    c
+            waitx   w
+
+            rol     outv,       #1      wc
+            drvl    c
+            drvc    i
+            waitx   w 'rja moved this down one
+            drvh    c
+            waitx   w
+
+            rol     outv,       #1      wc
+            drvl    c
+            drvc    i
+            waitx   w 'rja moved this down one
+            drvh    c
+            waitx   w
+
+            rol     outv,       #1      wc
+            drvl    c
+            drvc    i
+            waitx   w 'rja moved this down one
+            drvh    c
+            waitx   w
+
+            rol     outv,       #1      wc
+            drvl    c
+            drvc    i
+            waitx   w 'rja moved this down one
+            drvh    c
+            waitx   w
+
+            rol     outv,       #1      wc
+            drvl    c
+            drvc    i
+            waitx   w 'rja moved this down one
+            drvh    c
+            waitx   w
+
+.end_send
+            drvh    i
+    end
+
+
+pri read() : r  | c, o,w,n        '   Read eight bits from the card.
+    c := clk
+    o := do
+    w:=xwait
+    n:=6
+    org
+        mov     r,          #0
+'loop2
+        'rep     #.end_read, #8
+        drvl    c
+        waitx   w    '' !! 13 safe for up to 160 mhz, 14 for 320mhz
+        testp   o               wc
+        drvh    c
+        waitx   w
+        rcl     r,          #1
+'{
+        drvl    c
+        waitx   w    '' !! 13 safe for up to 160 mhz, 14 for 320mhz
+        testp   o               wc
+        drvh    c
+        waitx   w
+        rcl     r,          #1
+
+        drvl    c
+        waitx   w    '' !! 13 safe for up to 160 mhz, 14 for 320mhz
+        testp   o               wc
+        drvh    c
+        waitx   w
+        rcl     r,          #1
+
+        drvl    c
+        waitx   w    '' !! 13 safe for up to 160 mhz, 14 for 320mhz
+        testp   o               wc
+        drvh    c
+        waitx   w
+        rcl     r,          #1
+
+        drvl    c
+        waitx   w    '' !! 13 safe for up to 160 mhz, 14 for 320mhz
+        testp   o               wc
+        drvh    c
+        waitx   w
+        rcl     r,          #1
+
+        drvl    c
+        waitx   w    '' !! 13 safe for up to 160 mhz, 14 for 320mhz
+        testp   o               wc
+        drvh    c
+        waitx   w
+        rcl     r,          #1
+
+        drvl    c
+        waitx   w    '' !! 13 safe for up to 160 mhz, 14 for 320mhz
+        testp   o               wc
+        drvh    c
+        waitx   w
+        rcl     r,          #1
+
+        drvl    c
+        waitx   w    '' !! 13 safe for up to 160 mhz, 14 for 320mhz
+        testp   o               wc
+        drvh    c
+        waitx   w
+        rcl     r,          #1
+'}
+
+
+
+
+
+
+        'djnz    n,#loop2
+.end_read
+    end
+
+
+pri read32() : r  | c, o,w,n,x        '   Read 32 bits from the card. 'RJA adding hoping to make faster
+
+        c := clk
+        o := do
+        w:=xwait
+        n:=4
+
+    org
+        mov     r,#0
+        mov     x,#0
+.loop
+        'rep     #.end_read, #8
+        drvl    c
+        waitx   w'#5    '' !! 13 safe for up to 160 mhz, 14 for 320mhz
+        drvh    c
+        testp   o               wc
+        rcl     x,#1
+
+        drvl    c
+        waitx   w'#5    '' !! 13 safe for up to 160 mhz, 14 for 320mhz
+        drvh    c
+        testp   o               wc
+        rcl     x,#1
+
+        drvl    c
+        waitx   w'#5    '' !! 13 safe for up to 160 mhz, 14 for 320mhz
+        drvh    c
+        testp   o               wc
+        rcl     x,#1
+
+        drvl    c
+        waitx   w'#5    '' !! 13 safe for up to 160 mhz, 14 for 320mhz
+        drvh    c
+        testp   o               wc
+        rcl     x,#1
+
+        drvl    c
+        waitx   w'#5    '' !! 13 safe for up to 160 mhz, 14 for 320mhz
+        drvh    c
+        testp   o               wc
+        rcl     x,#1
+
+        drvl    c
+        waitx   w'#5    '' !! 13 safe for up to 160 mhz, 14 for 320mhz
+        drvh    c
+        testp   o               wc
+        rcl     x,#1
+
+        drvl    c
+        waitx   w'#5    '' !! 13 safe for up to 160 mhz, 14 for 320mhz
+        drvh    c
+        testp   o               wc
+        rcl     x,#1
+
+        drvl    c
+        waitx   w'#5    '' !! 13 safe for up to 160 mhz, 14 for 320mhz
+        drvh    c
+        testp   o               wc
+        rcl     x,#1
+
+
+.end_read
+        add     r,x
+        ror     r,#8
+        mov     x,#0
+        djnz    n,#.loop
+
+    end
+
+pri readSector(p)| r, c, o,n,x,y        '   Read 512 bytesfrom the card. 'RJA adding hoping to make faster
+
+    c := clk
+    o := do
+    n:=4
+    'RJA:  Need to increase delay for >250MHz clock waitx #2 --> #4
+
+    org
+        'Read in 512 bytes
+        mov     y,##512 '#bytes in a block
+        mov     ptrb,p
+
+.loop
+        'rep     #.end_read, #8
+        drvl    c
+        rcl     x,#1  ' shift in msb first (first dummy zero)
+        waitx   #4
+        drvh    c
+        nop
+        testp   o  wc
+
+        drvl    c
+        rcl     x,#1  ' shift in msb first (first dummy zero)
+        waitx   #4
+        drvh    c
+        nop
+        testp   o  wc
+
+        drvl    c
+        rcl     x,#1  ' shift in msb first (first dummy zero)
+        waitx   #4
+        drvh    c
+        nop
+        testp   o  wc
+
+        drvl    c
+        rcl     x,#1  ' shift in msb first (first dummy zero)
+        waitx   #4
+        drvh    c
+        nop
+        testp   o  wc
+
+        drvl    c
+        rcl     x,#1  ' shift in msb first (first dummy zero)
+        waitx   #4
+        drvh    c
+        nop
+        testp   o  wc
+
+        drvl    c
+        rcl     x,#1  ' shift in msb first (first dummy zero)
+        waitx   #4
+        drvh    c
+        nop
+        testp   o  wc
+
+        drvl    c
+        rcl     x,#1  ' shift in msb first (first dummy zero)
+        waitx   #4
+        drvh    c
+        nop
+        testp   o  wc
+
+        drvl    c
+        rcl     x,#1  ' shift in msb first (first dummy zero)
+        waitx   #4
+        drvh    c
+        nop
+        testp   o  wc
+
+.end_read
+        rcl     x,#1
+        wrbyte  x,ptrb++
+
+
+        djnz    y,#.loop
+
+        'read in two more bytes
+        mov     y,#2
+.loop2
+        'rep     #.end_read2, #8
+        drvl    c
+        rcl     x,#1  ' shift in msb first (first dummy zero)
+        waitx   #4
+        drvh    c
+        nop
+        testp   o  wc
+
+        drvl    c
+        rcl     x,#1  ' shift in msb first (first dummy zero)
+        waitx   #4
+        drvh    c
+        nop
+        testp   o  wc
+
+        drvl    c
+        rcl     x,#1  ' shift in msb first (first dummy zero)
+        waitx   #4
+        drvh    c
+        nop
+        testp   o  wc
+
+        drvl    c
+        rcl     x,#1  ' shift in msb first (first dummy zero)
+        waitx   #4
+        drvh    c
+        nop
+        testp   o  wc
+
+        drvl    c
+        rcl     x,#1  ' shift in msb first (first dummy zero)
+        waitx   #4
+        drvh    c
+        nop
+        testp   o  wc
+
+        drvl    c
+        rcl     x,#1  ' shift in msb first (first dummy zero)
+        waitx   #4
+        drvh    c
+        nop
+        testp   o  wc
+
+        drvl    c
+        rcl     x,#1  ' shift in msb first (first dummy zero)
+        waitx   #4
+        drvh    c
+        nop
+        testp   o  wc
+
+        drvl    c
+        rcl     x,#1  ' shift in msb first (first dummy zero)
+        waitx   #4
+        drvh    c
+        nop
+        testp   o  wc
+
+.end_read2
+        rcl     x,#1
+        djnz    y,#.loop2
+
+
+    end
+
+
+
+pri readresp() : r
+'' made return timeout to caller CHZ 2-2019
+'   Read eight bits, and loop until we
+'   get something other than $ff.
+'
+   repeat
+      r:=read()
+      if r  <> $ff
+         return r
+      if checktime() == -41
+        return -41
+
+
+pri busy() : r        '   Wait until card stops returning busy
+'' made return timeout to caller CHZ 2-2019
+
+'
+   repeat
+      if (r := read())
+         return r
+      if checktime() == -41
+        return -41
+
+
+pri checktime():r       '   Did we go over our time limit yet?
+
+    'return 0
+
+   if (getct() - starttime) > clkfreq
+      return -41'abort -41 ' Timeout during read
+
+pri cmd(op, parm):r
+'
+'   Send a full command sequence, and get and
+'   return the response.  We make sure cs is low,
+'   send the required eight clocks, then the
+'   command and parameter, and then the CRC for
+'   the only command that needs one (the first one).
+'   Finally we spin until we get a result.
+
+    'DRVL_(cs)
+    PINL(cs)
+
+    read()
+    send8($40+op)
+    send8(parm >> 24)
+    send8(parm >> 16)
+    send8(parm >> 8)
+    send8(parm << 0)
+    if (op == 0)
+        send8($95)
+    else
+        send8($87)
+    return readresp()
+
+pri endcmd()      ' Deselect the card to terminate a command.
+        'drvh_(cs)           ' Deselect the card to terminate a command.
+        PINH(cs)
+
+PUB stop()                    ' RJA adding in some things (or not)
+
+PUB release()
+        'dirl_(cs) 'Shouldn't we do this?
+
+        'dirl_(clk)
+        'dirl_(di)
+    PINF(clk)
+    PINF(di)
+
+pub getCog():r
+  return 1 'no cogs here!
+
+pub start_explicit2(iDO, iCLK, iDI, iCS):r| t, c   'RJA adding in some things to make work
+
+    xwait:=400 'start spi off slow
+
+    do := iDO
+    clk := iCLK
+    di := iDI
+    cs := iCS
+
+    c := clk
+    PINH(cs)
+    PINH(clk)
+    PINH(di)
+
+    repeat 600
+        read()
+
+    org
+        getct   t
+    end
+
+    starttime := t
+
+    repeat 3
+        cmd(0, 0)
+        'drvh_(cs)               ' Deselect the card to terminate a command.
+        PINH(cs)   ' Deselect the card to terminate a command.
+        waitnx(100)
+
+
+    cmd(8, $1aa)
+    read32()
+    'drvh_(cs)               ' Deselect the card to terminate a command.
+    PINH(cs)   ' Deselect the card to terminate a command.
+    waitnx(100)
+
+    repeat 100
+        cmd(55, 0)
+        t := cmd(41, $4020_0000)
+            'drvh_(cs)           ' Deselect the card to terminate a command.
+        PINH(cs)   ' Deselect the card to terminate a command.
+        waitnx(100000)
+        if t <> 1
+            quit
+    if t
+        return -40'abort -40 ' could not initialize card
+
+
+
+    cmd(58, 0)
+    sdhc := (read() >> 6) & 1
+    read()
+    read()
+    read()
+    'drvh_(cs)               ' Deselect the card to terminate a command.
+    PINH(cs)   ' Deselect the card to terminate a command.
+
+    xwait:=14 'now can spi faster
+
+    'ctype:= sdhc +1
+
+    return sdhc +1              ' return card type 2=SDHC,1=SD
+
+pub start_explicit(iDO, iCLK, iDI, iCS):r| t, c   'RJA adding in some things to make work
+
+
+
+    do := iDO
+    clk := iCLK
+    di := iDI
+    cs := iCS
+
+    return  0
+
+PUB mountCard():r|t
+
+    xwait:=400 'start spi off slow
+
+    PINH(cs)
+    PINH(clk)
+    PINH(di)
+
+
+    repeat 600
+        read()
+
+    t:=getct()
+
+    starttime := t
+
+    repeat 3
+        cmd(0, 0)
+        PINH(cs)   ' Deselect the card to terminate a command.
+        waitnx(100)
+
+
+    cmd(8, $1aa)
+    read32()
+    PINH(cs)   ' Deselect the card to terminate a command.
+    waitnx(100)
+
+    repeat 100
+        cmd(55, 0)
+        t := cmd(41, $4020_0000)
+        PINH(cs)   ' Deselect the card to terminate a command.
+        waitnx(100000)
+        if t <> 1
+            quit
+    if t
+        return -40'abort -40 ' could not initialize card
+
+
+
+    cmd(58, 0)
+    sdhc := (read() >> 6) & 1
+    read()
+    read()
+    read()
+    'drvh_(cs)               ' Deselect the card to terminate a command.
+    PINH(cs)   ' Deselect the card to terminate a command.
+
+    xwait:=14 'now can spi faster
+
+
+    return sdhc +1              ' return card type 2=SDHC,1=SD
+
+
+PUB waitnx(x)|n
+    n:=x
+    org
+        waitx   n
+    end
+
+pub start(basepin):r
+
+    r := start_explicit(basepin, basepin+1, basepin+2, basepin+3)
+    return r
+
+PUB doSDHC(n):n1
+    if sdhc == 0
+        n  <<= 9
+        return n
+    else
+        return n
+
+pub readblock(n, b):r
+'
+'   Read a single block.  The "n" passed in is the
+'   block number (blocks are 512 bytes); the b passed
+'   in is the address of 512 blocks to fill with the
+'   data.
+'
+
+   cmd(17, doSDHC(n))
+   starttime := getct()
+   readresp()
+   ReadSector(b)
+   endcmd()
+
+
+
+pub readblocks(n,b,p):r  'use multi-block read 'Note:  Currently have to re-mount after using this...
+
+    cmd(18, doSDHC(b)) 'start multi-block read
+    repeat n
+        starttime := getct()
+        readResp()
+        ReadSector(p)
+        p+=512
+    endcmd()
+    cmd(12,0) 'end multi-block read
+    'readresp()
+    endcmd()
+
+
+
+
+pub writeblock(n, b):r
+'
+'   Write a single block.  Mirrors the read above.
+'
+   starttime := getct()
+   cmd(24, doSDHC(n))
+   send8($fe)
+   repeat sectorsize
+      send8(byte[b++])
+   read()
+   read()
+   if ((readresp() & $1f) <> 5)
+      return -42
+   busy()
+   endcmd()
+   return
+
+CON 'MIT License Terms
+{{
+'  Permission is hereby granted, free of charge, to any person obtaining
+'  a copy of this software and associated documentation files
+'  (the "Software"), to deal in the Software without restriction,
+'  including without limitation the rights to use, copy, modify, merge,
+'  publish, distribute, sublicense, and/or sell copies of the Software,
+'  and to permit persons to whom the Software is furnished to do so,
+'  subject to the following conditions:
+'
+'  The above copyright notice and this permission notice shall be included
+'  in all copies or substantial portions of the Software.
+'
+'  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+'  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+'  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+'  IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+'  CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+'  TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+'  SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+}}
+
