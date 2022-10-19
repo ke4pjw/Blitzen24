@@ -32,6 +32,7 @@ VAR
         byte SUBNETMASK[4]
         byte GATEWAY[4]
         byte DHCP 'Non zero
+        byte BRIGHTNESS
         long TXBUFFER[8]
         byte PACKETBUFFER[4098]
         byte PIXELBUFFER[73768]
@@ -139,19 +140,19 @@ PUB main() | i, j
      OLED.TERMSEND(STRING("Missing SD Card?", OLED.CR, OLED.LF))
      repeat
   send("Config file Size: ")
-  vid.dec(@DHCP - @PIXELCONFIG)
+  vid.dec(@Brightness - @PIXELCONFIG)
   send($0D, $0A)
   send("Opening config file: ")
   if not \FS.openfile(string("blitzen.cfg"),"R")
 
     send("Opened", $0D, $0A)
-    FS.readData(@PIXELCONFIG, @DHCP - @PIXELCONFIG + 1)
+    FS.readData(@PIXELCONFIG, @Brightness - @PIXELCONFIG + 1)
     FS.closeFile()
     OLED.TERMSEND(STRING("Config Found!", OLED.CR, OLED.LF))
   else
     send("Failed", $0D, $0A)
     send("Zeroing Memory Configuration.")
-    bytefill(@PIXELCONFIG, 0, @DHCP - @PIXELCONFIG + 1)
+    bytefill(@PIXELCONFIG, 0, @Brightness - @PIXELCONFIG + 1)
     send("Generating MAC Address: ")
        'Configure Mac Address
     MACADDRESS[0] := $00 'wiznet don't change
@@ -174,6 +175,7 @@ PUB main() | i, j
     send($0D, $0A)
     send("Setting DHCP: True", $0D, $0A)
     DHCP := 1
+    Brightness := 100
 
     send("Configuring pixel config.")
     longfill(@PIXELCONFIG,0,124)
@@ -193,7 +195,7 @@ PUB main() | i, j
     if not \FS.openfile(string("blitzen.cfg"),"W")
 
       send("Writing Configuration to SD Card.", $0D, $0A)
-      FS.writeData(@PIXELCONFIG, @DHCP - @PIXELCONFIG + 1)
+      FS.writeData(@PIXELCONFIG, @Brightness - @PIXELCONFIG + 1)
       FS.closeFile()
       OLED.TERMSEND(STRING("New config saved.", OLED.CR, OLED.LF))
     else
@@ -887,7 +889,7 @@ pub writeconfig()
     if not \FS.openfile(string("blitzen.cfg"),"W")
 
       send("Writing Configuration to SD Card.", $0D, $0A)
-      FS.writeData(@PIXELCONFIG, @DHCP - @PIXELCONFIG + 1)
+      FS.writeData(@PIXELCONFIG, @Brightness - @PIXELCONFIG + 1)
       FS.closeFile()
 
     else
@@ -1072,7 +1074,11 @@ pub outputspost() | p
 '      vid.dec(PIXELCONFIG[(p * 5) + 1] )
 '      send( $0D, $0A)
       p++
-
+    eutmp[0] := 0
+    str.append_str(@eutmp,string("brt="))
+    Brightness := str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ strsize(@eutmp), 3)
+    stoppixels()
+    startpixels()
 '    waitms(3000)
 
 pub outputjs() | p,idx
@@ -1097,6 +1103,13 @@ pub outputjs() | p,idx
       str.append_str(@webbuff,str.dec(idx,-1))
       str.append_str(@webbuff, string("'; "))
       p++
+    str.append_str(@webbuff, string($0D, $0A, "document.getElementById('brt').value='"))
+    str.append_str(@webbuff,str.dec(Brightness,-1))
+    str.append_str(@webbuff, string("';"))
+        str.append_str(@webbuff, string($0D, $0A, "document.getElementById('sld').value='"))
+    str.append_str(@webbuff,str.dec(Brightness,-1))
+    str.append_str(@webbuff, string("';"))
+
     rdsize := strsize(@webbuff)
 pub netjs()
 
@@ -1181,8 +1194,8 @@ pub downloadconfig()
   str.append_str(@webbuff,resp_dl_ptr)
   rdsize := strsize(@webbuff)
 ' Copy running config into web buffer
-  bytemove(@webbuff + rdsize, @PIXELCONFIG, @DHCP - @PIXELCONFIG + 1)
-  rdsize := rdsize + (@DHCP - @PIXELCONFIG) + 1
+  bytemove(@webbuff + rdsize, @PIXELCONFIG, @Brightness - @PIXELCONFIG + 1)
+  rdsize := rdsize + (@Brightness - @PIXELCONFIG) + 1
 
 
 pub dhcpclient() | i
