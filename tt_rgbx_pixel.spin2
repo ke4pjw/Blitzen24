@@ -9,7 +9,7 @@
 ''               -- see below for terms of use
 ''   E-mail..... ttrapp at ieee dot org
 ''   Started....
-''   Updated.... 30 Mar 2022
+''   Updated.... 19 Oct 2022
 ''
 '' =================================================================================================
 
@@ -118,7 +118,7 @@ var
   long  t0h                                                     ' bit0 high time (ticks)
   long  t1h                                                     ' bit1 high time (ticks)
   long  cycleticks                                              ' ticks in 1.25us
-
+  long  brightness                                              ' Brightness
 
 pub null()
 
@@ -149,7 +149,7 @@ pub start_2812(p_buf, count, pin, holdoff) : result
   return startx(p_buf, count, pin, holdoff, true, 24, 350, 700)
 }
 
-pub start_2812b(p_buf,p_type, p_buf2,p_type2,p_buf3,p_type3,p_buf4,p_type4,p_buf5,p_type5,p_buf6,p_type6,p_buf7,p_type7,p_buf8,p_type8,count, pin, holdoff) : result
+pub start_2812b(p_buf,p_type, p_buf2,p_type2,p_buf3,p_type3,p_buf4,p_type4,p_buf5,p_type5,p_buf6,p_type6,p_buf7,p_type7,p_buf8,p_type8,count, pin, holdoff, level) : result
 
 '' Start pixel driver for WS2812b LEDs
 '' -- p_buf is pointer to [long] array holding pixel data
@@ -158,7 +158,7 @@ pub start_2812b(p_buf,p_type, p_buf2,p_type2,p_buf3,p_type3,p_buf4,p_type4,p_buf
 '' -- holdoff is the delay between data bursts
 ''    * units are 100us (0.1ms) 10 units = 1ms
 
-  return startx(p_buf,p_type, p_buf2,p_type2,p_buf3,p_type3,p_buf4,p_type4,p_buf5,p_type5,p_buf6,p_type6,p_buf7,p_type7,p_buf8,p_type8, count, pin, holdoff, true, 24, 400, 800)
+  return startx(p_buf,p_type, p_buf2,p_type2,p_buf3,p_type3,p_buf4,p_type4,p_buf5,p_type5,p_buf6,p_type6,p_buf7,p_type7,p_buf8,p_type8, count, pin, holdoff, true, 24, 400, 800, level)
 
 {
 pub start_2813(p_buf, count, pin, holdoff) : result
@@ -187,7 +187,7 @@ pub start_6812x(p_buf, count, pin, holdoff, bits) : result
   return startx(p_buf, count, pin, holdoff, true, bits, 300, 600)
 }
 
-pub startx(p_buf,p_type, p_buf2,p_type2,p_buf3,p_type3,p_buf4,p_type4,p_buf5,p_type5,p_buf6,p_type6,p_buf7,p_type7,p_buf8,p_type8,count, pin, holdoff, rgswap, bits, ns0h, ns1h) : result | ustix
+pub startx(p_buf,p_type, p_buf2,p_type2,p_buf3,p_type3,p_buf4,p_type4,p_buf5,p_type5,p_buf6,p_type6,p_buf7,p_type7,p_buf8,p_type8,count, pin, holdoff, rgswap, bits, ns0h, ns1h, level) : result | ustix
 
 '' Start smart pixel driver driver
 '' -- p_buf is pointer to [long] array holding pixel data
@@ -221,7 +221,7 @@ pub startx(p_buf,p_type, p_buf2,p_type2,p_buf3,p_type3,p_buf4,p_type4,p_buf5,p_t
   t1h        := ustix * 400 / 1000
 '  cycleticks := ustix * 1_25 / 1_00                             ' ticks in 1.25us (800kHz)
   cycleticks := clkfreq / 800_000                            ' ticks in 1.25us (800kHz)
-
+  brightness := level
   cog := coginit(COGEXEC_NEW, @pix_driver, @newconnection) + 1  ' start the cog
 
 
@@ -525,7 +525,7 @@ dat { auto-run driver }
 
                 org       0
 
-pix_driver      setq      #25-1                                 ' get 17 longs from hub
+pix_driver      setq      #26-1                                 ' get 24 longs from hub
                 rdlong    newcon, ptra
 
                 mov       t1, #0
@@ -551,7 +551,9 @@ pix_driver      setq      #25-1                                 ' get 17 longs f
 '               debug(uhex(p_hub8))
 '               debug(uhex(tx))
 
-
+                mul lbrightness,##652
+                movbyts lbrightness,#%%1111
+'                mulpix pixel,lbrightness
 
 rgbx_main       rdlong    newcon, ptra                  wz      ' check for new connection
     if_nz       jmp       #pix_driver
@@ -576,27 +578,35 @@ frame_loop
                 add       addr, #3                              ' TT changed this from 4 to 3- point to next
 '                movbyts   colorbits,  #%%0123                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 movbyts   colorbits,  l_type                   ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                mulpix    colorbits, lbrightness                ' Set brightness
                 rdlong    colorbits2, addr2                       ' read a channel
                 add       addr2, #3                              ' TT changed this from 4 to 3- point to next
                 movbyts   colorbits2, l_type2                   ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                mulpix    colorbits2, lbrightness                ' Set brightness
                 rdlong    colorbits3, addr3                       ' read a channel
                 add       addr3, #3                              ' TT changed this from 4 to 3- point to next
                 movbyts   colorbits3, l_type3                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                mulpix    colorbits3, lbrightness                ' Set brightness
                 rdlong    colorbits4, addr4                       ' read a channel
                 add       addr4, #3                              ' TT changed this from 4 to 3- point to next
                 movbyts   colorbits4, l_type4                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                mulpix    colorbits4, lbrightness                ' Set brightness
                 rdlong    colorbits5, addr5                       ' read a channel
                 add       addr5, #3                              ' TT changed this from 4 to 3- point to next
                 movbyts   colorbits5, l_type5                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                mulpix    colorbits5, lbrightness                ' Set brightness
                 rdlong    colorbits6, addr6                       ' read a channel
                 add       addr6, #3                              ' TT changed this from 4 to 3- point to next
                 movbyts   colorbits6, l_type6                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                mulpix    colorbits6, lbrightness                ' Set brightness
                 rdlong    colorbits7, addr7                       ' read a channel
                 add       addr7, #3                              ' TT changed this from 4 to 3- point to next
                 movbyts   colorbits7, l_type7                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                mulpix    colorbits7, lbrightness                ' Set brightness
                 rdlong    colorbits8, addr8                       ' read a channel
                 add       addr8, #3                              ' TT changed this from 4 to 3- point to next
                 movbyts   colorbits8, l_type8                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
+                mulpix    colorbits8, lbrightness                ' Set brightness
 '                tjz       swapflag, #shift_out                  ' skip fix if swap = 0
 
 '                movbyts   colorbits, #%%2310                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
@@ -691,6 +701,7 @@ swapflag        res       1                                     ' if !0, swap R 
 bit0hi          res       1                                     ' bit0 high timing
 bit1hi          res       1                                     ' bit1 high timing
 cycletix        res       1                                     ' 1.25us cycle ticks
+lbrightness     res       1                                     ' Brighness value 0-100
 
 addr            res       1                                     ' address of current rgbw pixel
 npix            res       1                                     ' # of pixels to process
