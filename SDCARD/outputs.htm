@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Blitzen 24</title>
     <link rel="stylesheet" href="style.css">
-    <script src="script.js"></script>
+<!--    <script src="script.js"></script> -->
 </head>
 
 <body>
@@ -18,17 +18,22 @@
 				<li><a href="net.htm">Networking</a>
 				<li><a href="e131.htm?output=1">E1.31 Settings</a>
 				<li><a href="outputs.htm">Outputs</a>
+                                <li><a href="dmx.htm">DMX</a>
                                 <li><a href="configs.htm">Configs</a>
 			</ul>
 		</nav>
 	</header>
 	<section>
-		<strong>Network Configuration.</strong>
+		<strong>Output Configuration</strong>
 	</section>
 	<section id="pageContent">
 		<main role="main">
 			<FORM METHOD="POST">
 <TABLE ID="OP">
+<TR><TD colspan="4">
+<input type="range" min="0" max="100" class="slider" id="sld">
+<p><B>Master Brightness: <span id="bval"></span>%</B></p>
+</TD></TR>
 <TR><TD>Output</TD><TD>Pixel Order</TD><TD>Output</TD><TD>Pixel Order</TD></TR>
 <TR><TD>1</TD><TD><SELECT ID="O1" NAME="O1"><OPTION value="27">RGB</OPTION><OPTION value="135">BRG</OPTION><OPTION value="75">GRB</OPTION><OPTION value="39">RBG</OPTION><OPTION value="99">GBR</OPTION><OPTION value="147">BGR</OPTION></SELECT></TD>
 <TD>13</TD><TD><SELECT ID="O13" NAME="O13"><OPTION value="27">RGB</OPTION><OPTION value="135">BRG</OPTION><OPTION value="75">GRB</OPTION><OPTION value="39">RBG</OPTION><OPTION value="99">GBR</OPTION><OPTION value="147">BGR</OPTION></SELECT></TD></TR>
@@ -56,7 +61,7 @@
 <TD>24</TD><TD><SELECT ID="O24" NAME="O24"><OPTION value="27">RGB</OPTION><OPTION value="135">BRG</OPTION><OPTION value="75">GRB</OPTION><OPTION value="39">RBG</OPTION><OPTION value="99">GBR</OPTION><OPTION value="147">BGR</OPTION></SELECT></TD></TR>
 
 </TABLE>
-<br>
+<br><input type="hidden" name="brt" value="0" ID="brt">
 				<INPUT TYPE="SUBMIT" Name="Save" Value="Save">
 			</FORM> 
 		<BR><BR>
@@ -76,4 +81,14 @@
 
 </body>
        <script src="output.js"></script>
+<script>
+var slider = document.getElementById("sld");
+var output = document.getElementById("bval");
+output.innerHTML = slider.value;
+
+slider.oninput = function() {
+  output.innerHTML = this.value;
+  document.getElementById('brt').value=this.value;
+}
+</script>
 </html>
