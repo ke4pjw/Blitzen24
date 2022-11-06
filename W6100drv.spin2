@@ -1163,7 +1163,7 @@ if_nz  jmp #lstart ' If lr is not the same as ll_RX_RSR, go fish.
       mov   E131ENUM, #1
       mov   pixlen, #0
 e131lutenum
-      RDLUT tE131ENUM, E131ENUM  wz
+      RDLUT tE131ENUM, E131ENUM  wz  ' If LUT value is 0, we have reached the end of lookup table.
 if_z  ADD lE131Discards, #1    ' Increment E131 discard counter
 'debug(uhex(lE131Discards))
 if_z  jmp #lskipit
@@ -1174,7 +1174,7 @@ if_nz jmp #e131lutenum
       RDLUT tpixlen,E131ENUM
       ADD E131ENUM, #1
       RDLUT lrxptr, E131ENUM
-      REP     #1, #3
+      REP     #1, #3  ' Pixel byte legnth is 3x number of pixels.
       ADD  pixlen, tpixlen
 '      ADD  pixlen, tpixlen
 '      ADD  pixlen, tpixlen
@@ -1317,6 +1317,7 @@ lrxloop DRVL ##RDn ' Enable Chip Read
 '      debug(uhex(ldatapin))
       altgb ldatapin, #ina ' Where you gonna get that data?
       getbyte ltmpdata ' Get that data and put it in ltmpdata
+      waitx #50
 '      debug(uhex(ltmpdata))
 '      WRBYTE ltmpdata, RB ' Write that data to the read buffer in HUBRAM.
 '      debug(uhex(ltmpdata))
@@ -1341,7 +1342,7 @@ if_nz jmp #lrxloop
       FLTL ##WRn
       FLTL ##RDn
       FLTL #DATA
-
+      waitx #50
       lockrel lelock
       ret
 
@@ -1445,7 +1446,7 @@ if_nz  jmp #ltxloop
       FLTL ##RDn
       FLTL ##CSn
       FLTL #DATA
-
+      waitx #50
        lockrel lelock
        ret
 
