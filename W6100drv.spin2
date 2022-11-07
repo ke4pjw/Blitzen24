@@ -369,7 +369,7 @@ org
 
 ' Enable Chip Select on the W6100
   DRVL  ##CSn
-
+  waitx #100
 ' Load high byte
   DRVL  ##A0 'ADDR bit 0
   DRVL  ##A1 'ADDR bit 1
@@ -381,7 +381,7 @@ org
   setbyte LADDRH
 
   DRVL  ##WRn
-  waitx #10
+  waitx #50
   DRVH  ##WRn
 
 'load low byte
@@ -393,7 +393,7 @@ org
   setbyte LADDRL
 
   DRVL  ##WRn
-  waitx #10
+  waitx #100
   DRVH  ##WRn
 
 'Set BS
@@ -404,7 +404,7 @@ org
   setbyte BS
 
   DRVL  ##WRn
-  waitx #10
+  waitx #100
   DRVH  ##WRn
 
   DRVh  ##A0 'ADDR bit 0
@@ -420,7 +420,7 @@ label RFBYTE tmpdata
       setbyte tmpdata ' Set that data from tmpdata
 '      WRBYTE tmpdata, RB ' Write that data to the read buffer in HUBRAM.
       DRVL ##WRn ' Disable Chip read
-      waitx #5  ' Wait cuz this is slow
+      waitx #100  ' Wait cuz this is slow
       DRVH ##WRn ' Enable Chip Write
       add RB, #1 ' Increment the read buffer by 1 byte
 '      add r,tmpdata  ' Populate return value
@@ -439,6 +439,7 @@ if_nz jmp #label
       FLTL ##RDn
       FLTL ##CSn
       FLTL #DATA
+      waitx #100
 end
  {
 
