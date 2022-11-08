@@ -243,7 +243,7 @@ PUB Discards() : r
 
 PUB readreg(REGISTER,BS,BLEN,RB) : r | i , LADDRL, LADDRH, tmpdata, tmpptr, datapin
 repeat until locktry(EthernetLock) < 0
-  waitms(1/10)
+  waitus(50)
 org
 ' Set the HUB FIFO
 
@@ -268,7 +268,7 @@ org
 
 ' Enable Chip Select on the W6100
   DRVL  ##CSn
-
+  waitx #100
 ' Load high byte
   DRVL  ##A0 'ADDR bit 0
   DRVL  ##A1 'ADDR bit 1
@@ -280,7 +280,7 @@ org
   setbyte LADDRH
 
   DRVL  ##WRn
-  waitx #20
+  waitx #50
   DRVH  ##WRn
 
 'load low byte
@@ -292,7 +292,7 @@ org
   setbyte LADDRL
 
   DRVL  ##WRn
-  waitx #20
+  waitx #50
   DRVH  ##WRn
 
 'Set BS
@@ -303,7 +303,7 @@ org
   setbyte BS
 
   DRVL  ##WRn
-  waitx #20
+  waitx #50
   DRVH  ##WRn
 
   DRVh  ##A0 'ADDR bit 0
@@ -313,14 +313,14 @@ org
 ' Read i number of bytes.
 
 label DRVL ##RDn ' Enable Chip Read
-      waitx #17 ' Wait cuz this is slow
+      waitx #50 ' Wait cuz this is slow
       altgb datapin,#ina ' Where you gonna get that data?
       getbyte tmpdata ' Get that data and put it in tmpdata
 '      WRBYTE tmpdata, RB ' Write that data to the read buffer in HUBRAM.
       WFBYTE tmpdata
       add RB, #1 ' Increment the read buffer by 1 byte
       DRVH ##RDn ' Disable Chip read
-      waitx #2  ' Wait cuz this is slow
+      waitx #50  ' Wait cuz this is slow
 
       add r,tmpdata  ' Populate return value
       shl r,#8
@@ -345,7 +345,7 @@ return r
 
 PUB writereg(REGISTER,BS,BLEN,RB) : r | i , LADDRL ,  LADDRH , datapin , tmpdata
 repeat until locktry(EthernetLock) < 0
-  waitms(1/10)
+  waitus(50)
 org
 ' Parse register address
   RDFAST #0,RB
@@ -730,7 +730,7 @@ rx WRFAST #0,RB
 
 ' Enable Chip Select on the W6100
   DRVL  ##CSn
-
+  waitx #100
 ' Load high byte
   DRVL  ##A0 'ADDR bit 0
   DRVL  ##A1 'ADDR bit 1
@@ -829,7 +829,7 @@ tx  RDFAST #0,RB
 
 ' Enable Chip Select on the W6100
   DRVL  ##CSn
-
+  waitx #100
 ' Load high byte
   DRVL  ##A0 'ADDR bit 0
   DRVL  ##A1 'ADDR bit 1
@@ -1268,7 +1268,7 @@ if_nc  jmp #rxlk
 
 ' Enable Chip Select on the W6100
       DRVL  ##CSn
-
+      waitx #100
 ' Load high byte
       DRVL  ##A0 'ADDR bit 0
       DRVL  ##A1 'ADDR bit 1
@@ -1376,7 +1376,7 @@ if_nc  jmp #txlk
 
 ' Enable Chip Select on the W6100
       DRVL  ##CSn
-
+      waitx #100
 ' Load high byte
       DRVL  ##A0 'ADDR bit 0
       DRVL  ##A1 'ADDR bit 1
