@@ -157,8 +157,10 @@ pub start_2812b(p_buf,p_type, p_buf2,p_type2,p_buf3,p_type3,p_buf4,p_type4,p_buf
 '' -- pin is serial output to pixels
 '' -- holdoff is the delay between data bursts
 ''    * units are 100us (0.1ms) 10 units = 1ms
-
-  return startx(p_buf,p_type, p_buf2,p_type2,p_buf3,p_type3,p_buf4,p_type4,p_buf5,p_type5,p_buf6,p_type6,p_buf7,p_type7,p_buf8,p_type8, count, pin, holdoff, true, 24, 400, 800, level)
+  if count > 0
+    return startx(p_buf,p_type, p_buf2,p_type2,p_buf3,p_type3,p_buf4,p_type4,p_buf5,p_type5,p_buf6,p_type6,p_buf7,p_type7,p_buf8,p_type8, count, pin, holdoff, true, 24, 400, 800, level)
+  else
+    return -1
 
 {
 pub start_2813(p_buf, count, pin, holdoff) : result
@@ -534,27 +536,35 @@ pix_driver      setq      #26-1                                 ' get 24 longs f
 '               debug(uhex(bit0hi))
 '               debug(uhex(bit1hi))
                 mov       tx2, tx
-                debug(uhex(tx2))
+                debug(udec(tx2))
                 drvl      tx2
                 rep       #2, #7
                 add       tx2, #1
                 drvl      tx2
+
+                debug(udec(tx2))
+
+{                mov       t1, #$FF                            ' create mask for 8 pins
+                shl       t1, tx2
+                or        tx2, #(%111 << 6)                    ' convert to 8-pin group
+                drvh      tx2
+}
                 shr       tx, #3
-'               debug(uhex(tx2))
-'               debug(uhex(p_hub))
-'               debug(uhex(p_hub2))
-'               debug(uhex(p_hub3))
-'               debug(uhex(p_hub4))
-'               debug(uhex(p_hub5))
-'               debug(uhex(p_hub6))
-'               debug(uhex(p_hub7))
-'               debug(uhex(p_hub8))
-'               debug(uhex(tx))
+               debug(uhex(tx2))
+               debug(uhex(p_hub))
+               debug(uhex(p_hub2))
+               debug(uhex(p_hub3))
+               debug(uhex(p_hub4))
+               debug(uhex(p_hub5))
+               debug(uhex(p_hub6))
+               debug(uhex(p_hub7))
+               debug(uhex(p_hub8))
+               debug(uhex(tx))
 
                 mul lbrightness,##652
                 movbyts lbrightness,#%%1111
 '                mulpix pixel,lbrightness
-
+               debug(udec(pixcount))
 rgbx_main       rdlong    newcon, ptra                  wz      ' check for new connection
     if_nz       jmp       #pix_driver
 
@@ -575,7 +585,11 @@ frame_loop
 
 
                 rdlong    colorbits, addr                       ' read a channel
-                add       addr, #3                              ' TT changed this from 4 to 3- point to next
+'                rdbyte    colorbits,addr
+'                CMP colorbits, ##$FB00_00FB wz
+'if_z           jmp #jmpit
+'                debug(uhex(colorbits))
+jmpit           add       addr, #3                              ' TT changed this from 4 to 3- point to next
 '                movbyts   colorbits,  #%%0123                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 movbyts   colorbits,  l_type                   ' $RR_GG_BB_WW --> $GG_RR_BB_WW
                 mulpix    colorbits, lbrightness                ' Set brightness
@@ -612,9 +626,14 @@ frame_loop
 '                movbyts   colorbits, #%%2310                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
 '                movbyts   colorbits,  #%%3120                    ' $RR_GG_BB_WW --> $GG_RR_BB_WW
 
-
-
-
+{                mov       colorbits2, #0
+                mov       colorbits3, #0
+                mov       colorbits4, #0
+                mov       colorbits5, #0
+                mov       colorbits6, #0
+                mov       colorbits7, #0
+                mov       colorbits8, #0
+}
 
 
 
@@ -735,7 +754,7 @@ colorbits5      res       1                                     ' rgbw for curre
 colorbits6      res       1                                     ' rgbw for current pixel
 colorbits7      res       1                                     ' rgbw for current pixel
 colorbits8      res       1                                     ' rgbw for current pixel
-obits            res       1
+obits           res       1
                 fit       496
 
 

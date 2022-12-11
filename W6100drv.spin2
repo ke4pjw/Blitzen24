@@ -1,4 +1,22 @@
 {
+ ************************************************************************************************************
+ *                                                                                                          *
+ *  AUTO-RECOVER NOTICE: This file was automatically recovered from an earlier Propeller Tool session.      *
+ *                                                                                                          *
+ *  ORIGINAL FOLDER:     C:\Users\fatbo\Documents\Propeller Tool\Library\W6100\                             *
+ *  TIME AUTO-SAVED:     over 1 day ago (12/8/2022 8:49:16 PM)                                              *
+ *                                                                                                          *
+ *  OPTIONS:             1)  RESTORE THIS FILE by deleting these comments and selecting File -> Save.       *
+ *                           The existing file in the original folder will be replaced by this one.         *
+ *                                                                                                          *
+ *                           -- OR --                                                                       *
+ *                                                                                                          *
+ *                       2)  IGNORE THIS FILE by closing it without saving.                                 *
+ *                           This file will be discarded and the original will be left intact.              *
+ *                                                                                                          *
+ ************************************************************************************************************
+.}
+{
 **************************************************
 *  Wiznet 6100 Driver Ver 0.1 (I'm Not Done Yet) *
 **************************************************
@@ -1148,6 +1166,19 @@ if_nz  jmp #lstart ' If lr is not the same as ll_RX_RSR, go fish.
       mov lRB, lREGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
       call #lrx
       mov ll_RX_RD, lr ' lr is what is returned from rx. rx returns the last two bytes as a word.
+
+' Determine if this is a VECTOR_E131_DATA_PACKET
+      mov E131ADDR, #50 ' Vector of patcket is two bytes at addr 41
+      add E131ADDR, ll_RX_RD
+      mov lREGISTER, E131ADDR
+      mov lBS, lsocket_rd
+      mov lBLEN, #2 ' get two bytes
+      mov lRB, lREGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      call #lrx
+      mov tE131ADDR, lr
+'      debug(uhex(lr))
+      CMP tE131ADDR, #$02 wz  '  VECTOR_E131_DATA_PACKET is $02
+if_nz  jmp #lskipit
 
 ' Get the E1.31 Universe from the packet
       mov E131ADDR, #121 ' Univrse is patcket is two bytes at addr 121

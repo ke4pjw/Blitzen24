@@ -1,3 +1,21 @@
+{
+ ************************************************************************************************************
+ *                                                                                                          *
+ *  AUTO-RECOVER NOTICE: This file was automatically recovered from an earlier Propeller Tool session.      *
+ *                                                                                                          *
+ *  ORIGINAL FOLDER:     C:\Users\fatbo\Documents\Propeller Tool\Library\W6100\                             *
+ *  TIME AUTO-SAVED:     22 hours, 35 minutes ago (12/9/2022 12:06:05 AM)                                   *
+ *                                                                                                          *
+ *  OPTIONS:             1)  RESTORE THIS FILE by deleting these comments and selecting File -> Save.       *
+ *                           The existing file in the original folder will be replaced by this one.         *
+ *                                                                                                          *
+ *                           -- OR --                                                                       *
+ *                                                                                                          *
+ *                       2)  IGNORE THIS FILE by closing it without saving.                                 *
+ *                           This file will be discarded and the original will be left intact.              *
+ *                                                                                                          *
+ ************************************************************************************************************
+.}
 {Object_Title_and_Purpose}
 
 
@@ -364,12 +382,12 @@ PUB main() | i, j
     vid.hex(READBUFFER[0],2)
     i := i + %001_00_000
   send( $0D, $0A)
-
+{
   Send("Configure Interrupt for Socket 3")
   WRITEBUFFER[0] := %0000_1000
   W6100.writereg(W6100.REG_SIMR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
   send( $0D, $0A)
-
+}
   if DHCP
     dhcpclient()
   send("Network Configuration Unlocked.")
