@@ -1,24 +1,6 @@
 {
- ************************************************************************************************************
- *                                                                                                          *
- *  AUTO-RECOVER NOTICE: This file was automatically recovered from an earlier Propeller Tool session.      *
- *                                                                                                          *
- *  ORIGINAL FOLDER:     C:\Users\fatbo\Documents\Propeller Tool\Library\W6100\                             *
- *  TIME AUTO-SAVED:     over 1 day ago (12/8/2022 8:49:16 PM)                                              *
- *                                                                                                          *
- *  OPTIONS:             1)  RESTORE THIS FILE by deleting these comments and selecting File -> Save.       *
- *                           The existing file in the original folder will be replaced by this one.         *
- *                                                                                                          *
- *                           -- OR --                                                                       *
- *                                                                                                          *
- *                       2)  IGNORE THIS FILE by closing it without saving.                                 *
- *                           This file will be discarded and the original will be left intact.              *
- *                                                                                                          *
- ************************************************************************************************************
-.}
-{
 **************************************************
-*  Wiznet 6100 Driver Ver 0.1 (I'm Not Done Yet) *
+*  Wiznet 6100 Driver Ver 1.0                    *
 **************************************************
 
 LICENSE TERMS
@@ -235,19 +217,27 @@ VAR
 OBJ
        vid: "p2textdrv"
 
+PUB setuppins()
+org
+  WRPIN ##$00004000,#CSn
+  WRPIN ##$00004000,#RDn
+  WRPIN ##$00004000,#WRn
+  WRPIN ##$00004000,#A1
+  WRPIN ##$00004000,#A0
+end
 PUB reset()
   PINL (RSET)
-  PINH (WRn)
-  PINH (RDn)
-  PINH (CSn)
+  PINL (WRn)
+  PINL (RDn)
+  PINL (CSn)
   PINL (CLK)
   PINH (RSET)
   waitms (3000)
-
 PUB setmod010()
   PINH (MOD)
 
 PUB initparallel() : r
+  setuppins()
   EthernetLock := locknew()
    if EthernetLock >= 0  and  EthernetLock <= 15
     reset()
@@ -285,11 +275,11 @@ org
   add i,RB
 
 ' Enable Chip Select on the W6100
-  DRVL  ##CSn
+  DRVH  ##CSn
   waitx #100
 ' Load high byte
-  DRVL  ##A0 'ADDR bit 0
-  DRVL  ##A1 'ADDR bit 1
+  DRVH  ##A0 'ADDR bit 0
+  DRVH  ##A1 'ADDR bit 1
 
 '  DIRNOT #DATA
     DRVL #DATA
@@ -297,47 +287,47 @@ org
   altsb datapin, #outa
   setbyte LADDRH
 
-  DRVL  ##WRn
-  waitx #50
   DRVH  ##WRn
+  waitx #50
+  DRVL  ##WRn
 
 'load low byte
 
-  DRVH  ##A0 'ADDR bit 0
-  DRVL  ##A1 'ADDR bit 1
+  DRVL  ##A0 'ADDR bit 0
+  DRVH  ##A1 'ADDR bit 1
 
   altsb datapin, #outa
   setbyte LADDRL
 
-  DRVL  ##WRn
-  waitx #50
   DRVH  ##WRn
+  waitx #50
+  DRVL  ##WRn
 
 'Set BS
-  DRVl  ##A0 'ADDR bit 0
-  DRVh  ##A1 'ADDR bit 1
+  DRVH  ##A0 'ADDR bit 0
+  DRVL  ##A1 'ADDR bit 1
 
   altsb datapin, #outa
   setbyte BS
 
-  DRVL  ##WRn
-  waitx #50
   DRVH  ##WRn
+  waitx #50
+  DRVL  ##WRn
 
-  DRVh  ##A0 'ADDR bit 0
-  DRVh  ##A1 'ADDR bit 1
+  DRVL  ##A0 'ADDR bit 0
+  DRVL  ##A1 'ADDR bit 1
   FLTL #DATA
 
 ' Read i number of bytes.
 
-label DRVL ##RDn ' Enable Chip Read
+label DRVH ##RDn ' Enable Chip Read
       waitx #50 ' Wait cuz this is slow
       altgb datapin,#ina ' Where you gonna get that data?
       getbyte tmpdata ' Get that data and put it in tmpdata
 '      WRBYTE tmpdata, RB ' Write that data to the read buffer in HUBRAM.
       WFBYTE tmpdata
       add RB, #1 ' Increment the read buffer by 1 byte
-      DRVH ##RDn ' Disable Chip read
+      DRVL ##RDn ' Disable Chip read
       waitx #50  ' Wait cuz this is slow
 
       add r,tmpdata  ' Populate return value
@@ -348,13 +338,13 @@ label DRVL ##RDn ' Enable Chip Read
 if_nz jmp #label
       shr r,#8
 ' Disable Chip Select
-      DRVH  ##CSn
+      DRVL  ##CSn
 
-      FLTL ##A0
-      FLTL ##A1
-      FLTL ##WRn
-      FLTL ##RDn
-      FLTL ##CSn
+'      FLTL ##A0
+'      FLTL ##A1
+'      FLTL ##WRn
+'      FLTL ##RDn
+'      FLTL ##CSn
       FLTL #DATA
 end
 
@@ -386,11 +376,11 @@ org
   add i,RB
 
 ' Enable Chip Select on the W6100
-  DRVL  ##CSn
+  DRVH  ##CSn
   waitx #100
 ' Load high byte
-  DRVL  ##A0 'ADDR bit 0
-  DRVL  ##A1 'ADDR bit 1
+  DRVH  ##A0 'ADDR bit 0
+  DRVH  ##A1 'ADDR bit 1
 
 '  DIRNOT #DATA
   DRVL #DATA
@@ -398,35 +388,35 @@ org
   altsb datapin, #outa
   setbyte LADDRH
 
-  DRVL  ##WRn
-  waitx #50
   DRVH  ##WRn
+  waitx #50
+  DRVL  ##WRn
 
 'load low byte
 
-  DRVH  ##A0 'ADDR bit 0
-  DRVL  ##A1 'ADDR bit 1
+  DRVL  ##A0 'ADDR bit 0
+  DRVH  ##A1 'ADDR bit 1
 
   altsb datapin, #outa
   setbyte LADDRL
 
-  DRVL  ##WRn
-  waitx #100
   DRVH  ##WRn
+  waitx #100
+  DRVL  ##WRn
 
 'Set BS
-  DRVl  ##A0 'ADDR bit 0
-  DRVh  ##A1 'ADDR bit 1
+  DRVH  ##A0 'ADDR bit 0
+  DRVL  ##A1 'ADDR bit 1
 
   altsb datapin, #outa
   setbyte BS
 
-  DRVL  ##WRn
-  waitx #100
   DRVH  ##WRn
+  waitx #100
+  DRVL  ##WRn
 
-  DRVh  ##A0 'ADDR bit 0
-  DRVh  ##A1 'ADDR bit 1
+  DRVL  ##A0 'ADDR bit 0
+  DRVL  ##A1 'ADDR bit 1
 '  FLTL #DATA
 'end
 
@@ -437,9 +427,9 @@ label RFBYTE tmpdata
       altsb datapin,#outa ' Where you gonna send that data?
       setbyte tmpdata ' Set that data from tmpdata
 '      WRBYTE tmpdata, RB ' Write that data to the read buffer in HUBRAM.
-      DRVL ##WRn ' Disable Chip read
+      DRVH ##WRn ' Disable Chip read
       waitx #100  ' Wait cuz this is slow
-      DRVH ##WRn ' Enable Chip Write
+      DRVL ##WRn ' Enable Chip Write
       add RB, #1 ' Increment the read buffer by 1 byte
 '      add r,tmpdata  ' Populate return value
 '      shl r,#8
@@ -449,13 +439,13 @@ label RFBYTE tmpdata
 if_nz jmp #label
 '      shr r,#8
 ' Disable Chip Select
-      DRVH  ##CSn
+      DRVL  ##CSn
 
-      FLTL ##A0
-      FLTL ##A1
-      FLTL ##WRn
-      FLTL ##RDn
-      FLTL ##CSn
+'      FLTL ##A0
+'      FLTL ##A1
+'      FLTL ##WRn
+'      FLTL ##RDn
+ '     FLTL ##CSn
       FLTL #DATA
       waitx #100
 end
@@ -747,11 +737,11 @@ rx WRFAST #0,RB
   add i,RB
 
 ' Enable Chip Select on the W6100
-  DRVL  ##CSn
+  DRVH  ##CSn
   waitx #100
 ' Load high byte
-  DRVL  ##A0 'ADDR bit 0
-  DRVL  ##A1 'ADDR bit 1
+  DRVH  ##A0 'ADDR bit 0
+  DRVH  ##A1 'ADDR bit 1
 
 '  DIRNOT #DATA
   DRVL #DATA
@@ -760,42 +750,42 @@ rx WRFAST #0,RB
   setbyte LADDRH
 '  debug(uhex(LADDRH))
 
-  DRVL  ##WRn
-  waitx #50
   DRVH  ##WRn
+  waitx #50
+  DRVL  ##WRn
 
 'load low byte
 
-  DRVH  ##A0 'ADDR bit 0
-  DRVL  ##A1 'ADDR bit 1
+  DRVL  ##A0 'ADDR bit 0
+  DRVH  ##A1 'ADDR bit 1
 
   altsb datapin, #outa
   setbyte LADDRL
 '  debug(uhex(LADDRL))
 
-  DRVL  ##WRn
-  waitx #50
   DRVH  ##WRn
+  waitx #50
+  DRVL  ##WRn
 
 'Set BS
-  DRVl  ##A0 'ADDR bit 0
-  DRVh  ##A1 'ADDR bit 1
+  DRVH  ##A0 'ADDR bit 0
+  DRVL  ##A1 'ADDR bit 1
 
   altsb datapin, #outa
   setbyte BS
 '  debug(uhex(BS))
 
-  DRVL  ##WRn
-  waitx #50
   DRVH  ##WRn
+  waitx #50
+  DRVL  ##WRn
 
-  DRVh  ##A0 'ADDR bit 0
-  DRVh  ##A1 'ADDR bit 1
+  DRVL  ##A0 'ADDR bit 0
+  DRVL  ##A1 'ADDR bit 1
   FLTL #DATA
 '  debug(uhex(#DATA))
 ' Read i number of bytes.
 
-rxloop DRVL ##RDn ' Enable Chip Read
+rxloop DRVH ##RDn ' Enable Chip Read
 '      debug(uhex(DIRA))
       waitx #50 ' Wait cuz this is slow
       altgb datapin,#ina ' Where you gonna get that data?
@@ -804,7 +794,7 @@ rxloop DRVL ##RDn ' Enable Chip Read
 '      debug(uhex(tmpdata))
       WFBYTE tmpdata
       add RB, #1 ' Increment the read buffer by 1 byte
-      DRVH ##RDn ' Disable Chip read
+      DRVL ##RDn ' Disable Chip read
       waitx #50  ' Wait cuz this is slow
 
       add r,tmpdata  ' Populate return value
@@ -815,13 +805,13 @@ rxloop DRVL ##RDn ' Enable Chip Read
 if_nz jmp #rxloop
       shr r,#8
 ' Disable Chip Select
-      DRVH  ##CSn
+      DRVL  ##CSn
 
-      FLTL ##A0
-      FLTL ##A1
-      FLTL ##WRn
-      FLTL ##RDn
-      FLTL ##CSn
+'      FLTL ##A0
+'      FLTL ##A1
+'      FLTL ##WRn
+'      FLTL ##RDn
+   '   FLTL ##CSn
       FLTL #DATA
       ret
 
@@ -846,11 +836,11 @@ tx  RDFAST #0,RB
   add i,RB
 
 ' Enable Chip Select on the W6100
-  DRVL  ##CSn
+  DRVH  ##CSn
   waitx #100
 ' Load high byte
-  DRVL  ##A0 'ADDR bit 0
-  DRVL  ##A1 'ADDR bit 1
+  DRVH  ##A0 'ADDR bit 0
+  DRVH  ##A1 'ADDR bit 1
 
 '  DIRNOT #DATA
   DRVL #DATA
@@ -858,35 +848,35 @@ tx  RDFAST #0,RB
   altsb datapin, #outa
   setbyte LADDRH
 
-  DRVL  ##WRn
-  waitx #50
   DRVH  ##WRn
+  waitx #50
+  DRVL  ##WRn
 
 'load low byte
 
-  DRVH  ##A0 'ADDR bit 0
-  DRVL  ##A1 'ADDR bit 1
+  DRVL  ##A0 'ADDR bit 0
+  DRVH  ##A1 'ADDR bit 1
 
   altsb datapin, #outa
   setbyte LADDRL
 
-  DRVL  ##WRn
-  waitx #50
   DRVH  ##WRn
+  waitx #50
+  DRVL  ##WRn
 
 'Set BS
-  DRVl  ##A0 'ADDR bit 0
-  DRVh  ##A1 'ADDR bit 1
+  DRVH  ##A0 'ADDR bit 0
+  DRVL  ##A1 'ADDR bit 1
 
   altsb datapin, #outa
   setbyte BS
 
-  DRVL  ##WRn
-  waitx #50
   DRVH  ##WRn
+  waitx #50
+  DRVL  ##WRn
 
-  DRVh  ##A0 'ADDR bit 0
-  DRVh  ##A1 'ADDR bit 1
+  DRVL  ##A0 'ADDR bit 0
+  DRVL  ##A1 'ADDR bit 1
 '  FLTL #DATA
 'end
 
@@ -898,9 +888,9 @@ txloop RFBYTE tmpdata
        altsb datapin,#outa ' Where you gonna send that data?
        setbyte tmpdata ' Set that data from tmpdata
 '      WRBYTE tmpdata, RB ' Write that data to the read buffer in HUBRAM.
-       DRVL ##WRn ' Disable Chip read
+       DRVH ##WRn ' Disable Chip read
        waitx #50  ' Wait cuz this is slow
-       DRVH ##WRn ' Enable Chip Write
+       DRVL ##WRn ' Enable Chip Write
        add RB, #1 ' Increment the read buffer by 1 byte
 '      add r,tmpdata  ' Populate return value
 '      shl r,#8
@@ -910,13 +900,13 @@ txloop RFBYTE tmpdata
 if_nz  jmp #txloop
 '      shr r,#8
 ' Disable Chip Select
-       DRVH  ##CSn
+       DRVL  ##CSn
 
-      FLTL ##A0
-      FLTL ##A1
-      FLTL ##WRn
-      FLTL ##RDn
-      FLTL ##CSn
+'      FLTL ##A0
+'      FLTL ##A1
+'      FLTL ##WRn
+'      FLTL ##RDn
+    '  FLTL ##CSn
       FLTL #DATA
       ret
 exit  nop
@@ -1074,11 +1064,11 @@ PUB startfastrx(skt,pbf,txb,e131ptr)
 '    hex(E131PACKETBUFFER,8)
 org
 'debug(uhex(DIRA))
-FLTL ##CSn
-FLTL ##A0
-FLTL ##A1
-FLTL ##WRn
-FLTL ##RDn
+'FLTL ##CSn
+'FLTL ##A0
+'FLTL ##A1
+'FLTL ##WRn
+'FLTL ##RDn
 'debug(uhex(DIRA))
 end
 
@@ -1276,9 +1266,9 @@ lrx   WRFAST #0,lRB
 rxlk  LOCKTRY lelock wc
 if_nc  jmp #rxlk
 '      debug(uhex(lelock))
-      DRVH ##WRn
-      DRVH ##RDn
-      DRVH ##CSn
+      DRVL ##WRn
+      DRVL ##RDn
+      DRVL ##CSn
 
 ' Clear the return value
       mov lr,#0
@@ -1298,11 +1288,11 @@ if_nc  jmp #rxlk
       add li,lRB
 
 ' Enable Chip Select on the W6100
-      DRVL  ##CSn
+      DRVH  ##CSn
       waitx #100
 ' Load high byte
-      DRVL  ##A0 'ADDR bit 0
-      DRVL  ##A1 'ADDR bit 1
+      DRVH  ##A0 'ADDR bit 0
+      DRVH  ##A1 'ADDR bit 1
 
 '  DIRNOT #DATA
       DRVL #DATA
@@ -1310,41 +1300,41 @@ if_nc  jmp #rxlk
       setbyte lLADDRH
 '      debug(uhex(lLADDRH))
 
-      DRVL  ##WRn
-      waitx #50
       DRVH  ##WRn
+      waitx #50
+      DRVL  ##WRn
 
 'load low byte
 
-      DRVH  ##A0 'ADDR bit 0
-      DRVL  ##A1 'ADDR bit 1
+      DRVL  ##A0 'ADDR bit 0
+      DRVH  ##A1 'ADDR bit 1
 
       altsb ldatapin, #outa
       setbyte lLADDRL
 '      debug(uhex(lLADDRL))
-      DRVL  ##WRn
-      waitx #50
       DRVH  ##WRn
+      waitx #50
+      DRVL  ##WRn
 
 'Set lBS
-      DRVL  ##A0 'ADDR bit 0
-      DRVH  ##A1 'ADDR bit 1
+      DRVH  ##A0 'ADDR bit 0
+      DRVL  ##A1 'ADDR bit 1
 
       altsb ldatapin, #outa
       setbyte lBS
 '      debug(uhex(lBS))
 
-      DRVL  ##WRn
-      waitx #50
       DRVH  ##WRn
+      waitx #50
+      DRVL  ##WRn
 
-      DRVh  ##A0 'ADDR bit 0
-      DRVh  ##A1 'ADDR bit 1
+      DRVL  ##A0 'ADDR bit 0
+      DRVL  ##A1 'ADDR bit 1
       FLTL  #DATA
 '      debug(uhex(#DATA ))
 ' Read i number of bytes.
       waitx #50
-lrxloop DRVL ##RDn ' Enable Chip Read
+lrxloop DRVH ##RDn ' Enable Chip Read
 '      debug(uhex(DIRA))
       waitx #50 ' Wait cuz this is slow
 '      debug(uhex(ldatapin))
@@ -1356,7 +1346,7 @@ lrxloop DRVL ##RDn ' Enable Chip Read
 '      debug(uhex(ltmpdata))
       WFBYTE ltmpdata
       add lRB, #1 ' Increment the read buffer by 1 byte
-      DRVH ##RDn ' Disable Chip read
+      DRVL ##RDn ' Disable Chip read
       waitx #50  ' Wait cuz this is slow
 
       add lr,ltmpdata  ' Populate return value
@@ -1367,13 +1357,13 @@ lrxloop DRVL ##RDn ' Enable Chip Read
 if_nz jmp #lrxloop
       shr lr,#8
 ' Disable Chip Select
-      DRVH  ##CSn
+      DRVL  ##CSn
 
-      FLTL ##CSn
-      FLTL ##A0
-      FLTL ##A1
-      FLTL ##WRn
-      FLTL ##RDn
+'      FLTL ##CSn
+'      FLTL ##A0
+'      FLTL ##A1
+'      FLTL ##WRn
+'      FLTL ##RDn
       FLTL #DATA
       waitx #50
       lockrel lelock
@@ -1384,9 +1374,9 @@ ltx  RDFAST #0,lRB
 txlk  LOCKTRY lelock wc
 if_nc  jmp #txlk
 
-      DRVH ##WRn
-      DRVH ##RDn
-      DRVH ##CSn
+      DRVL ##WRn
+      DRVL ##RDn
+      DRVL ##CSn
 
 ' Clear the return value
       mov lr,#0
@@ -1406,11 +1396,11 @@ if_nc  jmp #txlk
       add li,lRB
 
 ' Enable Chip Select on the W6100
-      DRVL  ##CSn
+      DRVH  ##CSn
       waitx #100
 ' Load high byte
-      DRVL  ##A0 'ADDR bit 0
-      DRVL  ##A1 'ADDR bit 1
+      DRVH  ##A0 'ADDR bit 0
+      DRVH  ##A1 'ADDR bit 1
 
 '  DIRNOT #DATA
       DRVL #DATA
@@ -1418,35 +1408,35 @@ if_nc  jmp #txlk
       altsb ldatapin, #outa
       setbyte lLADDRH
 
-      DRVL  ##WRn
-      waitx #50
       DRVH  ##WRn
+      waitx #50
+      DRVL  ##WRn
 
 'load low byte
 
-      DRVH  ##A0 'ADDR bit 0
-      DRVL  ##A1 'ADDR bit 1
+      DRVL  ##A0 'ADDR bit 0
+      DRVH  ##A1 'ADDR bit 1
 
       altsb ldatapin, #outa
       setbyte lLADDRL
 
-      DRVL  ##WRn
-      waitx #50
       DRVH  ##WRn
+      waitx #50
+      DRVL  ##WRn
 
 'Set lBS
-      DRVl  ##A0 'ADDR bit 0
-      DRVh  ##A1 'ADDR bit 1
+      DRVH  ##A0 'ADDR bit 0
+      DRVL  ##A1 'ADDR bit 1
 
       altsb ldatapin, #outa
       setbyte lBS
 
-      DRVL  ##WRn
-      waitx #50
       DRVH  ##WRn
+      waitx #50
+      DRVL  ##WRn
 
-      DRVh  ##A0 'ADDR bit 0
-      DRVh  ##A1 'ADDR bit 1
+      DRVL  ##A0 'ADDR bit 0
+      DRVL  ##A1 'ADDR bit 1
 '  FLTL #DATA
 'end
 
@@ -1458,9 +1448,9 @@ ltxloop RFBYTE ltmpdata
        altsb ldatapin,#outa ' Where you gonna send that data?
        setbyte ltmpdata ' Set that data from ltmpdata
 '      WRBYTE ltmpdata, lRB ' Write that data to the read buffer in HUBRAM.
-       DRVL ##WRn ' Disable Chip read
+       DRVH ##WRn ' Disable Chip read
        waitx #50  ' Wait cuz this is slow
-       DRVH ##WRn ' Enable Chip Write
+       DRVL ##WRn ' Enable Chip Write
        add lRB, #1 ' Increment the read buffer by 1 byte
 '      add lr,ltmpdata  ' Populate return value
 '      shl lr,#8
@@ -1470,14 +1460,14 @@ ltxloop RFBYTE ltmpdata
 if_nz  jmp #ltxloop
 '      shr lr,#8
 ' Disable Chip Select
-       DRVH  ##CSn
+       DRVL  ##CSn
 
 
-      FLTL ##A0
-      FLTL ##A1
-      FLTL ##WRn
-      FLTL ##RDn
-      FLTL ##CSn
+'      FLTL ##A0
+'      FLTL ##A1
+'      FLTL ##WRn
+'      FLTL ##RDn
+'      FLTL ##CSn
       FLTL #DATA
       waitx #50
        lockrel lelock

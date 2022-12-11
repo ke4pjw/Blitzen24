@@ -536,15 +536,41 @@ pix_driver      setq      #26-1                                 ' get 24 longs f
 '               debug(uhex(bit0hi))
 '               debug(uhex(bit1hi))
                 mov       tx2, tx
-                debug(udec(tx2))
+'                WRPIN ##$00000800, tx2
+'                debug(udec(tx2))
                 drvl      tx2
-                rep       #2, #7
+'                rep       #2, #7
                 add       tx2, #1
+'                WRPIN ##$00000C00, tx2
                 drvl      tx2
 
-                debug(udec(tx2))
+                add       tx2, #1
+'                WRPIN ##$00000C00, tx2
+                drvl      tx2
 
-{                mov       t1, #$FF                            ' create mask for 8 pins
+                add       tx2, #1
+'                WRPIN ##$00000C00, tx2
+                drvl      tx2
+
+                add       tx2, #1
+                WRPIN ##$00000800, tx2
+                drvl      tx2
+
+                add       tx2, #1
+                WRPIN ##$00000C00, tx2
+                drvl      tx2
+
+                add       tx2, #1
+                WRPIN ##$00000C00, tx2
+                drvl      tx2
+
+                add       tx2, #1
+                WRPIN ##$00000C00, tx2
+                drvl      tx2
+
+'                debug(udec(tx2))
+{
+                mov       t1, #$FF                            ' create mask for 8 pins
                 shl       t1, tx2
                 or        tx2, #(%111 << 6)                    ' convert to 8-pin group
                 drvh      tx2
