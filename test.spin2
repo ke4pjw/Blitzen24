@@ -1622,3 +1622,12 @@ pub stoppixels()
   WS2811.stop()
   WS28112.stop()
   WS28113.stop()
+pub pixelcnt(pingroup) : pixelct | index
+  pingroup := pingroup - 1 'This is so that we can pass what is configured in the data structure in pixelconfig.
+  index := pingroup * 5
+  pixelct := 0
+  repeat 8
+    if PIXELCONFIG[index] >=  pixelct
+      pixelct := PIXELCONFIG[index + 4]
+    index := index + 5
+  return pixelct
