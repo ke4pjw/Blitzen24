@@ -1,0 +1,1633 @@
+CON
+    _xtlfreq = 20_000_000
+    _clkfreq = 270_000_000
+
+  DVI_BASE_PIN  = 40     ' set to the base pin of the DVI group
+  CONSTANT_NAME = 0
+  #0, T_PST, T_ANSI                                             ' terminal types
+
+  T_TYPE = T_PST
+  PGM_RX   = 63  { I }                                          ' programming / debug
+  PGM_TX   = 62  { O }
+
+  DOPin = 58
+  CLKPin = 61
+  DIPin = 59
+  CSPin = 60
+
+  CS    = 50
+  RST   = 52
+  DC    = 51
+  CLK   = 49
+  DATA  = 48
+
+VAR
+        long PIXELCONFIG[124]
+        long E131CONFIG[432]
+        byte MACADDRESS[6]  ' Must be unique per layer 2 network
+        byte IPADDRESS[4]
+        byte SUBNETMASK[4]
+        byte GATEWAY[4]
+        byte DHCP 'Non zero
+        byte BRIGHTNESS
+        long TXBUFFER[8]
+        byte PACKETBUFFER[4098]
+        byte PIXELBUFFER[73768]
+        byte BADBUFFER[2048]
+        byte version
+        byte regi[2]
+        byte DHCPSERVER[4]
+        byte RequestID[4]
+        byte DHCPMESSAGETYPE
+        byte CHIPID[2]
+        byte CHIPVER[2]
+        long byteindex
+        long readptr
+        byte READBUFFER[2024]
+        byte WRITEBUFFER[2024]
+        byte REGBUFFER[2]
+        BYTE results[255]
+        long resp_ptr
+        long resp_css_ptr
+        long resp_jpg_ptr
+        long resp_png_ptr
+        long resp_ico_ptr
+        long resp_404_ptr
+        long req_ptr
+        long dhcp_ptr
+        long resp_dl_ptr
+        word psize
+        BYTE FILEPATH[2048]
+        BYTE RDATA[64000]
+        byte webbuff[64000]
+        long rdsize
+        long elock
+        long tPIXELCONFIG[90]
+        long tE131CONFIG[432]
+        byte eutmp[4]
+        byte pcnt[4]
+        byte boundary[71]
+        byte bgtmp
+        long wdcounter
+        long wdpps
+        long wddiscards
+        long wddps
+        long watchdogstack[256]
+OBJ
+        FS: "FAT32"
+        W6100: "W6100drv"
+        vid: "p2textdrv"
+        prng: "jm_prng"
+        WS2811: "tt_rgbx_pixel"
+        WS28112: "tt_rgbx_pixel"
+        WS28113: "tt_rgbx_pixel"
+'        DMX: "tt_dmx_tx"
+        str: "jm_strings"
+        OLED: "oled_AsmDrv"
+PUB main() | i, j
+
+
+
+  vid.initDvi(-1, DVI_BASE_PIN, 0, vid.FLASH_TEXT, vid.WVGA)
+
+  resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_png_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/png", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_ico_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/x-icon", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_404_ptr := String("HTTP/1.1 404 Not Found", $0D, $0A, "Connection: close", $0D, $0A, "Content-Type: text/html", $0D, $0A, $0D, $0A, "<HTML><BODY><H1>Nope, not here.</H2></BODY></HTML>", $0D, $0A)
+  resp_dl_ptr  := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: application/octet-stream", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+
+'  req_ptr      := String("test.htm")
+      dhcp_ptr := String("document.getElementById('DHCP').checked = true;", $0D, $0A)
+
+'     vid.tstart(BR_TERM)
+
+  '      vid.rxflush()
+  '      vid.rx()
+  '      if (clear)
+  '        clear_screen()
+
+
+'     wait_for_terminal(true)
+  waitms(100)
+' we can choose to map SEND to output to the text region
+  send:=@vid.tx
+'  SEND := @OLED.TERMSEND
+  OLED.Init(CS,DC,DATA,CLK,RST)
+  OLED.AutoUpdateOff()
+  OLED.clearDisplay()
+
+  vid.setTextColours(2,16)
+
+
+
+
+  send("Clock Speed: ")
+  vid.dec(clkfreq)
+  send( $0D, $0A)
+
+  send("Starting SD driver and mounting filesystem")
+  send( $0D, $0A)
+  if \FS.FATEngineStart(DOPin, CLKPin, DIPin, CSPin, 0)
+     OLED.TERMSEND(STRING("Missing SD Card?", OLED.CR, OLED.LF))
+     repeat
+  if \FS.mountPartition(0)
+     OLED.TERMSEND(STRING("Can't mount FS", OLED.CR, OLED.LF))
+     OLED.TERMSEND(STRING("Missing SD Card?", OLED.CR, OLED.LF))
+     repeat
+  send("Config file Size: ")
+  vid.dec(@Brightness - @PIXELCONFIG)
+  send($0D, $0A)
+  send("Opening config file: ")
+  if not \FS.openfile(string("blitzen.cfg"),"R")
+
+    send("Opened", $0D, $0A)
+    FS.readData(@PIXELCONFIG, @Brightness - @PIXELCONFIG + 1)
+    FS.closeFile()
+    OLED.TERMSEND(STRING("Config Found!", OLED.CR, OLED.LF))
+  else
+    send("Failed", $0D, $0A)
+    send("Zeroing Memory Configuration.")
+    bytefill(@PIXELCONFIG, 0, @Brightness - @PIXELCONFIG + 1)
+    send("Generating MAC Address: ")
+       'Configure Mac Address
+    MACADDRESS[0] := $00 'wiznet don't change
+    MACADDRESS[1] := $08 'wiznet don't change
+    MACADDRESS[2] := $DC 'wiznet don't change
+    MACADDRESS[3] := prng.xrandomize($00,$FF)
+    MACADDRESS[4] := prng.xrandomize($00,$FF)
+    MACADDRESS[5] := prng.xrandomize($00,$FF)
+    vid.hex(MACADDRESS[0],2)
+    send(":")
+    vid.hex(MACADDRESS[1],2)
+    send(":")
+    vid.hex(MACADDRESS[2],2)
+    send(":")
+    vid.hex(MACADDRESS[3],2)
+    send(":")
+    vid.hex(MACADDRESS[4],2)
+    send(":")
+    vid.hex(MACADDRESS[5],2)
+    send($0D, $0A)
+    send("Setting DHCP: True", $0D, $0A)
+    DHCP := 1
+    Brightness := 100
+
+    send("Configuring pixel config.")
+    longfill(@PIXELCONFIG,0,124)
+    longfill(@E131CONFIG,0,432)
+
+    i := 0
+    repeat 24
+      PIXELCONFIG[i * 5] := i + 1 ' Pin + 1, that way 0 is NULL
+      PIXELCONFIG[(i * 5) + 1] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
+      PIXELCONFIG[(i * 5) + 2] := 800 'Pixel holdoff time
+      PIXELCONFIG[(i * 5) + 3] := @pixelbuffer
+      PIXELCONFIG[(i * 5) + 4] := 0 ' Pixelcount in this pin
+      i++
+
+    FS.newFile(string("blitzen.cfg"))
+    FS.closeFile()
+    if not \FS.openfile(string("blitzen.cfg"),"W")
+
+      send("Writing Configuration to SD Card.", $0D, $0A)
+      FS.writeData(@PIXELCONFIG, @Brightness - @PIXELCONFIG + 1)
+      FS.closeFile()
+      OLED.TERMSEND(STRING("New config saved.", OLED.CR, OLED.LF))
+    else
+
+      send("Unable to write config. Aborting.", $0D, $0A)
+      OLED.TERMSEND(STRING("Config save fail", OLED.CR, OLED.LF))
+      OLED.TERMSEND(STRING("Missing SD Card?", OLED.CR, OLED.LF))
+      repeat
+{
+  MACADDRESS[0] := $00 'wiznet don't change
+  MACADDRESS[1] := $08 'wiznet don't change
+  MACADDRESS[2] := $DC 'wiznet don't change
+  MACADDRESS[3] := $00 'Set to unique value on your layer 2 network
+  MACADDRESS[4] := $00 'Set to unique value on your layer 2 network
+  MACADDRESS[5] := $00 'Set to unique value on your layer 2 network
+}
+
+{
+  send("Setting Mode: 010")
+  W6100.setmod010()
+  send( $0D, $0A)
+  send("Data Pins: ")
+  vid.hex(W6100.DATA,4)
+  send( $0D, $0A)
+
+  send("Resetting Ethernet: ")
+  W6100.reset()
+  waitms(3000)
+  waitms(3000)
+  waitms(3000)
+  send("Reset complete")
+  send( $0D, $0A)
+ }
+
+
+  send("Initialize Ethernet:")
+  elock := W6100.initparallel()
+  vid.hex(elock.long,4)
+  send( $0D, $0A)
+
+  send("Chip Identification: ")
+
+  W6100.readreg(W6100.REG_CIDR0,W6100.IDM_BSR_Common_Register,2,@CHIPID)
+  byteindex := 0
+  REPEAT 2
+    vid.hex(CHIPID[byteindex],2)
+    byteindex++
+  send( $0D, $0A)
+
+  send("Chip Version: ")
+  W6100.readreg(W6100.REG_VER0,W6100.IDM_BSR_Common_Register,2,@CHIPVER)
+  byteindex := 0
+  REPEAT 2
+    vid.hex(CHIPVER[byteindex],2)
+    byteindex++
+  send( $0D, $0A)
+
+  send("Physical Configuration Unlocked")
+  WRITEBUFFER[0] := W6100.SYSR_PHYL
+  W6100.writereg(W6100.REG_PHYLCKR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
+  send( $0D, $0A)
+
+  send("Set physical interface to 10BASETXFDX")
+  WRITEBUFFER[0] := W6100.TENBASETXFDX
+  W6100.writereg(W6100.REG_PHYCR0,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
+  send( $0D, $0A)
+
+  WRITEBUFFER[0] := $41
+  W6100.writereg(W6100.REG_PHYCR1,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
+
+  waitms (3000)
+  waitms (3000)
+
+  OLED.TERMPOSY(0)
+  OLED.TERMPOSX(0)
+  OLED.TERMSEND(string("Blitzen 24  "))
+  OLED.TERMPOSX(12)
+  OLED.SETFG(OLED.Red)
+  OLED.TERMSEND(string($81))
+  OLED.TERMPOSX(14)
+  OLED.TERMSEND(string($80))
+  OLED.SETFG(OLED.White)
+
+  send("Physical Configuration Locked")
+  WRITEBUFFER[0] := $00
+  W6100.writereg(W6100.REG_PHYLCKR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
+  send( $0D, $0A)
+
+
+  send("Network Configuration locked.")
+  WRITEBUFFER[0] := W6100.SYSR_NETU
+  W6100.writereg(W6100.REG_NETLCKR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
+  send( $0D, $0A)
+
+  send("Set MAC address: ")
+  vid.hex(MACADDRESS[0],2)
+  send(":")
+  vid.hex(MACADDRESS[1],2)
+  send(":")
+  vid.hex(MACADDRESS[2],2)
+  send(":")
+  vid.hex(MACADDRESS[3],2)
+  send(":")
+  vid.hex(MACADDRESS[4],2)
+  send(":")
+  vid.hex(MACADDRESS[5],2)
+  send($0D, $0A)
+  W6100.writereg(W6100.REG_SHAR0,W6100.IDM_BSR_Common_Register,6,@MACADDRESS)
+
+  OLED.TERMPOSY(6)
+  OLED.TERMPOSX(0)
+
+  OLED.TERMSEND(string("MAC Address:", OLED.CR, OLED.LF))
+  OLED.hex(MACADDRESS[0],2)
+'  OLED.TERMSEND(string(":"))
+  OLED.hex(MACADDRESS[1],2)
+'  OLED.TERMSEND(string(":"))
+  OLED.hex(MACADDRESS[2],2)
+'  OLED.TERMSEND(string(":"))
+  OLED.hex(MACADDRESS[3],2)
+'  OLED.TERMSEND(string(":"))
+  OLED.hex(MACADDRESS[4],2)
+'  OLED.TERMSEND(string(":"))
+  OLED.hex(MACADDRESS[5],2)
+
+
+  send("Network Configuration locked.")
+  WRITEBUFFER[0] := W6100.SYSR_NETU
+  W6100.writereg(W6100.REG_NETLCKR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
+  send( $0D, $0A)
+
+  Send("Configuring 8 sockets with 2K TX buffer.")
+  i := W6100.IDM_BSR_Socket0_Register
+  WRITEBUFFER[0] := 2
+  repeat 8
+    W6100.writereg(W6100.REG_Sn_TX_BSR,i,1,@WRITEBUFFER)
+    Send(".")
+    i := i + %001_00_000
+  send( $0D, $0A)
+
+
+
+
+  Send("Validate TX buffer: ")
+  i := W6100.IDM_BSR_Socket0_Register
+  repeat 8
+    W6100.readreg(W6100.REG_Sn_TX_BSR,i,1,@READBUFFER)
+    vid.hex(READBUFFER[0],2)
+    i := i + %001_00_000
+  send( $0D, $0A)
+
+  Send("Configuring 8 sockets with 2K RX buffer.")
+  i := W6100.IDM_BSR_Socket0_Register
+  WRITEBUFFER[0] := 2
+  repeat 8
+    W6100.writereg(W6100.REG_Sn_RX_BSR,i,1,@WRITEBUFFER)
+    Send(".")
+    i := i + %001_00_000
+  send( $0D, $0A)
+
+
+  Send("Validate RX buffer: ")
+  i := W6100.IDM_BSR_Socket0_Register
+  repeat 8
+    W6100.readreg(W6100.REG_Sn_RX_BSR,i,1,@READBUFFER)
+    vid.hex(READBUFFER[0],2)
+    i := i + %001_00_000
+  send( $0D, $0A)
+{
+  Send("Configure Interrupt for Socket 3")
+  WRITEBUFFER[0] := %0000_1000
+  W6100.writereg(W6100.REG_SIMR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
+  send( $0D, $0A)
+}
+  if DHCP
+    dhcpclient()
+  send("Network Configuration Unlocked.")
+  WRITEBUFFER[0] := $3A
+  W6100.writereg(W6100.REG_NETLCKR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
+  send( $0D, $0A)
+
+  send("Set Gateway address: ")
+  WRITEBUFFER[0] := GATEWAY[0]
+  WRITEBUFFER[1] := GATEWAY[1]
+  WRITEBUFFER[2] := GATEWAY[2]
+  WRITEBUFFER[3] := GATEWAY[3]
+  vid.dec(WRITEBUFFER[0])
+  Send(".")
+  vid.dec(WRITEBUFFER[1])
+  Send(".")
+  vid.dec(WRITEBUFFER[2])
+  Send(".")
+  vid.dec(WRITEBUFFER[3] )
+  send( $0D, $0A)
+  W6100.writereg(W6100.REG_GAR0,W6100.IDM_BSR_Common_Register,4,@WRITEBUFFER)
+
+  send("Set Subnet: ")
+  WRITEBUFFER[0] := SUBNETMASK[0]
+  WRITEBUFFER[1] := SUBNETMASK[1]
+  WRITEBUFFER[2] := SUBNETMASK[2]
+  WRITEBUFFER[3] := SUBNETMASK[3]
+  vid.dec(WRITEBUFFER[0])
+  Send(".")
+  vid.dec(WRITEBUFFER[1])
+  Send(".")
+  vid.dec(WRITEBUFFER[2])
+  Send(".")
+  vid.dec(WRITEBUFFER[3] )
+  send( $0D, $0A)
+  W6100.writereg(W6100.REG_SUBR0,W6100.IDM_BSR_Common_Register,4,@WRITEBUFFER)
+
+
+  send("Set IP Address: ")
+  WRITEBUFFER[0] := IPADDRESS[0]
+  WRITEBUFFER[1] := IPADDRESS[1]
+  WRITEBUFFER[2] := IPADDRESS[2]
+  WRITEBUFFER[3] := IPADDRESS[3]
+  vid.dec(WRITEBUFFER[0])
+  Send(".")
+  vid.dec(WRITEBUFFER[1])
+  Send(".")
+  vid.dec(WRITEBUFFER[2])
+  Send(".")
+  vid.dec(WRITEBUFFER[3] )
+  send( $0D, $0A)
+  W6100.writereg(W6100.REG_SIPR0,W6100.IDM_BSR_Common_Register,4,@WRITEBUFFER)
+
+  OLED.TERMPOSY(3)
+  OLED.TERMPOSX(0)
+  OLED.TERMSEND(string("IP Address:", OLED.CR, OLED.LF))
+  OLED.DEC(IPADDRESS[0])
+  OLED.TERMCHR(".")
+  OLED.DEC(IPADDRESS[1])
+  OLED.TERMCHR(".")
+'  OLED.TERMSEND( string($0D, $0A))
+  OLED.DEC(IPADDRESS[2])
+  OLED.TERMCHR(".")
+  OLED.DEC(IPADDRESS[3])
+
+
+  send("Network Configuration locked.")
+  WRITEBUFFER[0] := $C5
+  W6100.writereg(W6100.REG_NETLCKR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
+  send( $0D, $0A)
+
+
+  send("System Status Register: ")
+  vid.hex(W6100.readreg(W6100.REG_SYSR,W6100.IDM_BSR_Common_Register,1,@READBUFFER),2)
+  send( $0D, $0A)
+
+  send("Configuring pixel config.")
+'  longfill(@PIXELCONFIG,0,120)
+'  longfill(@E131CONFIG,0,432)
+
+{
+  PIXELCONFIG[0] := 1 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[1] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[2] := 800 'Pixel holdoff time
+  PIXELCONFIG[3] := @pixelbuffer
+  PIXELCONFIG[4] := 0 ' Pixelcount in this pin
+
+  PIXELCONFIG[5] := 2 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[6] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[7] := 800 'Pixel holdoff time
+  PIXELCONFIG[8] := @pixelbuffer
+  PIXELCONFIG[9] := 0 ' Pixelcount in this pin
+
+  PIXELCONFIG[10] := 3 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[11] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[12] := 800 'Pixel holdoff time
+  PIXELCONFIG[13] := @pixelbuffer
+  PIXELCONFIG[14] := 0 ' Pixelcount in this pin
+
+  PIXELCONFIG[15] := 4 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[16] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[17] := 800 'Pixel holdoff time
+  PIXELCONFIG[18] := @pixelbuffer
+  PIXELCONFIG[19] := 0 ' Pixelcount in this pin
+
+  PIXELCONFIG[20] := 5 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[21] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[22] := 800 'Pixel holdoff time
+  PIXELCONFIG[23] := @pixelbuffer
+  PIXELCONFIG[24] := 0 ' Pixelcount in this pin
+
+  PIXELCONFIG[25] := 6 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[26] := %%3120 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[27] := 800 'Pixel holdoff time
+  PIXELCONFIG[28] := @pixelbuffer
+  PIXELCONFIG[29] := 0 ' Pixelcount in this pin
+
+  PIXELCONFIG[30] := 7 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[31] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[32] := 800 'Pixel holdoff time
+  PIXELCONFIG[33] := @pixelbuffer
+  PIXELCONFIG[34] := 0 ' Pixelcount in this pin
+
+  PIXELCONFIG[35] := 8 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[36] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[37] := 800 'Pixel holdoff time
+  PIXELCONFIG[38] := @pixelbuffer
+  PIXELCONFIG[39] := 0 ' Pixelcount in this pin
+
+  PIXELCONFIG[40] := 9 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[41] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[42] := 800 'Pixel holdoff time
+  PIXELCONFIG[43] := @pixelbuffer
+  PIXELCONFIG[44] := 0 ' Pixelcount in this pin
+
+  PIXELCONFIG[45] := 10 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[46] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[47] := 800 'Pixel holdoff time
+  PIXELCONFIG[48] := @pixelbuffer
+  PIXELCONFIG[49] := 0 ' Pixelcount in this pin
+
+  PIXELCONFIG[50] := 11 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[51] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[52] := 800 'Pixel holdoff time
+  PIXELCONFIG[53] := @pixelbuffer
+  PIXELCONFIG[54] := 0 ' Pixelcount in this pin
+
+  PIXELCONFIG[55] := 12 ' Pin + 1, that way 0 is NULL
+  PIXELCONFIG[56] := %%0123 ' Pixel Color order. In this case BB_RR_GG_WW
+  PIXELCONFIG[57] := 800 'Pixel holdoff time
+  PIXELCONFIG[58] := @pixelbuffer
+  PIXELCONFIG[59] := 0 ' Pixelcount in this pin
+ }
+'  longfill(@E131CONFIG,0,432)
+{  E131CONFIG[0] := 1 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[1] := 2 ' E1.31 Universe
+  E131CONFIG[2] := 100 ' Pixels in this universe
+  E131CONFIG[3] := 0
+
+  E131CONFIG[4] := 2 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[5] := 3 ' E1.31 Universe
+  E131CONFIG[6] := 100 ' Pixels in this universe
+  E131CONFIG[7] := 0
+
+  E131CONFIG[8] := 3 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[9] := 4 ' E1.31 Universe
+  E131CONFIG[10] := 100 ' Pixels in this universe
+  E131CONFIG[11] := 0
+
+  E131CONFIG[12] := 4 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[13] := 5 ' E1.31 Universe
+  E131CONFIG[14] := 100 ' Pixels in this universe
+  E131CONFIG[15] := 0
+
+  E131CONFIG[16] := 5 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[17] := 6 ' E1.31 Universe
+  E131CONFIG[18] := 100 ' Pixels in this universe
+  E131CONFIG[19] := 0
+
+  E131CONFIG[20] := 6 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[21] := 7 ' E1.31 Universe
+  E131CONFIG[22] := 100 ' Pixels in this universe
+  E131CONFIG[23] := 0
+
+  E131CONFIG[24] := 7 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[25] := 8 ' E1.31 Universe
+  E131CONFIG[26] := 100 ' Pixels in this universe
+  E131CONFIG[27] := 0
+
+  E131CONFIG[28] := 8 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[29] := 9 ' E1.31 Universe
+  E131CONFIG[30] := 100 ' Pixels in this universe
+  E131CONFIG[31] := 0
+
+  E131CONFIG[32] := 9 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[33] := 10 ' E1.31 Universe
+  E131CONFIG[34] := 100 ' Pixels in this universe
+  E131CONFIG[35] := 0
+
+  E131CONFIG[36] := 10 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[37] := 11 ' E1.31 Universe
+  E131CONFIG[38] := 100 ' Pixels in this universe
+  E131CONFIG[39] := 0
+
+  E131CONFIG[40] := 11 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[41] := 12 ' E1.31 Universe
+  E131CONFIG[42] := 100 ' Pixels in this universe
+  E131CONFIG[43] := 0
+
+  E131CONFIG[44] := 12 ' Pin + 1, this is the many to one key to the PIXELCONFIG
+  E131CONFIG[45] := 13 ' E1.31 Universe
+  E131CONFIG[46] := 100 ' Pixels in this universe
+  E131CONFIG[47] := 0
+}
+  ConfigPixels()
+  StartPixels()
+
+
+
+  'Maybe move the listener into the startastrx object
+  W6100.Open(5568,W6100.PM_UDP4,W6100.IDM_BSR_Socket3_Register)
+  PINFLOAT(W6100.DATA)
+  W6100.startfastrx(W6100.IDM_BSR_Socket3_Register,@pixelbuffer,@TXBUFFER,@E131CONFIG)
+
+  send("Starting web server")
+  send( $0D, $0A)
+
+'  COGSPIN(NEWCOG, httpd(80,W6100.PM_TCP4,W6100.IDM_BSR_Socket1_Register), @httpdstack)
+  COGSPIN(NEWCOG,watchdogcog(), @watchdogstack)
+   repeat
+      httpd(80,W6100.PM_TCP4,W6100.IDM_BSR_Socket1_Register)
+
+
+pub watchdogcog()
+ repeat
+'    debug (uhex(PIXELCONFIG[80] + 15))
+' Ethernet Status
+    W6100.readreg(W6100.REG_PHYSR,W6100.IDM_BSR_Common_Register,1,@bgtmp)
+    if (bgtmp & 1) == 0
+        OLED.SETFG(OLED.Yellow)
+    If (bgtmp & 128) == 128
+        OLED.SETFG(OLED.Red)
+    if (bgtmp & 1) == 1
+        OLED.SETFG(OLED.Green)
+    OLED.TERMPOSY(0)
+    OLED.TERMPOSX(14)
+    OLED.TERMSEND(string($80))
+    OLED.SETFG(OLED.White)
+    OLED.TERMPOSX(12)
+' E1.31 Status
+    if wdcounter <> W6100.Counter()
+      OLED.SETFG(OLED.Green)
+    else
+      OLED.SETFG(OLED.Red)
+    if wddiscards <> W6100.Discards()
+      OLED.SETFG(OLED.Yellow)
+    OLED.TERMSEND(string($81))
+    OLED.SETFG(OLED.White)
+
+' Set E1.31 Packets/s
+    wdpps :=  W6100.Counter() - wdcounter     ' Calculate E1.31 packets/sec
+    wddps :=  W6100.Discards() - wddiscards   ' Calculate E1.31 discarded packets/sec
+
+' Update counters
+    wdcounter := W6100.Counter()
+    wddiscards := W6100.Discards()
+
+' Counters on the OLED
+    OLED.TERMPOSY(1)
+    OLED.TERMPOSX(0)
+    OLED.dec(wddps)
+    OLED.TERMSEND(String(" drops/sec"))
+    OLED.TERMPOSY(2)
+    OLED.TERMPOSX(0)
+    OLED.dec(wdpps)
+    OLED.TERMSEND(String(" decodes/sec"))
+
+
+
+    waitms(1000)
+
+'    OLED.HEX(bgtmp[0],2)
+
+pub ConfigPixels() |  pixelcount, pixeloffset, i, ei
+
+
+  pixeloffset := 0
+  i := 0
+  ei := 0
+  repeat until PIXELCONFIG[i] == 0
+    pixelcount :=  0
+    PIXELCONFIG[i+3] := pixeloffset + @pixelbuffer
+       repeat until E131CONFIG[ei] <> PIXELCONFIG[i]
+          if E131CONFIG[ei] == PIXELCONFIG[i]
+
+               E131CONFIG[ei+3] := pixeloffset + @pixelbuffer
+               pixeloffset := pixeloffset + (E131CONFIG[ei+2] * 3) 'Probably going to need to change this for RGBW
+               pixelcount := pixelcount + E131CONFIG[ei+2]
+          ei := ei + 4
+
+    PIXELCONFIG[i + 4] := pixelcount
+
+    debug("Pin: ")
+    debug( uhex(PIXELCONFIG[i]))
+    i := i + 5
+
+{  repeat 5
+    send( $0D, $0A)
+    vid.hex(packetbuffer[137],2)
+    vid.hex(packetbuffer[138],2)
+    vid.hex(packetbuffer[139],2)
+ }
+'  repeat
+'    send( $0D, $0A)
+'    vid.hex(TXBUFFER[0],8)
+ '   vid.hex(TXBUFFER[0],8)
+
+
+{     send( $0D, $0A)
+     waitms(3000)
+     vid.hex(BADBUFFER[0],2)
+     vid.hex(BADBUFFER[1],2)       }
+
+pub httpd(port,PM,socket) | i
+ send:=@vid.tx
+
+repeat
+
+  send("Configuring Protocol Mode TCP on Socket 1")
+  send( $0D, $0A)
+  W6100.Open(port,PM,socket)
+
+  send("Configuring listener on Socket 1")
+  send( $0D, $0A)
+   ' Instantiate Stay Puff listener on opened socket.
+  if W6100.ListenTCP(socket) <> W6100.SOCK_LISTEN
+     send("Socket Listener failed!")
+     send( $0D, $0A)
+     Return
+
+  send("Waiting for TCP request on Socket 1 port 80")
+  send( $0D, $0A)
+  if (W6100.EstablishTCP(socket) <> W6100.Sn_IR_TIMEOUT)
+    W6100.readreg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket1_Register,4,@READBUFFER)
+    send("Connection Established from ")
+    vid.dec(READBUFFER[0])
+    Send(".")
+    vid.dec(READBUFFER[1])
+    Send(".")
+    vid.dec(READBUFFER[2])
+    Send(".")
+    vid.dec(READBUFFER[3])
+    send( $0D, $0A)
+
+
+  send("Checking Sn_RX_RSR Socket Status/number of bytes in buffer: ")
+
+  If ( W6100.ReceiveData(socket,10000) <> W6100.Sn_IR_TIMEOUT)
+ '     W6100.ReceiveData(socket,100000)
+      psize := W6100.ReceiveProcess(socket,@READBUFFER)
+      send("Received: ")
+      send( $0D, $0A)
+      i:=0
+      repeat until i == psize 'or i > 256
+        if READBUFFER[i] > 31 and READBUFFER[i] < 128
+           send(READBUFFER[i])
+        else
+           send("`")
+        i++
+      send( $0D, $0A)
+
+      send("Packet Length: ")
+
+      send( vid.dec(psize), $0D, $0A)
+      send("Start Filename: ")
+      send(vid.dec(str.instr(@READBUFFER,string("GET /"))+5))
+      send( $0D, $0A)
+      send("End Filename: ")
+      send(vid.dec(str.instr(@READBUFFER,string("HTTP/1.1"))-1))
+      send( $0D, $0A)
+      READBUFFER[2000] := 0
+      if str.instr(@READBUFFER,string("HTTP/1.1")) <> -1 and (str.instr(@READBUFFER,string("GET /")) <> -1  or str.instr(@READBUFFER,string("POST /")) <> -1  ) and (str.instr(@READBUFFER,string("HTTP/1.1")) > str.instr(@READBUFFER,string("GET /")) or str.instr(@READBUFFER,string("HTTP/1.1")) > str.instr(@READBUFFER,string("POST /")))
+        bytefill(@filepath,0,25)
+        send("Filename: ")
+        if str.instr(@READBUFFER,string("GET /")) <> -1
+          str.mid(@filepath, @READBUFFER, str.instr(@READBUFFER,string("GET /"))+5, (str.instr(@READBUFFER,string("HTTP/1.1"))) - (str.instr(@READBUFFER,string("GET /"))) - 6 )
+       '  Set filename to all uppercase
+          str.ucstr(@filepath)
+
+         ' Save config if token is in GET request
+          if str.instr(@filepath,string("?SAVE=Y")) <> -1
+              writeconfig()
+
+        else
+
+          str.mid(@filepath, @READBUFFER, str.instr(@READBUFFER,string("POST /"))+6, (str.instr(@READBUFFER,string("HTTP/1.1"))) - (str.instr(@READBUFFER,string("POST /"))) - 7 )
+        ' Set filename to all uppercase
+          str.ucstr(@filepath)
+          if str.instr(@filepath,string("NET.HTM")) <> -1
+            netpost()
+          if str.instr(@filepath,string("E131.HTM")) <> -1
+            e131post()
+          if str.instr(@filepath,string("CONFIGS.HTM")) <> -1
+            configspost(socket)
+          if str.instr(@filepath,string("OUTPUTS.HTM")) <> -1
+            outputspost()
+
+        vid.printStr(@filepath)
+        vid.crlf()
+
+        ' Set default document
+         if (str.instr(@READBUFFER,string("HTTP/1.1"))-1) == 5
+           filepath[0] := 0
+           str.append_str(@filepath,string("index.htm"))
+
+
+
+      'results := FS.openfile(string("test.txt"),string("R"))
+
+'      if str.strncmp(@filepath,str.rtrim(FS.openfile(@filepath,string("R"))),strsize(@filepath)) == 0
+         if not \FS.openfile(@filepath,string("R"))
+            FS.readdata(@RDATA, FS.fileSize())
+         '   vid.printStr(@RDATA)
+
+            ' Default response header
+            rdsize :=  strsize(resp_ptr)
+            bytemove(@webbuff,resp_ptr,rdsize)
+
+            ' Other MIME Type Response headers
+            if str.instr(@filepath,string(".JPG")) == (strsize(@filepath) - 4)
+              rdsize :=  strsize(resp_jpg_ptr)
+              bytemove(@webbuff,resp_jpg_ptr,rdsize)
+
+            if str.instr(@filepath,string(".ICO")) == (strsize(@filepath) - 4)
+              rdsize :=  strsize(resp_ico_ptr)
+              bytemove(@webbuff,resp_ico_ptr,rdsize)
+
+
+            if str.instr(@filepath,string(".PNG")) == (strsize(@filepath) - 4)
+              rdsize :=  strsize(resp_png_ptr)
+              bytemove(@webbuff,resp_png_ptr,rdsize)
+
+            if str.instr(@filepath,string(".CSS")) == (strsize(@filepath) - 4)
+              rdsize :=  strsize(resp_css_ptr)
+              bytemove(@webbuff,resp_css_ptr,rdsize)
+
+            if str.instr(@filepath,string(".CFG")) == (strsize(@filepath) - 4)
+              rdsize :=  strsize(resp_dl_ptr)
+              bytemove(@webbuff,resp_dl_ptr,rdsize)
+
+            bytemove((@webbuff + rdsize),@RDATA,FS.fileSize())
+            rdsize := rdsize + FS.fileSize()
+            FS.closeFile()
+         else
+            if str.instr(@filepath,string(".JS")) <> -1
+               if str.instr(@filepath,string("COUNTERS.JS")) <> -1
+                  countersjs()
+               if str.instr(@filepath,string("NET.JS")) <> -1
+                  netjs()
+               if str.instr(@filepath,string("E131.JS")) <> -1
+                  e131js()
+               if str.instr(@filepath,string("OUTPUT.JS")) <> -1
+                  outputjs()
+
+            else
+               if str.instr(@filepath,string("RUNNINGCONFIG.CFG")) <> -1
+                  downloadconfig()
+               else
+
+                  bytemove(@webbuff,resp_404_ptr,strsize(resp_404_ptr))
+                  rdsize :=  strsize(resp_404_ptr)
+
+         webbuff[rdsize] := 0
+         i := 0
+         repeat until rdsize <= 1000
+            W6100.SendData(socket,@webbuff+i,1000)
+            i := i + 1000
+            rdsize := rdsize - 1000
+         W6100.SendData(socket,@webbuff+i,rdsize)
+
+
+
+
+
+'      W6100.SendDataTCP(socket,resp_ptr,strsize(resp_ptr))' Send the page
+'      W6100.SendDataTCP(socket,@RDATA,strsize(RDATA))' Send the page
+'      W6100.EndDataTCP(socket)
+
+        W6100.Disconnect(socket)
+
+
+pub netpost()
+     if str.instr(@READBUFFER,string("DHCP=1")) <> -1
+        DHCP := 1
+     else
+        DHCP := 0
+
+    IPADDRESS[0] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("IPADDRESS0="))+ 11, 3)
+    IPADDRESS[1] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("IPADDRESS1="))+ 11, 3)
+    IPADDRESS[2] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("IPADDRESS2="))+ 11, 3)
+    IPADDRESS[3] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("IPADDRESS3="))+ 11, 3)
+
+    SUBNETMASK[0] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("SUBNETMASK0="))+ 12, 3)
+    SUBNETMASK[1] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("SUBNETMASK1="))+ 12, 3)
+    SUBNETMASK[2] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("SUBNETMASK2="))+ 12, 3)
+    SUBNETMASK[3] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("SUBNETMASK3="))+ 12, 3)
+
+    GATEWAY[0] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("GATEWAY0="))+ 9, 3)
+    GATEWAY[1] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("GATEWAY1="))+ 9, 3)
+    GATEWAY[2] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("GATEWAY2="))+ 9, 3)
+    GATEWAY[3] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("GATEWAY3="))+ 9, 3)
+
+    writeconfig()
+
+pub writeconfig()
+
+    if not \FS.openfile(string("blitzen.cfg"),"W")
+
+      send("Writing Configuration to SD Card.", $0D, $0A)
+      FS.writeData(@PIXELCONFIG, @Brightness - @PIXELCONFIG + 1)
+      FS.closeFile()
+
+    else
+
+      send("Unable to write config. Aborting.", $0D, $0A)
+      abort
+pub configspost(socket) | length, startpoint, datarxed, bpos, qc, cpysize
+    boundary[0] := 0
+
+    if str.instr(@READBUFFER,string("boundary=")) <> -1
+      str.mid(@boundary, @READBUFFER, str.instr(@READBUFFER,string("boundary="))+9, (str.instr(@READBUFFER + str.instr(@READBUFFER,string("boundary="))+9 ,string( $0D, $0A)))  )
+      send("Boundary: ")
+      vid.printStr(@boundary)
+      send("<-",$0D, $0A)
+      length := str2dec(@READBUFFER + str.instr(@READBUFFER,string("Content-Length: "))+ 16, 10)
+      send("Content Length: ")
+      vid.dec(length)
+      send($0D, $0A)
+      send("Packet Size: ")
+      vid.dec(psize)
+      send($0D, $0A)
+      qc := 0
+      repeat until startpoint > 27 or qc > 4
+        qc++
+        startpoint := inbin(@READBUFFER,string("Content-Type: application/octet-stream", $0D, $0A, $0D, $0A), psize) + 42
+        if  startpoint == 41
+          startpoint := inbin(@READBUFFER,string("Content-Type: image/jpeg", $0D, $0A, $0D, $0A), psize) + 28
+        if startpoint == 27
+          psize := W6100.ReceiveProcess(socket,@READBUFFER)
+      send("Data Startpoint: ")
+      vid.dec(startpoint)
+      send($0D, $0A)
+      datarxed := psize - startpoint
+      bpos := inbin(@READBUFFER + startpoint, @boundary,datarxed)
+      If bpos <> -1
+        send("Found Boundry in Packet: ")
+        vid.dec(bpos)
+        send($0D, $0A)
+        datarxed :=  startpoint - bpos
+      bytemove(@PIXELCONFIG, @READBUFFER + startpoint, datarxed) ' Copy 1st packet of uploaded config into memory
+      send("Data size: ")
+      vid.dec(datarxed)
+      send($0D, $0A)
+'      waitms(3000)
+'      waitms(3000)
+      repeat until W6100.ReceiveData(socket,5000) == W6100.Sn_IR_TIMEOUT
+             startpoint := datarxed ' Set the last offset where you wrote to last.
+             psize := W6100.ReceiveProcess(socket,@READBUFFER)
+             psize := psize
+             send("Packet Size: ")
+             vid.dec(psize)
+             send($0D, $0A)
+             bpos := inbin(@READBUFFER, @boundary, psize)
+             If bpos <> -1
+                send("Found Boundry in Subsequent Packet: ")
+                vid.dec(bpos)
+                send($0D, $0A)
+                datarxed :=  datarxed + bpos - 4 ' -4 to remove CR LF and --
+                cpysize := bpos - 4 ' -4 to remove CR LF and --
+             else
+                datarxed :=  datarxed + psize
+                cpysize := psize
+             bytemove(@PIXELCONFIG + startpoint, @READBUFFER, cpysize)
+      send("Total Bytes RXed: ")
+      vid.dec(datarxed)
+      send($0D, $0A)
+'      waitms(3000)
+'      waitms(3000)
+pub e131post() | output, ei, eti, u , uascii
+    longfill(@tE131CONFIG,0,432) ' Clean up the tmp space
+    eutmp[0] := 0
+    pcnt[0] := 0
+    output := str2dec(@READBUFFER + str.instr(@READBUFFER,string("output="))+ 7, 2)
+    u  := 1
+    ei := 0
+    eti := 0
+    repeat until (E131CONFIG[ei] == output) or (E131CONFIG[ei] == 0) 'Do this until you get to the current e131 config
+      longmove(@tE131CONFIG+(ei*4),@E131CONFIG+(ei*4),4)
+      ei := ei + 4
+      eti := ei
+    str.append_str(@eutmp,string("U"))
+    str.append_str(@eutmp,str.dec(u,1))
+    str.append_str(@eutmp,string("="))
+    str.append_str(@pcnt,string("P"))
+    str.append_str(@pcnt,str.dec(u,1))
+    str.append_str(@pcnt,string("="))
+
+    repeat until str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ 3, 6) == 0
+      tE131CONFIG[ei] := output
+      tE131CONFIG[ei+1] := str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ 3, 6)
+      tE131CONFIG[ei+2] := str2dec(@READBUFFER + str.instr(@READBUFFER,@pcnt)+ 3, 3)
+
+       'vid.dec(str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ 3, 6))
+       'vid.dec(str2dec(@READBUFFER + str.instr(@READBUFFER,@pcnt)+ 3, 3))
+      u := u + 1
+      eutmp[0] := 0
+      pcnt[0] := 0
+      str.append_str(@eutmp,string("U"))
+      str.append_str(@eutmp,str.dec(u,1))
+      str.append_str(@eutmp,string("="))
+      str.append_str(@pcnt,string("P"))
+      str.append_str(@pcnt,str.dec(u,1))
+      str.append_str(@pcnt,string("="))
+      ei := ei + 4
+       'waitms(3000)
+
+    repeat until (E131CONFIG[eti] <> output) or (E131CONFIG[eti] == 0) or eti >= 432
+        eti := eti + 4
+
+ '   ei := ei - 4
+    repeat until (E131CONFIG[eti] == 0) or eti >= 432
+        longmove(@tE131CONFIG+(ei*4),@E131CONFIG+(eti*4),4)
+        eti := eti + 4
+        ei := ei + 4
+
+    longmove(@E131CONFIG,@tE131CONFIG,432)
+    ConfigPixels()
+    StopPixels()
+    StartPixels()
+'    WS2811.stop()
+'    WS2811.start_2812b(PIXELCONFIG[3], %%0123, PIXELCONFIG[8], %%0123, PIXELCONFIG[13],%%0123,PIXELCONFIG[18],%%0123,PIXELCONFIG[23],%%0123,PIXELCONFIG[28],%%0123, PIXELCONFIG[33], %%0123, PIXELCONFIG[38], %%0123, PIXELCONFIG[4],PIXELCONFIG[0] - 1, PIXELCONFIG[2])
+'    WS28112.stop()
+'    WS28112.start_2812b(PIXELCONFIG[43], %%0123,PIXELCONFIG[48],%%0123,PIXELCONFIG[53],%%0123,PIXELCONFIG[58],%%0123,PIXELCONFIG[43],%%0123,PIXELCONFIG[48],%%0123,PIXELCONFIG[53],%%0123,PIXELCONFIG[58],%%0123, PIXELCONFIG[44],PIXELCONFIG[40] - 1, PIXELCONFIG[42])
+    W6100.stopfastrx()
+    W6100.startfastrx(W6100.IDM_BSR_Socket3_Register,@pixelbuffer,@TXBUFFER,@E131CONFIG)
+
+pub e131js() | output, u, ei
+
+' Set output
+   output := str2dec(@READBUFFER + str.instr(@READBUFFER,string("output="))+ 7, 2)
+
+' Zero out buffer
+   webbuff[0] := 0
+
+' send header
+   str.append_str(@webbuff,resp_ptr)
+
+   u  := 1
+   ei := 0
+
+   repeat until E131CONFIG[ei] == 0
+      if E131CONFIG[ei] == output
+
+
+               str.append_str(@webbuff, string($0D, $0A, "document.getElementById('U"))
+               str.append_str(@webbuff,str.dec(u,-1))
+               str.append_str(@webbuff, string("').value='"))
+               str.append_str(@webbuff,str.dec(E131CONFIG[ei+1],-1))
+               str.append_str(@webbuff, string("';"))
+
+               str.append_str(@webbuff, string($0D, $0A, "document.getElementById('P"))
+               str.append_str(@webbuff,str.dec(u,-1))
+               str.append_str(@webbuff, string("').value='"))
+               str.append_str(@webbuff,str.dec(E131CONFIG[ei+2],-1))
+               str.append_str(@webbuff, string("';"))
+               if  (E131CONFIG[ei+1] <> 0 and E131CONFIG[ei+2] <> 0) or (u ==1)
+                    str.append_str(@webbuff, string($0D, $0A, "document.getElementById('R"))
+                    str.append_str(@webbuff,str.dec(u,-1))
+                    str.append_str(@webbuff, string("').style.display = '';"))
+                    if u > 2
+                      str.append_str(@webbuff, string($0D, $0A, "document.getElementById('A"))
+                      str.append_str(@webbuff,str.dec(u-1,-1))
+                      str.append_str(@webbuff, string("').style.display = 'None';"))
+                      str.append_str(@webbuff, string($0D, $0A, "document.getElementById('M"))
+                      str.append_str(@webbuff,str.dec(u-1,-1))
+                      str.append_str(@webbuff, string("').style.display = 'None';"))
+               u := u + 1
+
+      ei := ei + 4
+
+
+  rdsize := strsize(@webbuff)
+pub outputspost() | p
+    eutmp[0] := 0
+    p := 0
+    repeat 24
+      str.append_str(@eutmp,string("O"))
+      str.append_str(@eutmp,str.dec(p+1,1))
+      str.append_str(@eutmp,string("="))
+      PIXELCONFIG[(p * 5) + 1] := str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ strsize(@eutmp), 3)
+      eutmp[0] := 0
+'      vid.dec(PIXELCONFIG[(p * 5) + 1] )
+'      send( $0D, $0A)
+      p++
+    eutmp[0] := 0
+    str.append_str(@eutmp,string("brt="))
+    Brightness := str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ strsize(@eutmp), 3)
+    stoppixels()
+    startpixels()
+'    waitms(3000)
+
+pub outputjs() | p,idx
+' Zero out buffer
+    webbuff[0] := 0
+
+' send header
+    str.append_str(@webbuff,resp_ptr)
+
+    p := 0
+    repeat 24
+      CASE PIXELCONFIG[(p * 5) + 1]
+        %%0123: idx:=0
+        %%2013: idx:=1
+        %%1023: idx:=2
+        %%0213: idx:=3
+        %%1203: idx:=4
+        %%2103: idx:=5
+      str.append_str(@webbuff, string($0D, $0A, "document.getElementById('O"))
+      str.append_str(@webbuff,str.dec(p+1,-1))
+      str.append_str(@webbuff, string("').selectedIndex = '"))
+      str.append_str(@webbuff,str.dec(idx,-1))
+      str.append_str(@webbuff, string("'; "))
+      p++
+    str.append_str(@webbuff, string($0D, $0A, "document.getElementById('brt').value='"))
+    str.append_str(@webbuff,str.dec(Brightness,-1))
+    str.append_str(@webbuff, string("';"))
+        str.append_str(@webbuff, string($0D, $0A, "document.getElementById('sld').value='"))
+    str.append_str(@webbuff,str.dec(Brightness,-1))
+    str.append_str(@webbuff, string("';"))
+
+    rdsize := strsize(@webbuff)
+pub netjs()
+
+' Zero out buffer
+   webbuff[0] := 0
+
+' send header
+   str.append_str(@webbuff,resp_ptr)
+
+' set checkbox if DHCP is enabled
+  if DHCP == 1
+     str.append_str(@webbuff, dhcp_ptr)
+
+' Set IP Address in form
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('IPADDRESS0').value='"))
+  str.append_str(@webbuff,str.dec(IPADDRESS[0],-1))
+  str.append_str(@webbuff, string("';"))
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('IPADDRESS1').value='"))
+  str.append_str(@webbuff,str.dec(IPADDRESS[1],-1))
+  str.append_str(@webbuff, string("';"))
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('IPADDRESS2').value='"))
+  str.append_str(@webbuff,str.dec(IPADDRESS[2],-1))
+  str.append_str(@webbuff, string("';"))
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('IPADDRESS3').value='"))
+  str.append_str(@webbuff,str.dec(IPADDRESS[3],-1))
+  str.append_str(@webbuff, string("';"))
+
+' Set Subnet in form
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('SUBNETMASK0').value='"))
+  str.append_str(@webbuff,str.dec(SUBNETMASK[0],-1))
+  str.append_str(@webbuff, string("';"))
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('SUBNETMASK1').value='"))
+  str.append_str(@webbuff,str.dec(SUBNETMASK[1],-1))
+  str.append_str(@webbuff, string("';"))
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('SUBNETMASK2').value='"))
+  str.append_str(@webbuff,str.dec(SUBNETMASK[2],-1))
+  str.append_str(@webbuff, string("';"))
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('SUBNETMASK3').value='"))
+  str.append_str(@webbuff,str.dec(SUBNETMASK[3],-1))
+  str.append_str(@webbuff, string("';"))
+
+' Set Gateway in form
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('GATEWAY0').value='"))
+  str.append_str(@webbuff,str.dec(GATEWAY[0],-1))
+  str.append_str(@webbuff, string("';"))
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('GATEWAY1').value='"))
+  str.append_str(@webbuff,str.dec(GATEWAY[1],-1))
+  str.append_str(@webbuff, string("';"))
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('GATEWAY2').value='"))
+  str.append_str(@webbuff,str.dec(GATEWAY[2],-1))
+  str.append_str(@webbuff, string("';"))
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('GATEWAY3').value='"))
+  str.append_str(@webbuff,str.dec(GATEWAY[3],-1))
+  str.append_str(@webbuff, string("';"))
+
+
+  rdsize := strsize(@webbuff)
+
+PUB countersjs()
+' Zero out buffer
+   webbuff[0] := 0
+
+' send header
+   str.append_str(@webbuff,resp_ptr)
+
+   str.append_str(@webbuff, string($0D, $0A, "var myTable = document.getElementById('stats');"))
+
+   str.append_str(@webbuff, string($0D, $0A, "myTable.rows[0].cells[1].innerHTML = '"))
+   str.append_str(@webbuff,str.dec(wdpps,-1))
+   str.append_str(@webbuff, string(" pkt/sec';"))
+   str.append_str(@webbuff, string($0D, $0A, "myTable.rows[1].cells[1].innerHTML = '"))
+   str.append_str(@webbuff,str.dec(wddps,-1))
+   str.append_str(@webbuff, string(" drops/sec';"))
+
+   rdsize := strsize(@webbuff)
+
+pub downloadconfig()
+' Zero out buffer
+  webbuff[0] := 0
+
+' send header
+  str.append_str(@webbuff,resp_dl_ptr)
+  rdsize := strsize(@webbuff)
+' Copy running config into web buffer
+  bytemove(@webbuff + rdsize, @PIXELCONFIG, @Brightness - @PIXELCONFIG + 1)
+  rdsize := rdsize + (@Brightness - @PIXELCONFIG) + 1
+
+
+pub dhcpclient() | i
+
+  send("Configuring Protocol Mode UDP on Socket 0", $0D, $0A)
+  W6100.Open(68,W6100.PM_UDP4,W6100.IDM_BSR_Socket0_Register)
+
+  ' Set Destination IP
+  WRITEBUFFER[0] := 255
+  WRITEBUFFER[1] := 255
+  WRITEBUFFER[2] := 255
+  WRITEBUFFER[3] := 255
+  W6100.writereg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket0_Register,4,@WRITEBUFFER)
+
+  ' Set Destination port
+  WRITEBUFFER[0] := 00
+  WRITEBUFFER[1] := 67
+  W6100.writereg(W6100.REG_Sn_DPORTR,W6100.IDM_BSR_Socket0_Register,2,@WRITEBUFFER)
+
+
+  send("Set XID to: ")
+  RequestID[0] := prng.xrandomize($00,$FF)
+  RequestID[1] := prng.xrandomize($00,$FF)
+  RequestID[2] := prng.xrandomize($00,$FF)
+  RequestID[3] := prng.xrandomize($00,$FF)
+  vid.hex(RequestID[0],2)
+  vid.hex(RequestID[1],2)
+  vid.hex(RequestID[2],2)
+  vid.hex(RequestID[3],2)
+  send( $0D, $0A)
+
+
+  WRITEBUFFER[0]  := $01 'Op $01 This is a discover packet
+  WRITEBUFFER[1]  := $01 'HType $01 Ethernet xBase-T
+  WRITEBUFFER[2]  := $06 'HLen $06 because we have 6 Octets in the hardware address.
+  WRITEBUFFER[3]  := $00 'Hops setting Hops counter to 0. Is incremented by DHCP relays
+  WRITEBUFFER[4]  := RequestID[0] 'XID Unique ID
+  WRITEBUFFER[5]  := RequestID[1] 'XID Unique ID
+  WRITEBUFFER[6]  := RequestID[2] 'XID Unique ID
+  WRITEBUFFER[7]  := RequestID[3] 'XID Unique ID
+  WRITEBUFFER[8]  := $00 'Secs Elapsed Seconds (Not used)
+  WRITEBUFFER[9]  := $00 'Secs Elapsed Seconds (Not used)
+  WRITEBUFFER[10] := $80 'Flags $80 sets this to broadcast from the DHCP server, becasue we are not on the network yet.
+  WRITEBUFFER[11] := $00 'Flags Reserved
+  WRITEBUFFER[12] := $00 'CIAddr We have no IP yet, so set to $00
+  WRITEBUFFER[13] := $00 'CIAddr We have no IP yet, so set to $00
+  WRITEBUFFER[14] := $00 'CIAddr We have no IP yet, so set to $00
+  WRITEBUFFER[15] := $00 'CIAddr We have no IP yet, so set to $00
+  WRITEBUFFER[16] := $00 'YIAddr Client Request, so set to $00
+  WRITEBUFFER[17] := $00 'YIAddr Client Request, so set to $00
+  WRITEBUFFER[18] := $00 'YIAddr Client Request, so set to $00
+  WRITEBUFFER[19] := $00 'YIAddr Client Request, so set to $00
+  WRITEBUFFER[20] := $00 'SIAddr Client Request, so set to $00
+  WRITEBUFFER[21] := $00 'SIAddr Client Request, so set to $00
+  WRITEBUFFER[22] := $00 'SIAddr Client Request, so set to $00
+  WRITEBUFFER[23] := $00 'SIAddr Client Request, so set to $00
+  WRITEBUFFER[24] := $00 'GIAddr Client Request, so set to $00
+  WRITEBUFFER[25] := $00 'GIAddr Client Request, so set to $00
+  WRITEBUFFER[26] := $00 'GIAddr Client Request, so set to $00
+  WRITEBUFFER[27] := $00 'GIAddr Client Request, so set to $00
+  WRITEBUFFER[28] := $00 'CHAddr MAC address
+  WRITEBUFFER[29] := $08 'CHAddr MAC address
+  WRITEBUFFER[30] := $DC 'CHAddr MAC address
+  WRITEBUFFER[31] := $00 'CHAddr MAC address
+  WRITEBUFFER[32] := $00 'CHAddr MAC address
+  WRITEBUFFER[33] := $00 'CHAddr MAC address
+  BYTEFILL(@WRITEBUFFER + 34, $00, 10) 'CHAddr fill with 0's
+  BYTEFILL(@WRITEBUFFER + 44, $00, 64) 'bootp.server fill with 0's
+  BYTEFILL(@WRITEBUFFER + 108, $00, 128) 'File fill with 0's
+  WRITEBUFFER[236] := $63 'Magic Cookie
+  WRITEBUFFER[237] := $82 'Magic Cookie
+  WRITEBUFFER[238] := $53 'Magic Cookie
+  WRITEBUFFER[239] := $63 'Magic Cookie
+  WRITEBUFFER[240] :=  53 'Option 53
+  WRITEBUFFER[241] := $01 'Option 53 Length
+  WRITEBUFFER[242] := $01 'Option 53 Discovery Value
+  WRITEBUFFER[243] :=  55 'Option 55
+  WRITEBUFFER[244] := $03 'Option 55 Length
+  WRITEBUFFER[245] := $01 'Option 55 Request Subnet Mask
+  WRITEBUFFER[246] := $03 'Option 3 Request Router
+  WRITEBUFFER[247] := $06 'Option 6 Request DNS Server
+  WRITEBUFFER[248] := $FF 'End this shit
+
+  W6100.SendData(W6100.IDM_BSR_Socket0_Register,@WRITEBUFFER,249)
+
+  repeat until READBUFFER[12] == RequestID[0] && READBUFFER[13] == RequestID[1] && READBUFFER[14] == RequestID[2] && READBUFFER[15] == RequestID[3]
+     repeat until W6100.ReceiveData(W6100.IDM_BSR_Socket0_Register,1) == 0
+     psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket0_Register,@READBUFFER)
+
+    Send("UDP Header Information: ")
+    vid.hex(READBUFFER[0],2)
+    vid.hex(READBUFFER[1],2)
+    send( $0D, $0A)
+    Send("UDP Source IP: ")
+    vid.dec(READBUFFER[2])
+    Send(".")
+    vid.dec(READBUFFER[3])
+    Send(".")
+    vid.dec(READBUFFER[4])
+    Send(".")
+    vid.dec(READBUFFER[5])
+    send( $0D, $0A)
+    Send("UDP Port Number: ")
+    vid.dec(READBUFFER[6])
+    vid.dec(READBUFFER[7])
+    send( $0D, $0A)
+      send("Received XID is: ")
+
+    vid.hex(READBUFFER[12],2)
+    vid.hex(READBUFFER[13],2)
+    vid.hex(READBUFFER[14],2)
+    vid.hex(READBUFFER[15],2)
+    send( $0D, $0A)
+
+
+  send("DHCP Assigned IP Address: ")
+  vid.dec(READBUFFER[24])
+  Send(".")
+  vid.dec(READBUFFER[25])
+  Send(".")
+  vid.dec(READBUFFER[26])
+  Send(".")
+  vid.dec(READBUFFER[27] )
+  send( $0D, $0A)
+  IPADDRESS[0] := READBUFFER[24]
+  IPADDRESS[1] := READBUFFER[25]
+  IPADDRESS[2] := READBUFFER[26]
+  IPADDRESS[3] := READBUFFER[27]
+
+  send("Request IP Address: ")
+  vid.dec(IPADDRESS[0])
+  Send(".")
+  vid.dec(IPADDRESS[1])
+  Send(".")
+  vid.dec(IPADDRESS[2])
+  Send(".")
+  vid.dec(IPADDRESS[3] )
+  send( $0D, $0A)
+
+  send("Magic Cookie: ")
+  vid.hex(READBUFFER[244],2)
+  vid.hex(READBUFFER[245],2)
+  vid.hex(READBUFFER[246],2)
+  vid.hex(READBUFFER[247],2)
+  send( $0D, $0A)
+
+  i:=248
+  repeat until i >= psize || READBUFFER[i] == $FF
+    case READBUFFER[i]
+      53  :  send("DHCP Message Type: ")
+             DHCPMESSAGETYPE := READBUFFER[i+2]
+             vid.dec(READBUFFER[i+2])
+             send( $0D, $0A)
+             i := i + 3
+      54  :  send("DHCP Server: ")
+               vid.dec(READBUFFER[i+2])
+               Send(".")
+               vid.dec(READBUFFER[i+3])
+               Send(".")
+               vid.dec(READBUFFER[i+4])
+               Send(".")
+               vid.dec(READBUFFER[i+5] )
+               send( $0D, $0A)
+               DHCPSERVER[0] := READBUFFER[i+2]
+               DHCPSERVER[1] := READBUFFER[i+3]
+               DHCPSERVER[2] := READBUFFER[i+4]
+               DHCPSERVER[3] := READBUFFER[i+5]
+               i := i + 6
+
+      1 : send("DHCP Subnet Mask: ")
+               vid.dec(READBUFFER[i+2])
+               Send(".")
+               vid.dec(READBUFFER[i+3])
+               Send(".")
+               vid.dec(READBUFFER[i+4])
+               Send(".")
+               vid.dec(READBUFFER[i+5] )
+               send( $0D, $0A)
+               SUBNETMASK[0] := READBUFFER[i+2]
+               SUBNETMASK[1] := READBUFFER[i+3]
+               SUBNETMASK[2] := READBUFFER[i+4]
+               SUBNETMASK[3] := READBUFFER[i+5]
+               i := i + 6
+      3 : send("DHCP Gateway: ")
+               vid.dec(READBUFFER[i+2])
+               Send(".")
+               vid.dec(READBUFFER[i+3])
+               Send(".")
+               vid.dec(READBUFFER[i+4])
+               Send(".")
+               vid.dec(READBUFFER[i+5] )
+               send( $0D, $0A)
+               GATEWAY[0] := READBUFFER[i+2]
+               GATEWAY[1] := READBUFFER[i+3]
+               GATEWAY[2] := READBUFFER[i+4]
+               GATEWAY[3] := READBUFFER[i+5]
+               i := i + 6
+      $ff : send("Detected end of DHCP Options.")
+            send( $0D, $0A)
+      OTHER : send("DHCP Option Unknown: ")
+               vid.dec(READBUFFER[i])
+               send(" Incrementing ")
+               vid.dec(READBUFFER[i+1] + 2)
+               i++
+               i := i + READBUFFER[i]
+               i++
+               send( $0D, $0A)
+
+  send("Current IP Address: ")
+  W6100.readreg(W6100.REG_SIPR0,W6100.IDM_BSR_Common_Register,4,@READBUFFER)
+  vid.dec(READBUFFER[0])
+  Send(".")
+  vid.dec(READBUFFER[1])
+  Send(".")
+  vid.dec(READBUFFER[2])
+  Send(".")
+  vid.dec(READBUFFER[3] )
+  send( $0D, $0A)
+
+  send("Current Subnet Mask: ")
+  W6100.readreg(W6100.REG_GAR0,W6100.IDM_BSR_Common_Register,4,@READBUFFER)
+  vid.dec(READBUFFER[0])
+  Send(".")
+  vid.dec(READBUFFER[1])
+  Send(".")
+  vid.dec(READBUFFER[2])
+  Send(".")
+  vid.dec(READBUFFER[3] )
+  send( $0D, $0A)
+
+  '
+  WRITEBUFFER[0]  := $01 'Op $01 This is a request packet
+  WRITEBUFFER[1]  := $01 'HType $01 Ethernet xBase-T
+  WRITEBUFFER[2]  := $06 'HLen $06 because we have 6 Octets in the hardware address.
+  WRITEBUFFER[3]  := $00 'Hops setting Hops counter to 0. Is incremented by DHCP relays
+  WRITEBUFFER[4]  := RequestID[0] 'XID Unique ID
+  WRITEBUFFER[5]  := RequestID[1] 'XID Unique ID
+  WRITEBUFFER[6]  := RequestID[2] 'XID Unique ID
+  WRITEBUFFER[7]  := RequestID[3] 'XID Unique ID
+  WRITEBUFFER[8]  := $00 'Secs Elapsed Seconds (Not used)
+  WRITEBUFFER[9]  := $00 'Secs Elapsed Seconds (Not used)
+  WRITEBUFFER[10] := $80 'Flags $80 sets this to broadcast from the DHCP server, becasue we are not on the network yet.
+  WRITEBUFFER[11] := $00 'Flags Reserved
+  WRITEBUFFER[12] := IPADDRESS[0] 'CIAddr
+  WRITEBUFFER[13] := IPADDRESS[1] 'CIAddr
+  WRITEBUFFER[14] := IPADDRESS[2] 'CIAddr
+  WRITEBUFFER[15] := IPADDRESS[3] 'CIAddr
+  WRITEBUFFER[16] := $00 'YIAddr Client Request, so set to $00
+  WRITEBUFFER[17] := $00 'YIAddr Client Request, so set to $00
+  WRITEBUFFER[18] := $00 'YIAddr Client Request, so set to $00
+  WRITEBUFFER[19] := $00 'YIAddr Client Request, so set to $00
+  WRITEBUFFER[20] := DHCPSERVER[0] 'SIAddr DHCP Server IP
+  WRITEBUFFER[21] := DHCPSERVER[1] 'SIAddr DHCP Server IP
+  WRITEBUFFER[22] := DHCPSERVER[2] 'SIAddr DHCP Server IP
+  WRITEBUFFER[23] := DHCPSERVER[3] 'SIAddr DHCP Server IP
+  WRITEBUFFER[24] := $00 'GIAddr Client Request, so set to $00
+  WRITEBUFFER[25] := $00 'GIAddr Client Request, so set to $00
+  WRITEBUFFER[26] := $00 'GIAddr Client Request, so set to $00
+  WRITEBUFFER[27] := $00 'GIAddr Client Request, so set to $00
+  WRITEBUFFER[28] := $00 'CHAddr MAC address
+  WRITEBUFFER[29] := $08 'CHAddr MAC address
+  WRITEBUFFER[30] := $DC 'CHAddr MAC address
+  WRITEBUFFER[31] := $00 'CHAddr MAC address
+  WRITEBUFFER[32] := $00 'CHAddr MAC address
+  WRITEBUFFER[33] := $00 'CHAddr MAC address
+  BYTEFILL(@WRITEBUFFER + 34, $00, 10) 'CHAddr fill with 0's
+  BYTEFILL(@WRITEBUFFER + 44, $00, 64) 'bootp.server fill with 0's
+  BYTEFILL(@WRITEBUFFER + 108, $00, 128) 'File fill with 0's
+  WRITEBUFFER[236] := $63 'Magic Cookie
+  WRITEBUFFER[237] := $82 'Magic Cookie
+  WRITEBUFFER[238] := $53 'Magic Cookie
+  WRITEBUFFER[239] := $63 'Magic Cookie
+  WRITEBUFFER[240] :=  53 'Option 53
+  WRITEBUFFER[241] := $01 'Option 53 Length
+  WRITEBUFFER[242] := $03 'Option 53 Request Value
+  WRITEBUFFER[243] :=  50 'Option 50 ' Requesting this IP
+  WRITEBUFFER[244] := $04 'Option 50 Length
+  WRITEBUFFER[245] := IPADDRESS[0] 'Option 50 requested IP 1st Octect
+  WRITEBUFFER[246] := IPADDRESS[1] 'Option 50 requested IP 2nd Octect
+  WRITEBUFFER[247] := IPADDRESS[2] 'Option 50 requested IP 3rd Octect
+  WRITEBUFFER[248] := IPADDRESS[3] 'Option 50 requested IP 4th Octect
+  WRITEBUFFER[249] := $03 'Option 54 DHCP Server
+  WRITEBUFFER[250] := $04 'Option 54 Length
+  WRITEBUFFER[251] := DHCPSERVER[0] 'SIAddr DHCP Server IP
+  WRITEBUFFER[252] := DHCPSERVER[1] 'SIAddr DHCP Server IP
+  WRITEBUFFER[253] := DHCPSERVER[2] 'SIAddr DHCP Server IP
+  WRITEBUFFER[254] := DHCPSERVER[3] 'SIAddr DHCP Server IP
+  WRITEBUFFER[255] := $FF 'End this shit
+
+  W6100.SendData(W6100.IDM_BSR_Socket0_Register,@WRITEBUFFER,256)
+
+  'clearing readbuffer
+  BYTEFILL(@READBUFFER,$00,1024)
+
+  W6100.readreg(W6100.REG_Sn_IR,W6100.IDM_BSR_Socket0_Register,1,@READBUFFER)
+  send("Checking Sn_IR Socket Status: ")
+  vid.hex(READBUFFER[0],2)
+  send( $0D, $0A)
+
+  repeat until READBUFFER[12] == RequestID[0] && READBUFFER[13] == RequestID[1] && READBUFFER[14] == RequestID[2] && READBUFFER[15] == RequestID[3]
+     repeat until W6100.ReceiveData(W6100.IDM_BSR_Socket0_Register,1) == 0
+     psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket0_Register,@READBUFFER)
+
+    send("Received XID is: ")
+    vid.hex(READBUFFER[12],2)
+    vid.hex(READBUFFER[13],2)
+    vid.hex(READBUFFER[14],2)
+    vid.hex(READBUFFER[15],2)
+    send( $0D, $0A)
+
+  i:=248
+  repeat until i >= psize || READBUFFER[i] == $FF
+    case READBUFFER[i]
+      53  :  send("DHCP Message Type: ")
+             DHCPMESSAGETYPE := READBUFFER[i+2]
+             vid.dec(READBUFFER[i+2])
+             send( $0D, $0A)
+             i := i + 3
+      54  :  send("DHCP Server: ")
+               vid.dec(READBUFFER[i+2])
+               Send(".")
+               vid.dec(READBUFFER[i+3])
+               Send(".")
+               vid.dec(READBUFFER[i+4])
+               Send(".")
+               vid.dec(READBUFFER[i+5] )
+               send( $0D, $0A)
+               DHCPSERVER[0] := READBUFFER[i+2]
+               DHCPSERVER[1] := READBUFFER[i+3]
+               DHCPSERVER[2] := READBUFFER[i+4]
+               DHCPSERVER[3] := READBUFFER[i+5]
+               i := i + 6
+
+      1 : send("DHCP Subnet Mask: ")
+               vid.dec(READBUFFER[i+2])
+               Send(".")
+               vid.dec(READBUFFER[i+3])
+               Send(".")
+               vid.dec(READBUFFER[i+4])
+               Send(".")
+               vid.dec(READBUFFER[i+5] )
+               send( $0D, $0A)
+               SUBNETMASK[0] := READBUFFER[i+2]
+               SUBNETMASK[1] := READBUFFER[i+3]
+               SUBNETMASK[2] := READBUFFER[i+4]
+               SUBNETMASK[3] := READBUFFER[i+5]
+               i := i + 6
+      3 : send("DHCP Gateway: ")
+               vid.dec(READBUFFER[i+2])
+               Send(".")
+               vid.dec(READBUFFER[i+3])
+               Send(".")
+               vid.dec(READBUFFER[i+4])
+               Send(".")
+               vid.dec(READBUFFER[i+5] )
+               send( $0D, $0A)
+               GATEWAY[0] := READBUFFER[i+2]
+               GATEWAY[1] := READBUFFER[i+3]
+               GATEWAY[2] := READBUFFER[i+4]
+               GATEWAY[3] := READBUFFER[i+5]
+               i := i + 6
+      $ff : send("Detected end of DHCP Options.")
+            send( $0D, $0A)
+      OTHER : send("DHCP Option Unknown: ")
+               vid.dec(READBUFFER[i])
+               send(" Incrementing ")
+               vid.dec(READBUFFER[i+1] + 2)
+               i++
+               i := i + READBUFFER[i]
+               i++
+               send( $0D, $0A)
+
+  if DHCPMESSAGETYPE <> 5
+    send("DHCP Messagetype: ")
+    vid.dec(DHCPMESSAGETYPE)
+    send( $0D, $0A)
+    send("DHCP Failure")
+    abort
+
+
+
+
+
+pub str2dec(p_str, len) : value |  ch
+
+'' Convert string at p_str to decimal value
+'' -- max length is len characters
+
+  value := 0                                                     ' initialize result
+
+  repeat len
+    ch := byte[p_str++]                                          ' get a character
+    if ((ch >= "0") and (ch <= "9"))                             ' valid digit?
+      value := (value * 10) + (ch - "0")                         ' ASCII --> decimal
+    else
+      quit
+
+  return
+pub inbin(p_haystack, p_needle, slen) : pos | len1, len2, idx
+
+'' Returns position of p_needle in str1
+'' -- p_haystack is pointer to string to search
+'' -- p_needle is pointer to string to look for in p_haystack
+'' -- if p_needle not in p_haystack returns -1
+
+  pos  := -1
+
+  len1 := slen
+  len2 := strsize(p_needle)
+  idx  := 0
+
+  if (len1 >= len2)
+    repeat (len1 - len2 + 1)
+      if idx == slen
+        quit
+      else
+        if (str.strncmp(p_haystack++, p_needle, len2) == 0)
+          pos := idx
+          quit
+        else
+          ++idx
+pub startpixels()
+  WS2811.start_2812b(PIXELCONFIG[3], PIXELCONFIG[1],PIXELCONFIG[8], PIXELCONFIG[6],PIXELCONFIG[13], PIXELCONFIG[11],PIXELCONFIG[18], PIXELCONFIG[16],PIXELCONFIG[23], PIXELCONFIG[21],PIXELCONFIG[28], PIXELCONFIG[26],PIXELCONFIG[33], PIXELCONFIG[31],PIXELCONFIG[38], PIXELCONFIG[36],pixelcnt(PIXELCONFIG[0]),PIXELCONFIG[0] - 1, PIXELCONFIG[2],Brightness)
+  WS28112.start_2812b(PIXELCONFIG[43], PIXELCONFIG[41],PIXELCONFIG[48],PIXELCONFIG[46],PIXELCONFIG[53], PIXELCONFIG[51],PIXELCONFIG[58], PIXELCONFIG[56],PIXELCONFIG[63], PIXELCONFIG[61],PIXELCONFIG[68], PIXELCONFIG[66],PIXELCONFIG[73], PIXELCONFIG[71],PIXELCONFIG[78], PIXELCONFIG[76],PIXELCONFIG[44],PIXELCONFIG[40] - 1, PIXELCONFIG[42],Brightness)
+  WS28113.start_2812b(PIXELCONFIG[83], PIXELCONFIG[81],PIXELCONFIG[88],PIXELCONFIG[86],PIXELCONFIG[93], PIXELCONFIG[91],PIXELCONFIG[98], PIXELCONFIG[96],PIXELCONFIG[103], PIXELCONFIG[101],PIXELCONFIG[108], PIXELCONFIG[106],PIXELCONFIG[113], PIXELCONFIG[111],PIXELCONFIG[118], PIXELCONFIG[116],PIXELCONFIG[84],PIXELCONFIG[80] + 15, PIXELCONFIG[82],Brightness)
+pub stoppixels()
+  WS2811.stop()
+  WS28112.stop()
+  WS28113.stop()
+pub pixelcnt(pingroup) : pixelct | index
+  pingroup := pingroup - 1 'This is so that we can pass what is configured in the data structure in pixelconfig.
+  index := pingroup * 5
+  pixelct := 0
+  repeat 8
+    if PIXELCONFIG[index + 4] >=  pixelct
+      pixelct := PIXELCONFIG[index + 4]
+    index := index + 5
+  return pixelct
