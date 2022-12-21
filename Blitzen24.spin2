@@ -524,62 +524,62 @@ PUB main() | i, j
 {  E131CONFIG[0] := 1 ' Pin + 1, this is the many to one key to the PIXELCONFIG
   E131CONFIG[1] := 2 ' E1.31 Universe
   E131CONFIG[2] := 100 ' Pixels in this universe
-  E131CONFIG[3] := 0
+  E131CONFIG[3] := 0  '  @pixelbuffer for this universe
 
   E131CONFIG[4] := 2 ' Pin + 1, this is the many to one key to the PIXELCONFIG
   E131CONFIG[5] := 3 ' E1.31 Universe
   E131CONFIG[6] := 100 ' Pixels in this universe
-  E131CONFIG[7] := 0
+  E131CONFIG[7] := 0  '  @pixelbuffer for this universe
 
   E131CONFIG[8] := 3 ' Pin + 1, this is the many to one key to the PIXELCONFIG
   E131CONFIG[9] := 4 ' E1.31 Universe
   E131CONFIG[10] := 100 ' Pixels in this universe
-  E131CONFIG[11] := 0
+  E131CONFIG[11] := 0  '  @pixelbuffer for this universe
 
   E131CONFIG[12] := 4 ' Pin + 1, this is the many to one key to the PIXELCONFIG
   E131CONFIG[13] := 5 ' E1.31 Universe
   E131CONFIG[14] := 100 ' Pixels in this universe
-  E131CONFIG[15] := 0
+  E131CONFIG[15] := 0  '  @pixelbuffer for this universe
 
   E131CONFIG[16] := 5 ' Pin + 1, this is the many to one key to the PIXELCONFIG
   E131CONFIG[17] := 6 ' E1.31 Universe
   E131CONFIG[18] := 100 ' Pixels in this universe
-  E131CONFIG[19] := 0
+  E131CONFIG[19] := 0  '  @pixelbuffer for this universe
 
   E131CONFIG[20] := 6 ' Pin + 1, this is the many to one key to the PIXELCONFIG
   E131CONFIG[21] := 7 ' E1.31 Universe
   E131CONFIG[22] := 100 ' Pixels in this universe
-  E131CONFIG[23] := 0
+  E131CONFIG[23] := 0  '  @pixelbuffer for this universe
 
   E131CONFIG[24] := 7 ' Pin + 1, this is the many to one key to the PIXELCONFIG
   E131CONFIG[25] := 8 ' E1.31 Universe
   E131CONFIG[26] := 100 ' Pixels in this universe
-  E131CONFIG[27] := 0
+  E131CONFIG[27] := 0  '  @pixelbuffer for this universe
 
   E131CONFIG[28] := 8 ' Pin + 1, this is the many to one key to the PIXELCONFIG
   E131CONFIG[29] := 9 ' E1.31 Universe
   E131CONFIG[30] := 100 ' Pixels in this universe
-  E131CONFIG[31] := 0
+  E131CONFIG[31] := 0  '  @pixelbuffer for this universe
 
   E131CONFIG[32] := 9 ' Pin + 1, this is the many to one key to the PIXELCONFIG
   E131CONFIG[33] := 10 ' E1.31 Universe
   E131CONFIG[34] := 100 ' Pixels in this universe
-  E131CONFIG[35] := 0
+  E131CONFIG[35] := 0  '  @pixelbuffer for this universe
 
   E131CONFIG[36] := 10 ' Pin + 1, this is the many to one key to the PIXELCONFIG
   E131CONFIG[37] := 11 ' E1.31 Universe
   E131CONFIG[38] := 100 ' Pixels in this universe
-  E131CONFIG[39] := 0
+  E131CONFIG[39] := 0  '  @pixelbuffer for this universe
 
   E131CONFIG[40] := 11 ' Pin + 1, this is the many to one key to the PIXELCONFIG
   E131CONFIG[41] := 12 ' E1.31 Universe
   E131CONFIG[42] := 100 ' Pixels in this universe
-  E131CONFIG[43] := 0
+  E131CONFIG[43] := 0  '  @pixelbuffer for this universe
 
   E131CONFIG[44] := 12 ' Pin + 1, this is the many to one key to the PIXELCONFIG
   E131CONFIG[45] := 13 ' E1.31 Universe
   E131CONFIG[46] := 100 ' Pixels in this universe
-  E131CONFIG[47] := 0
+  E131CONFIG[47] := 0  '  @pixelbuffer for this universe
 }
   ConfigPixels()
   StartPixels()
@@ -656,21 +656,29 @@ pub ConfigPixels() |  pixelcount, pixeloffset, i, ei
   pixeloffset := 0
   i := 0
   ei := 0
+  ' Do this loop until there are no more pins.
   repeat until PIXELCONFIG[i] == 0
+    ' Reset the pixel count
     pixelcount :=  0
+    ' Assign the staring point in hubram for this output's pixel data.
     PIXELCONFIG[i+3] := pixeloffset + @pixelbuffer
+       ' Do this loop until the E1.31 pin is not equal to the pixel output pin.
        repeat until E131CONFIG[ei] <> PIXELCONFIG[i]
           if E131CONFIG[ei] == PIXELCONFIG[i]
-
+               ' Assign the pixelbuffer to the universe.
                E131CONFIG[ei+3] := pixeloffset + @pixelbuffer
+               ' Update the pixeloffset to the next location
                pixeloffset := pixeloffset + (E131CONFIG[ei+2] * 3) 'Probably going to need to change this for RGBW
+               ' Update the pixelcount to the new value.
                pixelcount := pixelcount + E131CONFIG[ei+2]
+          ' Increment ie to the next record in the E1.31 config.
           ei := ei + 4
-
+    ' Set the total pixelcount for this output pin.
     PIXELCONFIG[i + 4] := pixelcount
 
     debug("Pin: ")
     debug( uhex(PIXELCONFIG[i]))
+    ' Increment i to the next record in the pixelconfig.
     i := i + 5
 
 {  repeat 5
@@ -959,57 +967,78 @@ pub e131post() | output, ei, eti, u , uascii
     longfill(@tE131CONFIG,0,432) ' Clean up the tmp space
     eutmp[0] := 0
     pcnt[0] := 0
+    ' Get the output Pin this E1.31 config is associated with
     output := str2dec(@READBUFFER + str.instr(@READBUFFER,string("output="))+ 7, 2)
+    ' Initialize the variables to be used.
     u  := 1
     ei := 0
     eti := 0
-    repeat until (E131CONFIG[ei] == output) or (E131CONFIG[ei] == 0) 'Do this until you get to the current e131 config
+    'Populate tE131CONFIG with configured pin/universe/pixelcount/pixelbuffer records in the E131CONFIG structure until we come to the current output.
+    repeat until (E131CONFIG[ei] == output) or (E131CONFIG[ei] == 0)
+      'Move 4 longs from the E1.31 config structure to the temp structure, before the output is found or end of structure is detected.
+      'No idea why I am doing ei*4, maybe because longs?
       longmove(@tE131CONFIG+(ei*4),@E131CONFIG+(ei*4),4)
       ei := ei + 4
       eti := ei
+    ' Populate eutemp with "U1="
     str.append_str(@eutmp,string("U"))
     str.append_str(@eutmp,str.dec(u,1))
     str.append_str(@eutmp,string("="))
+    ' Populate pcnt (pixelcount) with "P1="
     str.append_str(@pcnt,string("P"))
     str.append_str(@pcnt,str.dec(u,1))
     str.append_str(@pcnt,string("="))
 
+    'Look in the read buffer until the location of the current eutmp (ie "U1=", "U2=", etc) is found and repeat the code block. Stop if it cannot be found.
     repeat until str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ 3, 6) == 0
+      ' Set the output pin in the current location (ei) of tE131CONFIG. This is a many to one relationship with the pin in the pixelbuffer.
       tE131CONFIG[ei] := output
+      ' Set the value of the eutmp (ie "U1=", "U2=", etc) universe associated with this pin.
       tE131CONFIG[ei+1] := str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ 3, 6)
+      ' Set the value of the pcnt (pixelcount ie "P1=", "P2=", etc ) of this universe assocaited with this pin.
       tE131CONFIG[ei+2] := str2dec(@READBUFFER + str.instr(@READBUFFER,@pcnt)+ 3, 3)
 
        'vid.dec(str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ 3, 6))
        'vid.dec(str2dec(@READBUFFER + str.instr(@READBUFFER,@pcnt)+ 3, 3))
+
+      ' Increment the universe and pixelcount to the next that may have been posted to the page.
       u := u + 1
+      ' clear eutmp
       eutmp[0] := 0
+      ' clear pcnt
       pcnt[0] := 0
+      ' Populate eutemp with the next universe of this pin to look for.
       str.append_str(@eutmp,string("U"))
       str.append_str(@eutmp,str.dec(u,1))
       str.append_str(@eutmp,string("="))
+      ' Populate pcnt with the next pixelcount of this pin to look for.
       str.append_str(@pcnt,string("P"))
       str.append_str(@pcnt,str.dec(u,1))
       str.append_str(@pcnt,string("="))
+      ' Move to the next pin/universe/pixelcount/pixelbuffer in the structure.
       ei := ei + 4
        'waitms(3000)
-
+    ' Increment et1 until we are past the currently configured output pin or the end of configured pin/universe/pixelcount/pixelbuffer records in the structure or the end of the structure.
     repeat until (E131CONFIG[eti] <> output) or (E131CONFIG[eti] == 0) or eti >= 432
         eti := eti + 4
 
  '   ei := ei - 4
+    ' Copy any remaining records in the E1.31 structure to @tE131CONFIG
     repeat until (E131CONFIG[eti] == 0) or eti >= 432
         longmove(@tE131CONFIG+(ei*4),@E131CONFIG+(eti*4),4)
         eti := eti + 4
         ei := ei + 4
 
+    ' Clear E131CONFIG
+    longfill(@E131CONFIG,0,432)
+    ' Overwrite the E131CONFIG with tE131CONFIG
     longmove(@E131CONFIG,@tE131CONFIG,432)
+    ' Rebuild the Pixel/E1.31 relationship
     ConfigPixels()
+    ' Stop and restart the pixel drivers
     StopPixels()
     StartPixels()
-'    WS2811.stop()
-'    WS2811.start_2812b(PIXELCONFIG[3], %%0123, PIXELCONFIG[8], %%0123, PIXELCONFIG[13],%%0123,PIXELCONFIG[18],%%0123,PIXELCONFIG[23],%%0123,PIXELCONFIG[28],%%0123, PIXELCONFIG[33], %%0123, PIXELCONFIG[38], %%0123, PIXELCONFIG[4],PIXELCONFIG[0] - 1, PIXELCONFIG[2])
-'    WS28112.stop()
-'    WS28112.start_2812b(PIXELCONFIG[43], %%0123,PIXELCONFIG[48],%%0123,PIXELCONFIG[53],%%0123,PIXELCONFIG[58],%%0123,PIXELCONFIG[43],%%0123,PIXELCONFIG[48],%%0123,PIXELCONFIG[53],%%0123,PIXELCONFIG[58],%%0123, PIXELCONFIG[44],PIXELCONFIG[40] - 1, PIXELCONFIG[42])
+    ' Restart the E1.31 ethernet driver
     W6100.stopfastrx()
     W6100.startfastrx(W6100.IDM_BSR_Socket3_Register,@pixelbuffer,@TXBUFFER,@E131CONFIG)
 
