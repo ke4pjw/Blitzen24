@@ -1,29 +1,18 @@
 # Introduction 
-The Blitzen 24 is an attempt to create a 24 port E1.31 pixel controller using the Parallax Propeller 2 (P2)
+The Blitzen 24 is a 24 port E1.31 pixel controller using the Parallax Propeller 2 (P2)
 [![Video Example](http://i3.ytimg.com/vi/Dj3J5ynzC24/hqdefault.jpg)](https://youtu.be/Dj3J5ynzC24)
 # Current State
-Currently all code is in the development stage. It utilizes several very nice objects from Jon McPhalen, that have been completely hacked up by me :)
-This project is dependant on the Wiznet W6100 ethernet controller. You will need the evaluation board until a custom board for the Blitzen is created.
-
-https://eshop.wiznet.io/shop/module/network-module/wiz610mj/
-
-This evaluation board has the parallel interface available. No other eval board does.
-
-As of this writing, multiple universes can be mapped into pixel buffers on the same pixel output.
+Evaluation boards are available. Please contact me at ttrapp at ieee dot org if you would like to purchase one. 
 
 #To Do 
-* ~~Multiple pixel outputs per cog.~~
-* Cleanup pixel buffer so that it will accomodate RGBW pixels. (Convert to a single lon on input.)
-* ~~Create a facility so that multiple cogs can access the W6100, with priority to the E1.31 cog.~~
-* ~~Create feature so that the configuration can be managed by a web browser and saved to SD card.~~
-* ~~Configure W6100 so that it only negotiates 10Mbps.~~
 * Update SD card driver to be cogless. (Free up a cog)
 * Complete configuration for quad DMX output.
+* Add selectable network speed configuration (10/100/Auto).
+* Add "test pixels" option to outputs page.
 
 # Known Bugs
-* ~~Color tearing is occouring on pixels that have very breif display times. I suspect this is related to the input from E1.31 being written to the buffer as bytes instead of longs.~~ 
 * Webserver files over 64K cause the system to crash. This can be resolved by rewriting how the filesystem is accessed.
-* AT 10 Mbps, the web server chokes sending data larger than the buffer. A .75ms delay was added as a workaround.
+* Display may not show layer 1/2 connectivity when waiting for a DHCP response.
 
 # Build 
 This software has only been tested using the Propeller Tool.
