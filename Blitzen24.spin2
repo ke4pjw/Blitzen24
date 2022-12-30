@@ -266,15 +266,6 @@ PUB main() | i, j
   waitms (3000)
   waitms (3000)
 
-  OLED.TERMPOSY(0)
-  OLED.TERMPOSX(0)
-  OLED.TERMSEND(string("Blitzen 24  "))
-  OLED.TERMPOSX(12)
-  OLED.SETFG(OLED.Red)
-  OLED.TERMSEND(string($81))
-  OLED.TERMPOSX(14)
-  OLED.TERMSEND(string($80))
-  OLED.SETFG(OLED.White)
 
   send("Physical Configuration Locked")
   WRITEBUFFER[0] := $00
@@ -302,27 +293,12 @@ PUB main() | i, j
   send($0D, $0A)
   W6100.writereg(W6100.REG_SHAR0,W6100.IDM_BSR_Common_Register,6,@MACADDRESS)
 
-  OLED.TERMPOSY(6)
-  OLED.TERMPOSX(0)
-
-  OLED.TERMSEND(string("MAC Address:", OLED.CR, OLED.LF))
-  OLED.hex(MACADDRESS[0],2)
-'  OLED.TERMSEND(string(":"))
-  OLED.hex(MACADDRESS[1],2)
-'  OLED.TERMSEND(string(":"))
-  OLED.hex(MACADDRESS[2],2)
-'  OLED.TERMSEND(string(":"))
-  OLED.hex(MACADDRESS[3],2)
-'  OLED.TERMSEND(string(":"))
-  OLED.hex(MACADDRESS[4],2)
-'  OLED.TERMSEND(string(":"))
-  OLED.hex(MACADDRESS[5],2)
-
-
   send("Network Configuration locked.")
   WRITEBUFFER[0] := W6100.SYSR_NETU
   W6100.writereg(W6100.REG_NETLCKR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
   send( $0D, $0A)
+
+  COGSPIN(NEWCOG,watchdogcog(), @watchdogstack)
 
   Send("Configuring 8 sockets with 2K TX buffer.")
   i := W6100.IDM_BSR_Socket0_Register
@@ -419,19 +395,6 @@ PUB main() | i, j
   vid.dec(WRITEBUFFER[3] )
   send( $0D, $0A)
   W6100.writereg(W6100.REG_SIPR0,W6100.IDM_BSR_Common_Register,4,@WRITEBUFFER)
-
-  OLED.TERMPOSY(3)
-  OLED.TERMPOSX(0)
-  OLED.TERMSEND(string("IP Address:", OLED.CR, OLED.LF))
-  OLED.DEC(IPADDRESS[0])
-  OLED.TERMCHR(".")
-  OLED.DEC(IPADDRESS[1])
-  OLED.TERMCHR(".")
-'  OLED.TERMSEND( string($0D, $0A))
-  OLED.DEC(IPADDRESS[2])
-  OLED.TERMCHR(".")
-  OLED.DEC(IPADDRESS[3])
-
 
   send("Network Configuration locked.")
   WRITEBUFFER[0] := $C5
@@ -595,12 +558,33 @@ PUB main() | i, j
   send( $0D, $0A)
 
 '  COGSPIN(NEWCOG, httpd(80,W6100.PM_TCP4,W6100.IDM_BSR_Socket1_Register), @httpdstack)
-  COGSPIN(NEWCOG,watchdogcog(), @watchdogstack)
+
    repeat
       httpd(80,W6100.PM_TCP4,W6100.IDM_BSR_Socket1_Register)
 
 
 pub watchdogcog()
+  OLED.TERMPOSY(0)
+  OLED.TERMPOSX(0)
+  OLED.TERMSEND(string("Blitzen 24  "))
+  OLED.TERMPOSX(12)
+  OLED.SETFG(OLED.Red)
+  OLED.TERMSEND(string($81))
+  OLED.TERMPOSX(14)
+  OLED.TERMSEND(string($80))
+  OLED.SETFG(OLED.White)
+
+  OLED.TERMPOSY(6)
+  OLED.TERMPOSX(0)
+
+  OLED.TERMSEND(string("MAC Address:", OLED.CR, OLED.LF))
+  OLED.hex(MACADDRESS[0],2)
+  OLED.hex(MACADDRESS[1],2)
+  OLED.hex(MACADDRESS[2],2)
+  OLED.hex(MACADDRESS[3],2)
+  OLED.hex(MACADDRESS[4],2)
+  OLED.hex(MACADDRESS[5],2)
+
  repeat
 '    debug (uhex(PIXELCONFIG[80] + 15))
 ' Ethernet Status
@@ -643,7 +627,18 @@ pub watchdogcog()
     OLED.TERMPOSX(0)
     OLED.dec(wdpps)
     OLED.TERMSEND(String(" decodes/sec"))
-
+' Update IP Address
+    OLED.TERMPOSY(3)
+    OLED.TERMPOSX(0)
+    OLED.TERMSEND(string("IP Address:", OLED.CR, OLED.LF))
+    OLED.DEC(IPADDRESS[0])
+    OLED.TERMCHR(".")
+    OLED.DEC(IPADDRESS[1])
+    OLED.TERMCHR(".")
+'  OLED.TERMSEND( string($0D, $0A))
+    OLED.DEC(IPADDRESS[2])
+    OLED.TERMCHR(".")
+    OLED.DEC(IPADDRESS[3])
 
 
     waitms(1000)
@@ -1225,6 +1220,13 @@ pub downloadconfig()
 
 
 pub dhcpclient() | i
+' Clear IP Saved in config
+  IPADDRESS[0] := 0
+  IPADDRESS[1] := 0
+  IPADDRESS[2] := 0
+  IPADDRESS[3] := 0
+
+
 
   send("Configuring Protocol Mode UDP on Socket 0", $0D, $0A)
   W6100.Open(68,W6100.PM_UDP4,W6100.IDM_BSR_Socket0_Register)
