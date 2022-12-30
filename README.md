@@ -12,7 +12,6 @@ Evaluation boards are available. Please contact me at ttrapp at ieee dot org if 
 
 # Known Bugs
 * Webserver files over 64K cause the system to crash. This can be resolved by rewriting how the filesystem is accessed.
-* Display may not show layer 1/2 connectivity when waiting for a DHCP response.
 
 # Build 
 This software has only been tested using the Propeller Tool.
