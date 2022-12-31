@@ -1083,7 +1083,8 @@ pub stopfastrx()
   if (e131cog)
     cogstop(e131cog - 1)
     e131cog := 0
-
+pub e131cognum() : rt
+  return e131cog
 DAT
         org   0
 

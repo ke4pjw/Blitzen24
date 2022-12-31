@@ -72,6 +72,8 @@ VAR
         long wdpps
         long wddiscards
         long wddps
+        byte testpixel[24]
+        long blinkmode
         long watchdogstack[256]
 OBJ
         FS: "FAT32"
@@ -563,27 +565,29 @@ PUB main() | i, j
       httpd(80,W6100.PM_TCP4,W6100.IDM_BSR_Socket1_Register)
 
 
-pub watchdogcog()
-  OLED.TERMPOSY(0)
-  OLED.TERMPOSX(0)
-  OLED.TERMSEND(string("Blitzen 24  "))
-  OLED.TERMPOSX(12)
-  OLED.SETFG(OLED.Red)
-  OLED.TERMSEND(string($81))
-  OLED.TERMPOSX(14)
-  OLED.TERMSEND(string($80))
-  OLED.SETFG(OLED.White)
+pub watchdogcog() | p,c,alt
+ OLED.TERMPOSY(0)
+ OLED.TERMPOSX(0)
+ OLED.TERMSEND(string("Blitzen 24  "))
+ OLED.TERMPOSX(12)
+ OLED.SETFG(OLED.Red)
+ OLED.TERMSEND(string($81))
+ OLED.TERMPOSX(14)
+ OLED.TERMSEND(string($80))
+ OLED.SETFG(OLED.White)
 
-  OLED.TERMPOSY(6)
-  OLED.TERMPOSX(0)
+ OLED.TERMPOSY(6)
+ OLED.TERMPOSX(0)
 
-  OLED.TERMSEND(string("MAC Address:", OLED.CR, OLED.LF))
-  OLED.hex(MACADDRESS[0],2)
-  OLED.hex(MACADDRESS[1],2)
-  OLED.hex(MACADDRESS[2],2)
-  OLED.hex(MACADDRESS[3],2)
-  OLED.hex(MACADDRESS[4],2)
-  OLED.hex(MACADDRESS[5],2)
+ OLED.TERMSEND(string("MAC Address:", OLED.CR, OLED.LF))
+ OLED.hex(MACADDRESS[0],2)
+ OLED.hex(MACADDRESS[1],2)
+ OLED.hex(MACADDRESS[2],2)
+ OLED.hex(MACADDRESS[3],2)
+ OLED.hex(MACADDRESS[4],2)
+ OLED.hex(MACADDRESS[5],2)
+
+ alt := false
 
  repeat
 '    debug (uhex(PIXELCONFIG[80] + 15))
@@ -605,7 +609,7 @@ pub watchdogcog()
       OLED.SETFG(OLED.Green)
     else
       OLED.SETFG(OLED.Red)
-    if wddiscards <> W6100.Discards()
+    if wddiscards <> W6100.Discards() or blinkmode == true
       OLED.SETFG(OLED.Yellow)
     OLED.TERMSEND(string($81))
     OLED.SETFG(OLED.White)
@@ -640,6 +644,35 @@ pub watchdogcog()
     OLED.TERMCHR(".")
     OLED.DEC(IPADDRESS[3])
 
+    if blinkmode == true
+      if alt == true
+        p := 0
+        repeat 24
+
+          if testpixel[p] > 0
+            if testpixel[p] == 4
+              c:= 0
+            else
+              c:= testpixel[p] - 1
+            repeat PIXELCONFIG[p * 5 + 4]
+
+              PIXELBUFFER[PIXELCONFIG[(p * 5) + 3] - @PIXELBUFFER + c]  := 255
+              if testpixel[p] == 4
+                PIXELBUFFER[PIXELCONFIG[(p * 5) + 3] - @PIXELBUFFER + c + 1]  := 255
+                PIXELBUFFER[PIXELCONFIG[(p * 5) + 3] - @PIXELBUFFER + c + 2]  := 255
+             'PIXELBUFFER[0] := 255
+             debug(udec(PIXELCONFIG[p * 5 + 3] - @PIXELCONFIG + c))
+              c := c + 3
+          p := p + 1
+        alt := false
+      else
+        bytefill(@pixelbuffer,0,73768)
+        OLED.TERMPOSX(12)
+        OLED.TERMPOSY(0)
+        OLED.SETFG(OLED.Black)
+        OLED.TERMSEND(string($81))
+        OLED.SETFG(OLED.White)
+        alt := true
 
     waitms(1000)
 
@@ -1083,9 +1116,10 @@ pub e131js() | output, u, ei
 
 
   rdsize := strsize(@webbuff)
-pub outputspost() | p
+pub outputspost() | p, dis
     eutmp[0] := 0
     p := 0
+    dis := false
     repeat 24
       str.append_str(@eutmp,string("O"))
       str.append_str(@eutmp,str.dec(p+1,1))
@@ -1098,6 +1132,32 @@ pub outputspost() | p
     eutmp[0] := 0
     str.append_str(@eutmp,string("brt="))
     Brightness := str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ strsize(@eutmp), 3)
+
+
+    eutmp[0] := 0
+    p := 0
+    repeat 24
+      str.append_str(@eutmp,string("T"))
+      str.append_str(@eutmp,str.dec(p+1,1))
+      str.append_str(@eutmp,string("="))
+      testpixel[p] := str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ strsize(@eutmp), 3)
+      if testpixel[p] > 0
+        W6100.stopfastrx()
+        dis := true
+        blinkmode :=  true
+      eutmp[0] := 0
+'      vid.dec(PIXELCONFIG[(p * 5) + 1] )
+'      send( $0D, $0A)
+      p++
+
+    if dis == false and W6100.e131cognum() == 0
+      blinkmode := false
+      bytefill(@pixelbuffer,0,73768)
+      W6100.startfastrx(W6100.IDM_BSR_Socket3_Register,@pixelbuffer,@TXBUFFER,@E131CONFIG)
+
+    if dis == true
+      bytefill(@pixelbuffer,0,73768)
+
     stoppixels()
     startpixels()
 '    waitms(3000)
@@ -1130,6 +1190,23 @@ pub outputjs() | p,idx
         str.append_str(@webbuff, string($0D, $0A, "document.getElementById('sld').value='"))
     str.append_str(@webbuff,str.dec(Brightness,-1))
     str.append_str(@webbuff, string("';"))
+
+    p := 0
+    repeat 24
+      CASE testpixel[p]
+        0: idx:=0
+        1: idx:=1
+        2: idx:=2
+        3: idx:=3
+        4: idx:=4
+
+      str.append_str(@webbuff, string($0D, $0A, "document.getElementById('T"))
+      str.append_str(@webbuff,str.dec(p+1,-1))
+      str.append_str(@webbuff, string("').selectedIndex = '"))
+      str.append_str(@webbuff,str.dec(idx,-1))
+      str.append_str(@webbuff, string("'; "))
+      p++
+
 
     rdsize := strsize(@webbuff)
 pub netjs()
