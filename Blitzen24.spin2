@@ -565,7 +565,7 @@ PUB main() | i, j
       httpd(80,W6100.PM_TCP4,W6100.IDM_BSR_Socket1_Register)
 
 
-pub watchdogcog() | p,c,alt
+pub watchdogcog() | p,c,alt,time1,time2
  OLED.TERMPOSY(0)
  OLED.TERMPOSX(0)
  OLED.TERMSEND(string("Blitzen 24  "))
@@ -588,7 +588,7 @@ pub watchdogcog() | p,c,alt
  OLED.hex(MACADDRESS[5],2)
 
  alt := false
-
+ time1 := GETCT()
  repeat
 '    debug (uhex(PIXELCONFIG[80] + 15))
 ' Ethernet Status
@@ -660,8 +660,7 @@ pub watchdogcog() | p,c,alt
               if testpixel[p] == 4
                 PIXELBUFFER[PIXELCONFIG[(p * 5) + 3] - @PIXELBUFFER + c + 1]  := 255
                 PIXELBUFFER[PIXELCONFIG[(p * 5) + 3] - @PIXELBUFFER + c + 2]  := 255
-             'PIXELBUFFER[0] := 255
-             debug(udec(PIXELCONFIG[p * 5 + 3] - @PIXELCONFIG + c))
+
               c := c + 3
           p := p + 1
         alt := false
@@ -673,9 +672,10 @@ pub watchdogcog() | p,c,alt
         OLED.TERMSEND(string($81))
         OLED.SETFG(OLED.White)
         alt := true
-
-    waitms(1000)
-
+    ' Wait 1 second
+    time2 := (GETCT() - time1) / (CLKFREQ / 1_000_000)
+    waitus(1_000_000 - time2)
+    time1 := GETCT()
 '    OLED.HEX(bgtmp[0],2)
 
 pub ConfigPixels() |  pixelcount, pixeloffset, i, ei
