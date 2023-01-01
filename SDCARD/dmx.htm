@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blitzen 24</title>
+    <link rel="stylesheet" href="style.css">
+<!--    <script src="script.js"></script> -->
+</head>
+
+<body>
+	<header>
+		<div id="logo"><img src="blitzen.png">Blitzen 24</div>
+		<nav>  
+			<ul>
+				<li><a href="/">Home</a>
+				<li><a href="net.htm">Networking</a>
+				<li><a href="e131.htm?output=1">E1.31 Settings</a>
+				<li><a href="outputs.htm">Outputs</a>
+                                <li><a href="dmx.htm">DMX</a>
+                                <li><a href="configs.htm">Configs</a>
+			</ul>
+		</nav>
+	</header>
+	<section>
+		<strong>DMX-512 Output Configuration</strong>
+	</section>
+	<section id="pageContent">
+		<main role="main">
+			<FORM METHOD="POST">
+				<INPUT TYPE="hidden" ID="output" NAME="output" VALUE="25">
+<TABLE ID="E131">
+<TR><TD>E1.31 Universe</TD><TD>DMX-512 Output</TD></TR>
+<TR><TD><INPUT TYPE="NUMBER" ID="U1" NAME="U1" SIZE="6" min="0" max="65535"><INPUT TYPE="hidden" ID="P1" NAME="P1" VALUE="170"></TD><TD>DMX Output 1</TD></TR>
+<TR><TD><INPUT TYPE="NUMBER" ID="U2" NAME="U2" SIZE="6" min="0" max="65535"><INPUT TYPE="hidden" ID="P2" NAME="P2" VALUE="170"></TD><TD>DMX Output 2</TD></TR>
+<TR><TD><INPUT TYPE="NUMBER" ID="U3" NAME="U3" SIZE="6" min="0" max="65535"><INPUT TYPE="hidden" ID="P3" NAME="P3" VALUE="170"></TD><TD>DMX Output 3</TD></TR>
+<TR><TD><INPUT TYPE="NUMBER" ID="U4" NAME="U4" SIZE="6" min="0" max="65535"><INPUT TYPE="hidden" ID="P4" NAME="P4" VALUE="170"></TD><TD>DMX Output 4</TD></TR>
+</TABLE>
+<br>
+				<INPUT TYPE="SUBMIT" Name="Save" Value="Save">
+			</FORM> 
+		<BR><BR>
+		</main>
+<!--		<aside>
+			<div>Sidebar 1</div>
+			<div>Sidebar 2</div>
+			<div>Sidebar 3</div>
+		</aside>
+-->	</section>
+
+	<footer>
+		<p>&copy; 2022 GriswoldFX. This is free software licensed under the MIT license. Visit <a HREF="http://www.griswoldfx.com">GriswoldFX.com</A> for more infromation.</p>
+<p> Template by <a href="https://html5-templates.com/" target="_blank" rel="nofollow">HTML5 Templates</a></p>
+	</footer>
+
+
+</body>
+       <script src="e131.js?output=25"></script>
+</html>
