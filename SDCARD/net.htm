@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Blitzen 24</title>
     <link rel="stylesheet" href="style.css">
-    <script src="script.js"></script>
+<!--    <script src="script.js"></script> -->
 </head>
 
 <body>
@@ -18,6 +18,7 @@
 				<li><a href="net.htm">Networking</a>
 				<li><a href="e131.htm?output=1">E1.31 Settings</a>
 				<li><a href="outputs.htm">Outputs</a>
+                                <li><a href="dmx.htm">DMX</a>
                                 <li><a href="configs.htm">Configs</a>
 			</ul>
 		</nav>
@@ -32,6 +33,8 @@
 				IP Address <INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="IPADDRESS0" NAME="IPADDRESS0" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="IPADDRESS1" NAME="IPADDRESS1" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="IPADDRESS2" NAME="IPADDRESS2" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="IPADDRESS3" NAME="IPADDRESS3" SIZE="3" maxlength="3"><br>
 				Subnet <INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="SUBNETMASK0" NAME="SUBNETMASK0" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="SUBNETMASK1" NAME="SUBNETMASK1" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="SUBNETMASK2" NAME="SUBNETMASK2" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="SUBNETMASK3" NAME="SUBNETMASK3" SIZE="3" maxlength="3"><br>
 				Gateway <INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="GATEWAY0" NAME="GATEWAY0" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="GATEWAY1" NAME="GATEWAY1" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="GATEWAY2" NAME="GATEWAY2" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="GATEWAY3" NAME="GATEWAY3" SIZE="3" maxlength="3"><br>
+				DNS <INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="DNS0" NAME="DNS0" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="DNS1" NAME="DNS1" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="DNS2" NAME="DNS2" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="DNS3" NAME="DNS3" SIZE="3" maxlength="3"><br>
+                                Speed/Duplex <SELECT ID="SD" NAME="SD"><OPTION value="0">Auto Negotiate</OPTION><OPTION value="4">100 Full</OPTION><OPTION value="5">100 Half</OPTION><OPTION value="6">10 Full</OPTION><OPTION value="7">10 Half</OPTION></SELECT><BR>
 				<INPUT TYPE="SUBMIT" Name="Save" Value="Save" OnClick='ChangeValidation();'>
 			</FORM> 
 		<BR><BR>
