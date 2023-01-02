@@ -2,11 +2,6 @@ CON
     _xtlfreq = 20_000_000
     _clkfreq = 270_000_000
 
-  DVI_BASE_PIN  = 40     ' set to the base pin of the DVI group
-  CONSTANT_NAME = 0
-  #0, T_PST, T_ANSI                                             ' terminal types
-
-  T_TYPE = T_PST
   PGM_RX   = 63  { I }                                          ' programming / debug
   PGM_TX   = 62  { O }
 
@@ -30,6 +25,8 @@ VAR
         byte GATEWAY[4]
         byte DHCP 'Non zero
         byte BRIGHTNESS
+        byte DNS[4]
+        byte SPEEDDUPLEX
         long TXBUFFER[8]
         byte PACKETBUFFER[4098]
         byte PIXELBUFFER[73768]
@@ -117,18 +114,18 @@ PUB main() | i, j
      OLED.TERMSEND(STRING("Can't mount FS", OLED.CR, OLED.LF))
      OLED.TERMSEND(STRING("Missing SD Card?", OLED.CR, OLED.LF))
      repeat
-  debug("Config file Size: ", udec_(@Brightness - @PIXELCONFIG) )
+  debug("Config file Size: ", udec_(@SPEEDDUPLEX - @PIXELCONFIG) )
   debug("Opening config file: ")
   if not \FS.openfile(string("blitzen.cfg"),"R")
 
     debug("Opened")
-    FS.readData(@PIXELCONFIG, @Brightness - @PIXELCONFIG + 1)
+    FS.readData(@PIXELCONFIG, @SPEEDDUPLEX - @PIXELCONFIG + 1)
     FS.closeFile()
     OLED.TERMSEND(STRING("Config Found!", OLED.CR, OLED.LF))
   else
     debug("Failed")
     debug("Zeroing Memory Configuration.")
-    bytefill(@PIXELCONFIG, 0, @Brightness - @PIXELCONFIG + 1)
+    bytefill(@PIXELCONFIG, 0, @SPEEDDUPLEX - @PIXELCONFIG + 1)
 
        'Configure Mac Address
     MACADDRESS[0] := $00 'wiznet don't change
@@ -161,7 +158,7 @@ PUB main() | i, j
     if not \FS.openfile(string("blitzen.cfg"),"W")
 
       debug("Writing Configuration to SD Card.", $0D, $0A)
-      FS.writeData(@PIXELCONFIG, @Brightness - @PIXELCONFIG + 1)
+      FS.writeData(@PIXELCONFIG, @SPEEDDUPLEX - @PIXELCONFIG + 1)
       FS.closeFile()
       OLED.TERMSEND(STRING("New config saved.", OLED.CR, OLED.LF))
     else
@@ -194,7 +191,7 @@ PUB main() | i, j
 
 
   debug("Set physical interface to 10BASETXFDX")
-  WRITEBUFFER[0] := W6100.TENBASETXFDX
+  WRITEBUFFER[0] := SPEEDDUPLEX
   W6100.writereg(W6100.REG_PHYCR0,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
 
 
@@ -787,6 +784,13 @@ pub netpost()
     GATEWAY[2] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("GATEWAY2="))+ 9, 3)
     GATEWAY[3] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("GATEWAY3="))+ 9, 3)
 
+    DNS[0] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("DNS0="))+ 5, 3)
+    DNS[1] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("DNS1="))+ 5, 3)
+    DNS[2] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("DNS2="))+ 5, 3)
+    DNS[3] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("DNS3="))+ 5, 3)
+
+    SPEEDDUPLEX := str2dec(@READBUFFER + str.instr(@READBUFFER,string("SD="))+ 3, 1)
+
     writeconfig()
 
 pub writeconfig()
@@ -794,7 +798,7 @@ pub writeconfig()
     if not \FS.openfile(string("blitzen.cfg"),"W")
 
       debug("Writing Configuration to SD Card.", $0D, $0A)
-      FS.writeData(@PIXELCONFIG, @Brightness - @PIXELCONFIG + 1)
+      FS.writeData(@PIXELCONFIG, @SPEEDDUPLEX - @PIXELCONFIG + 1)
       FS.closeFile()
 
     else
@@ -1072,7 +1076,7 @@ pub outputjs() | p,idx
 
 
     rdsize := strsize(@webbuff)
-pub netjs()
+pub netjs() | idx
 
 ' Zero out buffer
    webbuff[0] := 0
@@ -1126,6 +1130,32 @@ pub netjs()
   str.append_str(@webbuff,str.dec(GATEWAY[3],-1))
   str.append_str(@webbuff, string("';"))
 
+' Set DNS in form
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('DNS0').value='"))
+  str.append_str(@webbuff,str.dec(DNS[0],-1))
+  str.append_str(@webbuff, string("';"))
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('DNS1').value='"))
+  str.append_str(@webbuff,str.dec(DNS[1],-1))
+  str.append_str(@webbuff, string("';"))
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('DNS2').value='"))
+  str.append_str(@webbuff,str.dec(DNS[2],-1))
+  str.append_str(@webbuff, string("';"))
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('DNS3').value='"))
+  str.append_str(@webbuff,str.dec(DNS[3],-1))
+  str.append_str(@webbuff, string("';"))
+
+' Set Speed and Duplex
+  CASE SPEEDDUPLEX
+        0: idx:=0
+        4: idx:=1
+        5: idx:=2
+        6: idx:=3
+        7: idx:=4
+
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('SD').selectedIndex = '"))
+  str.append_str(@webbuff,str.dec(idx,-1))
+  str.append_str(@webbuff, string("'; "))
+
 
   rdsize := strsize(@webbuff)
 
@@ -1155,8 +1185,8 @@ pub downloadconfig()
   str.append_str(@webbuff,resp_dl_ptr)
   rdsize := strsize(@webbuff)
 ' Copy running config into web buffer
-  bytemove(@webbuff + rdsize, @PIXELCONFIG, @Brightness - @PIXELCONFIG + 1)
-  rdsize := rdsize + (@Brightness - @PIXELCONFIG) + 1
+  bytemove(@webbuff + rdsize, @PIXELCONFIG, @SPEEDDUPLEX - @PIXELCONFIG + 1)
+  rdsize := rdsize + (@SPEEDDUPLEX - @PIXELCONFIG) + 1
 
 
 pub dhcpclient() | i
@@ -1297,6 +1327,14 @@ pub dhcpclient() | i
                GATEWAY[2] := READBUFFER[i+4]
                GATEWAY[3] := READBUFFER[i+5]
                i := i + 6
+      6 :
+               debug("DNS Server: " , udec_(READBUFFER[i+2]),".",udec_(READBUFFER[i+3]),".",udec_(READBUFFER[i+4]),".",udec_(READBUFFER[i+5]))
+               DNS[0] := READBUFFER[i+2]
+               DNS[1] := READBUFFER[i+3]
+               DNS[2] := READBUFFER[i+4]
+               DNS[3] := READBUFFER[i+5]
+               i := i + 6
+
       $ff :
                debug("Detected end of DHCP Options.")
 
@@ -1414,6 +1452,14 @@ pub dhcpclient() | i
                GATEWAY[2] := READBUFFER[i+4]
                GATEWAY[3] := READBUFFER[i+5]
                i := i + 6
+      6 :
+               debug("DNS Server: " , udec_(READBUFFER[i+2]),".",udec_(READBUFFER[i+3]),".",udec_(READBUFFER[i+4]),".",udec_(READBUFFER[i+5]))
+               DNS[0] := READBUFFER[i+2]
+               DNS[1] := READBUFFER[i+3]
+               DNS[2] := READBUFFER[i+4]
+               DNS[3] := READBUFFER[i+5]
+               i := i + 6
+
       $ff : debug("Detected end of DHCP Options.")
 
       OTHER : debug("DHCP Option Unknown: ", udec_(READBUFFER[i]), " Incrementing ", udec_(READBUFFER[i+1] + 2))
