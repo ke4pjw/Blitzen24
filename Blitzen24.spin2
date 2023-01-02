@@ -639,6 +639,7 @@ repeat
   If ( W6100.ReceiveData(socket,10000) <> W6100.Sn_IR_TIMEOUT)
  '     W6100.ReceiveData(socket,100000)
       psize := W6100.ReceiveProcess(socket,@READBUFFER)
+      READBUFFER[psize] := 0
       debug("Received: ",zstr_(@READBUFFER))
 
 {

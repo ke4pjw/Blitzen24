@@ -93,7 +93,7 @@ PRI GetBitTime(max_clkfreq) : bt
 
 PRI DoCommandAsync(_cmd, _arg1, _arg2, _arg3)
     repeat while cmd <> 0
-    debug("Pushing command ",udec(_cmd),uhex_long(_arg1, _arg2, _arg3))
+'    debug("Pushing command ",udec(_cmd),uhex_long(_arg1, _arg2, _arg3))
     arg1 := _arg1
     arg2 := _arg2
     arg3 := _arg3
@@ -133,7 +133,7 @@ get_cmd
                 rdlong  arg3_in,        ++ptra
                 rdlong  err_out,        ++ptra              ' dummy read to align err pointer
                 '' decode command
-                debug("got command ",udec(cmd_in),uhex_long(arg1_in,arg2_in,arg3_in))
+'                debug("got command ",udec(cmd_in),uhex_long(arg1_in,arg2_in,arg3_in))
                 cmp     cmd_in,         #"r"    wz
         if_z    jmp     #read_a
                 cmp     cmd_in,         #"w"    wz
@@ -169,7 +169,7 @@ end_cmd
                 mov     cmd_in,         #0                  ' signal done to spin driver
                 mov     ptra,           ptr_to_mbox         ' return ptra back to mbox
         if_z    wrlong  cmd_in,         ptr_to_mbox
-                debug("cmd done")
+'                debug("cmd done")
                 jmp     #get_cmd
 
 dat 'do_init     'RJA disabled smartpins
@@ -181,7 +181,7 @@ do_init
                 getbyte pinCS,          arg1_in,    #3
 
                 mov delay1s,err_out ' clkfreq!
-                debug(udec(delay1s))
+'                debug(udec(delay1s))
 
                 jmp     #end_cmd
 
@@ -250,7 +250,7 @@ read_d
 
 DAT 'read_a 'read a block (sector)
 read_a          '' arg1 is sd ptr, arg2 is hub
-                debug("In read func!")
+'                debug("In read func!")
                 mov     cmdout,         #17                 ' command = block read
                 shl     arg1_in,        blocksh             ' non-hc compatibility
                 mov     cmdpar,         arg1_in             ' sd block address
@@ -285,7 +285,7 @@ read_a          '' arg1 is sd ptr, arg2 is hub
 
 dat ' write_b        'write a sector
 write_b         '' arg1 is sd ptr, arg2 is hub
-                debug("In write func!")
+'                debug("In write func!")
                 mov     cmdout,         #24                 ' command = block write
                 shl     arg1_in,        blocksh             ' non-hc compatibility
                 mov     cmdpar,         arg1_in             ' sd block address
@@ -640,7 +640,7 @@ read_resp       call    #read_byte
                 cmp     reply,          #$ff        wz
    'if_z         call    #check_time
    if_z         jmp     #read_resp
-                debug("got response!")
+'                debug("got response!")
 read_resp_ret   ret
 
 dat 'sd_busy
