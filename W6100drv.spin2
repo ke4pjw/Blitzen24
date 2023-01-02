@@ -215,7 +215,6 @@ VAR
 
 
 OBJ
-       vid: "p2textdrv"
 
 PUB setuppins()
 org
