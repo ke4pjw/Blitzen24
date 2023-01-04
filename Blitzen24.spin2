@@ -72,6 +72,8 @@ VAR
         byte testpixel[24]
         long blinkmode
         long watchdogstack[256]
+        long dot
+        byte servername[256]
 OBJ
         FS: "FAT32"
         W6100: "W6100drv"
@@ -92,7 +94,8 @@ PUB main() | i, j
   resp_ico_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/x-icon", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_404_ptr := String("HTTP/1.1 404 Not Found", $0D, $0A, "Connection: close", $0D, $0A, "Content-Type: text/html", $0D, $0A, $0D, $0A, "<HTML><BODY><H1>Nope, not here.</H2></BODY></HTML>", $0D, $0A)
   resp_dl_ptr  := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: application/octet-stream", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
-
+  dot := String(".")
+  str.append_str(@servername,String("www.slashdot.org"))
 '  req_ptr      := String("test.htm")
       dhcp_ptr := String("document.getElementById('DHCP').checked = true;", $0D, $0A)
 
@@ -730,6 +733,7 @@ repeat
             if str.instr(@filepath,string(".JS")) <> -1
                if str.instr(@filepath,string("COUNTERS.JS")) <> -1
                   countersjs()
+                  dnsresolver(@servername)
                if str.instr(@filepath,string("NET.JS")) <> -1
                   netjs()
                if str.instr(@filepath,string("E131.JS")) <> -1
@@ -1545,3 +1549,64 @@ pub dmxbufferaddr() : dmxbuffer | ei
         return E131CONFIG[ei+3]
       ei := ei + 4
    return -1
+pub dnsresolver(hostname) : rv | i, l
+  debug("Configuring Protocol Mode UDP on Socket 0", $0D, $0A)
+  W6100.Open(53,W6100.PM_UDP4,W6100.IDM_BSR_Socket0_Register)
+  ' Set Destination IP
+  WRITEBUFFER[0] := DNS[0]
+  WRITEBUFFER[1] := DNS[1]
+  WRITEBUFFER[2] := DNS[2]
+  WRITEBUFFER[3] := DNS[3]
+  W6100.writereg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket0_Register,4,@WRITEBUFFER)
+
+  ' Set Destination port
+  WRITEBUFFER[0] := 00
+  WRITEBUFFER[1] := 53
+  W6100.writereg(W6100.REG_Sn_DPORTR,W6100.IDM_BSR_Socket0_Register,2,@WRITEBUFFER)
+
+  ' Transaction ID
+  RequestID[0] := prng.xrandomize($00,$FF)
+  RequestID[1] := prng.xrandomize($00,$FF)
+
+  ' Construct Request
+  ' Set Transaction ID
+  WRITEBUFFER[0] := RequestID[0]
+  WRITEBUFFER[1] := RequestID[1]
+  ' Set Query (1 bit), Opcode (4 bits) , Authoratative Answer (1 bit), Truncation (1 bit), Recursion Desired (1 bit)
+  WRITEBUFFER[2] := %%1_0000_0_0_1
+  ' Set Recursion Available (1 bit), Reserved (3 bits), Response Code (4 bits)
+  WRITEBUFFER[3] := %%0_000_0000
+  ' Set Query Count
+  WRITEBUFFER[4] := 0
+  WRITEBUFFER[5] := 1
+  ' Set Answer Count
+  WRITEBUFFER[6] := 0
+  WRITEBUFFER[7] := 0
+  ' Set Name Server Resource Record Count
+  WRITEBUFFER[8] := 0
+  WRITEBUFFER[9] := 0
+  'Set Number of Resource Records in the Additional Records Section
+  WRITEBUFFER[10] := 0
+  WRITEBUFFER[11] := 0
+  ' Set question
+  i := 12
+  repeat until l == -1
+    l := str.instr(hostname+i-12,dot)
+    debug(zstr(hostname+i-12))
+    debug(udec(l))
+    if l <> -1
+      WRITEBUFFER[i] := l
+      str.mid(@WRITEBUFFER+i+1, hostname, i-12,l)
+      i := i + l + 1
+
+  WRITEBUFFER[i] := strsize(hostname) - str.last(hostname, ".") - 1
+  str.mid(@WRITEBUFFER+i+1, hostname, i-12,WRITEBUFFER[i])
+  i := i + WRITEBUFFER[i] + 2
+  ' Set Query Type
+  WRITEBUFFER[i] := 0
+  WRITEBUFFER[i+1] := 1   ' $0001 is for A records
+  ' Set Query Class
+  WRITEBUFFER[i+2] := 0
+  WRITEBUFFER[i+3] := 1   ' $0001 is IN for Internet
+
+  W6100.SendData(W6100.IDM_BSR_Socket0_Register,@WRITEBUFFER,i+4)
