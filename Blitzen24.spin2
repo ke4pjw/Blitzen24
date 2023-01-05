@@ -74,6 +74,7 @@ VAR
         long watchdogstack[256]
         long dot
         byte servername[256]
+        byte serverip[4]
 OBJ
         FS: "FAT32"
         W6100: "W6100drv"
@@ -95,7 +96,8 @@ PUB main() | i, j
   resp_404_ptr := String("HTTP/1.1 404 Not Found", $0D, $0A, "Connection: close", $0D, $0A, "Content-Type: text/html", $0D, $0A, $0D, $0A, "<HTML><BODY><H1>Nope, not here.</H2></BODY></HTML>", $0D, $0A)
   resp_dl_ptr  := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: application/octet-stream", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   dot := String(".")
-  str.append_str(@servername,String("www.slashdot.org"))
+  str.append_str(@servername,String("www.parallax.com"))
+'  str.append_str(@servername,String("blalblaba.com"))
 '  req_ptr      := String("test.htm")
       dhcp_ptr := String("document.getElementById('DHCP').checked = true;", $0D, $0A)
 
@@ -733,7 +735,8 @@ repeat
             if str.instr(@filepath,string(".JS")) <> -1
                if str.instr(@filepath,string("COUNTERS.JS")) <> -1
                   countersjs()
-                  dnsresolver(@servername)
+                  'This is here as an easy way to trigger a DNS lookup when testing.
+                  'dnsresolver(@servername)
                if str.instr(@filepath,string("NET.JS")) <> -1
                   netjs()
                if str.instr(@filepath,string("E131.JS")) <> -1
@@ -1609,4 +1612,41 @@ pub dnsresolver(hostname) : rv | i, l
   WRITEBUFFER[i+2] := 0
   WRITEBUFFER[i+3] := 1   ' $0001 is IN for Internet
 
+  'Send Query
   W6100.SendData(W6100.IDM_BSR_Socket0_Register,@WRITEBUFFER,i+4)
+
+  'clearing readbuffer
+  BYTEFILL(@READBUFFER,$00,1024)
+
+  W6100.readreg(W6100.REG_Sn_IR,W6100.IDM_BSR_Socket0_Register,1,@READBUFFER)
+  debug("Checking Sn_IR Socket Status: ", uhex_(READBUFFER[0]))
+
+  repeat until READBUFFER[8] == RequestID[0] && READBUFFER[9] == RequestID[1]
+     ' Set timeout to 5 seconds
+     l := GETSEC() + 5
+     repeat until W6100.ReceiveData(W6100.IDM_BSR_Socket0_Register,1) == 0
+      if GETSEC() >= l
+         debug("DNS Server timed out.")
+         return -1
+
+     psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket0_Register,@READBUFFER)
+
+     debug("Received XID is: ", uhex_(READBUFFER[8]),":",uhex_(READBUFFER[9]))
+  if READBUFFER[10] == $81 && READBUFFER[11] == $80
+     i := 20
+     debug("Name Resolved")
+     repeat until READBUFFER[i] == 0
+        debug("Question length ", uhex_(READBUFFER[i]))
+        i := i + READBUFFER[i] + 1
+     'Jump ahead to Answer Type
+     i := i + 7
+     debug("Answer Type", uhex_(READBUFFER[i]),uhex_(READBUFFER[i+1]))
+     debug("Resolves as ", udec_(READBUFFER[psize-4]),".",udec_(READBUFFER[psize-3]),".",udec_(READBUFFER[psize-2]),".",udec_(READBUFFER[psize-1]))
+     SERVERIP[0] := READBUFFER[psize-4]
+     SERVERIP[1] := READBUFFER[psize-3]
+     SERVERIP[2] := READBUFFER[psize-2]
+     SERVERIP[3] := READBUFFER[psize-1]
+     return @SERVERIP
+  else
+     debug("Name did not resolve")
+     return -1
