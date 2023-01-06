@@ -555,6 +555,15 @@ pub ListenTCP(socket) : rtv
   readreg(REG_Sn_SR,socket,1,@REGBUFFER)
   rtv := REGBUFFER[0]
 
+pub ConnectTCP(socket) : rtv
+  REGBUFFER[0] := CR_CONNECT
+  writereg(REG_Sn_CR,socket,1,@REGBUFFER)
+  readreg(REG_Sn_CR,socket,1,@REGBUFFER)
+    repeat until REGBUFFER[0] == 0
+       readreg(REG_Sn_CR,socket,1,@REGBUFFER)
+'  readreg(REG_Sn_SR,socket,1,@REGBUFFER)
+  rtv := REGBUFFER[0]
+
 pub EstablishTCP(socket) : rtv
   readreg(REG_Sn_IR,socket,1,@REGBUFFER)
    repeat until (REGBUFFER[0] & Sn_IR_CON) == Sn_IR_CON || (REGBUFFER[0] & Sn_IR_TIMEOUT) == Sn_IR_TIMEOUT
