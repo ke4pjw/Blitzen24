@@ -71,10 +71,12 @@ VAR
         long wddps
         byte testpixel[24]
         long blinkmode
-        long watchdogstack[256]
         long dot
         byte servername[256]
         byte serverip[4]
+        byte buildver[256]
+        long upgradeserver_ptr
+        long watchdogstack[1023]
 OBJ
         FS: "FAT32"
         W6100: "W6100drv"
@@ -87,7 +89,7 @@ OBJ
         str: "jm_strings"
         OLED: "oled_AsmDrv"
 PUB main() | i, j
-
+  str.append_str(@buildver, String("Blitzen 24 Edge 1.0 PR3"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -95,6 +97,8 @@ PUB main() | i, j
   resp_ico_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/x-icon", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_404_ptr := String("HTTP/1.1 404 Not Found", $0D, $0A, "Connection: close", $0D, $0A, "Content-Type: text/html", $0D, $0A, $0D, $0A, "<HTML><BODY><H1>Nope, not here.</H2></BODY></HTML>", $0D, $0A)
   resp_dl_ptr  := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: application/octet-stream", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+
+  upgradeserver_ptr := String("files.griswoldfx.com")
   dot := String(".")
 '  str.append_str(@servername,String("www.parallax.com"))
 '  str.append_str(@servername,String("blalblaba.com"))
@@ -578,6 +582,7 @@ pub watchdogcog() | p,c,alt,time1,time2
     time2 := (GETCT() - time1) / (CLKFREQ / 1_000_000)
     waitus(1_000_000 - time2)
     time1 := GETCT()
+'    debug(zstr_(String("Updated")))
 '    OLED.HEX(bgtmp[0],2)
 
 pub ConfigPixels() |  pixelcount, pixeloffset, i, ei
@@ -737,14 +742,16 @@ repeat
                   countersjs()
                   'This is here as an easy way to trigger a DNS lookup when testing.
                   'dnsresolver(@servername)
-               if str.instr(@filepath,string("CONFIG.JS")) <> -1
-                  upgradejs()
                if str.instr(@filepath,string("NET.JS")) <> -1
                   netjs()
                if str.instr(@filepath,string("E131.JS")) <> -1
                   e131js()
                if str.instr(@filepath,string("OUTPUT.JS")) <> -1
                   outputjs()
+               if str.instr(@filepath,string("CONFIG.JS")) <> -1
+                  configjs()
+               if str.instr(@filepath,string("UPGRADE.JS")) <> -1
+                  upgradejs()
 
             else
                if str.instr(@filepath,string("RUNNINGCONFIG.CFG")) <> -1
@@ -1186,7 +1193,7 @@ PUB countersjs()
    str.append_str(@webbuff, string(" drops/sec';"))
 
    rdsize := strsize(@webbuff)
-PUB upgradejs() | dns_ptr
+PUB configjs() | dns_ptr
     ' Zero out buffers
     webbuff[0] := 0
     servername[0] := 0
@@ -1194,7 +1201,7 @@ PUB upgradejs() | dns_ptr
     str.append_str(@webbuff,resp_ptr)
     str.append_str(@webbuff, string($0D, $0A, "var div = document.getElementById('upgrade');"))
 
-    str.append_str(@servername,String("files.griswoldfx.com"))
+    str.append_str(@servername,upgradeserver_ptr)
 
     dns_ptr := dnsresolver(@servername)
     if dns_ptr == -1
@@ -1226,6 +1233,14 @@ PUB upgradejs() | dns_ptr
     if (W6100.EstablishTCP(W6100.IDM_BSR_Socket6_Register) <> W6100.Sn_IR_TIMEOUT)
         W6100.readreg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket6_Register,4,@READBUFFER)
         debug("Connection Established to ", udec_(READBUFFER[0]),".",udec_(READBUFFER[1]),".",udec_(READBUFFER[2]),".",udec_(READBUFFER[3]))
+    else
+        str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Cant connect to "))
+        str.append_str(@webbuff,@servername)
+        str.append_str(@webbuff, string("';"))
+        rdsize := strsize(@webbuff)
+        return
+
+
 
     debug("Checking Sn_RX_RSR Socket Status/number of bytes in buffer: ")
 
@@ -1248,8 +1263,17 @@ PUB upgradejs() | dns_ptr
         READBUFFER[psize] := 0
         debug("Received: ",zstr_(@READBUFFER))
 
-    str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Upgrade Available';"))
-
+    if str.instr(@READBUFFER,string("HTTP/1.1 200")) == -1
+        str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Response Code "))
+        str.mid(@webbuff+strsize(@webbuff), @READBUFFER, str.instr(@READBUFFER,string("HTTP/1.1"))+8, (str.instr(@READBUFFER,string("HTTP/1.1"))) + 4 )
+        str.append_str(@webbuff,string("';"))
+    else
+        if str.instr(@READBUFFER + str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)) + 4,@buildver) == -1
+          str.append_str(@webbuff, string($0D, $0A, "div.innerHTML = '<A HREF=/upgrade.htm>Upgrade Available</A> <br> <font size=2>"))
+          str.mid(@webbuff+strsize(@webbuff),@READBUFFER, str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)) + 4,str.instr(@READBUFFER+str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)) + 4,String($0D, $0A)))
+          str.append_str(@webbuff, string("</font>';"))
+        else
+          str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Firmware up to date.';"))
     rdsize := strsize(@webbuff)
     W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
 pub downloadconfig()
@@ -1717,3 +1741,113 @@ pub dnsresolver(hostname) : rv | i, l
   else
      debug("Name did not resolve")
      return -1
+pub upgradejs()| dns_ptr, gur
+    ' Zero out buffers
+    webbuff[0] := 0
+
+    ' send header
+    str.append_str(@webbuff,resp_ptr)
+    str.append_str(@webbuff, string($0D, $0A, "var div = document.getElementById('main');"))
+
+    gur := getURL(string("/firmware/Blitzen24/upgrade.txt"),upgradeserver_ptr)
+
+    if gur == -2
+        str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Cant resolve "))
+        str.append_str(@webbuff,@servername)
+        str.append_str(@webbuff, string("';"))
+        rdsize := strsize(@webbuff)
+        return
+
+   if gur == -1
+        str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Cant connect to "))
+        str.append_str(@webbuff,@servername)
+        str.append_str(@webbuff, string("';"))
+        rdsize := strsize(@webbuff)
+        return
+
+   if gur == -4
+        str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Unexpected response from  "))
+        str.append_str(@webbuff,@servername)
+        str.append_str(@webbuff, string("';"))
+        rdsize := strsize(@webbuff)
+        return
+
+   if gur == -5
+        str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Not an HTTP response from  "))
+        str.append_str(@webbuff,@servername)
+        str.append_str(@webbuff, string("';"))
+        rdsize := strsize(@webbuff)
+        return
+   str.append_str(@webbuff, string("str = `<font size=+1>Manifest file contents</font><br><br><pre>"))
+   str.append_str(@webbuff,@READBUFFER + 4 + str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)))
+   str.append_str(@webbuff, string("</pre>`;"))
+   str.append_str(@webbuff, string($0D, $0A, "div.insertAdjacentHTML('afterbegin', str);"))
+
+   rdsize := strsize(@webbuff)
+   W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
+pub getURL(path,svr) : rt | dns_ptr
+{
+Return codes
+-1 : Can't connect
+-2 : Does not resolve
+-3 : Timed Out
+-4 : Unexpected response upon connect
+-5 : Not an HTTP reponse
+
+Otherwise, return HTTP Status code.
+
+}
+    servername[0] := 0
+    str.append_str(@servername,svr)
+    dns_ptr := dnsresolver(@servername)
+    if dns_ptr == -1
+      return(-2)
+    W6100.Open(80,W6100.PM_TCP4,W6100.IDM_BSR_Socket6_Register)
+
+   ' Set Destination IP
+    WRITEBUFFER[0] := SERVERIP[0]
+    WRITEBUFFER[1] := SERVERIP[1]
+    WRITEBUFFER[2] := SERVERIP[2]
+    WRITEBUFFER[3] := SERVERIP[3]
+
+    W6100.writereg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket6_Register,4,@WRITEBUFFER)
+
+    ' Set Destination port
+    WRITEBUFFER[0] := 00
+    WRITEBUFFER[1] := 80
+    W6100.writereg(W6100.REG_Sn_DPORTR,W6100.IDM_BSR_Socket6_Register,2,@WRITEBUFFER)
+
+
+    W6100.ConnectTCP(W6100.IDM_BSR_Socket6_Register)
+
+    if (W6100.EstablishTCP(W6100.IDM_BSR_Socket6_Register) <> W6100.Sn_IR_TIMEOUT)
+        W6100.readreg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket6_Register,4,@READBUFFER)
+        debug("Connection Established to ", udec_(READBUFFER[0]),".",udec_(READBUFFER[1]),".",udec_(READBUFFER[2]),".",udec_(READBUFFER[3]))
+    else
+        return(-1)
+
+    debug("Checking Sn_RX_RSR Socket Status/number of bytes in buffer: ")
+
+    If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,10000) <> W6100.Sn_IR_TIMEOUT)
+        psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket6_Register,@READBUFFER)
+        READBUFFER[psize] := 0
+        debug("Unexpected response of ",udec_(psize)," Bytes.")
+        debug("Received: ",zstr_(@READBUFFER))
+        return(-4)
+
+    WRITEBUFFER[0] := 0
+    str.append_str(@WRITEBUFFER,string("GET "))
+    str.append_str(@WRITEBUFFER,path)
+    debug("Path: ",zstr_(path))
+    str.append_str(@WRITEBUFFER,string(" HTTP/1.1", $0D, $0A, "Host: "))
+    str.append_str(@WRITEBUFFER,@servername)
+    str.append_str(@WRITEBUFFER,string($0D, $0A, $0D, $0A))
+    W6100.SendData(W6100.IDM_BSR_Socket6_Register,@WRITEBUFFER,strsize(@WRITEBUFFER))
+
+    If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,10000) <> W6100.Sn_IR_TIMEOUT)
+ '     W6100.ReceiveData(socket,100000)
+        psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket6_Register,@READBUFFER)
+        READBUFFER[psize] := 0
+        debug("Received: ",zstr_(@READBUFFER))
+    else
+        return(-3)
