@@ -77,6 +77,11 @@ VAR
         byte buildver[256]
         long upgradeserver_ptr
         long watchdogstack[1023]
+        byte md51[16]
+        byte md52[16]
+        byte manifest[64000]
+        byte tmpfilepath[256]
+        byte tmp2filepath[256]
 OBJ
         FS: "FAT32"
         W6100: "W6100drv"
@@ -88,6 +93,7 @@ OBJ
         DMX: "tt_dmx_tx"
         str: "jm_strings"
         OLED: "oled_AsmDrv"
+        BASE64: "base64"
 PUB main() | i, j
   str.append_str(@buildver, String("Blitzen 24 Edge 1.0 PR3"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -692,6 +698,9 @@ repeat
             configspost(socket)
           if str.instr(@filepath,string("OUTPUTS.HTM")) <> -1
             outputspost()
+          if str.instr(@filepath,string("UPGRADE.HTM")) <> -1
+            upgradepost()
+
         debug("Filename: ", zstr_(@filepath))
 
         ' Set default document
@@ -1741,7 +1750,7 @@ pub dnsresolver(hostname) : rv | i, l
   else
      debug("Name did not resolve")
      return -1
-pub upgradejs()| dns_ptr, gur
+pri upgradejs()| dns_ptr, gur
     ' Zero out buffers
     webbuff[0] := 0
 
@@ -1749,43 +1758,70 @@ pub upgradejs()| dns_ptr, gur
     str.append_str(@webbuff,resp_ptr)
     str.append_str(@webbuff, string($0D, $0A, "var div = document.getElementById('main');"))
 
-    gur := getURL(string("/firmware/Blitzen24/upgrade.txt"),upgradeserver_ptr)
+    if str.instr(@READBUFFER,string("/upgrade.htm?Save=Upgrade+My+Controller")) == -1
 
-    if gur == -2
-        str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Cant resolve "))
-        str.append_str(@webbuff,@servername)
-        str.append_str(@webbuff, string("';"))
-        rdsize := strsize(@webbuff)
-        return
+        manifest[0] := 0
+        gur := getURL(string("/firmware/Blitzen24/Manifest.txt"),upgradeserver_ptr,0)
+        W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
 
-   if gur == -1
-        str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Cant connect to "))
-        str.append_str(@webbuff,@servername)
-        str.append_str(@webbuff, string("';"))
-        rdsize := strsize(@webbuff)
-        return
+        if gur == -2
+          str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Cant resolve "))
+          str.append_str(@webbuff,@servername)
+          str.append_str(@webbuff, string("';"))
+          rdsize := strsize(@webbuff)
+          return
 
-   if gur == -4
-        str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Unexpected response from  "))
-        str.append_str(@webbuff,@servername)
-        str.append_str(@webbuff, string("';"))
-        rdsize := strsize(@webbuff)
-        return
+        if gur == -1
+          str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Cant connect to "))
+          str.append_str(@webbuff,@servername)
+          str.append_str(@webbuff, string("';"))
+          rdsize := strsize(@webbuff)
+          return
 
-   if gur == -5
-        str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Not an HTTP response from  "))
-        str.append_str(@webbuff,@servername)
-        str.append_str(@webbuff, string("';"))
-        rdsize := strsize(@webbuff)
-        return
-   str.append_str(@webbuff, string("str = `<font size=+1>Manifest file contents</font><br><br><pre>"))
-   str.append_str(@webbuff,@READBUFFER + 4 + str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)))
-   str.append_str(@webbuff, string("</pre>`;"))
-   str.append_str(@webbuff, string($0D, $0A, "div.insertAdjacentHTML('afterbegin', str);"))
+        if gur == -3
+          str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Connection timed out to  "))
+          str.append_str(@webbuff,@servername)
+          str.append_str(@webbuff, string("';"))
+          rdsize := strsize(@webbuff)
+          return
 
-   rdsize := strsize(@webbuff)
-   W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
-pub getURL(path,svr) : rt | dns_ptr
+        if gur == -4
+          str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Unexpected response from  "))
+          str.append_str(@webbuff,@servername)
+          str.append_str(@webbuff, string("';"))
+          rdsize := strsize(@webbuff)
+          return
+
+        if gur == -5
+          str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Not an HTTP response from  "))
+          str.append_str(@webbuff,@servername)
+          str.append_str(@webbuff, string("';"))
+          rdsize := strsize(@webbuff)
+          return
+
+        if gur <> 200
+          str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'HTTP response code "))
+          str.dec(gur, @webbuff + strsize(@webbuff))
+          str.append_str(@webbuff, string(" from "))
+          str.append_str(@webbuff,@servername)
+          str.append_str(@webbuff, string("';"))
+          rdsize := strsize(@webbuff)
+          return
+
+        str.append_str(@manifest,@READBUFFER + 4 + str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)))
+
+        str.append_str(@webbuff, string("str = `<font size=+1>Manifest file contents</font><br><br><pre>"))
+        str.append_str(@webbuff,@READBUFFER + 4 + str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)))
+        str.append_str(@webbuff, string("</pre><BR><BR><FORM METHOD='GET'><INPUT TYPE='SUBMIT' Name='Save' Value='Upgrade My Controller' OnClick=''></FORM><BR><BR><BR><BR>`;"))
+        str.append_str(@webbuff, string($0D, $0A, "div.insertAdjacentHTML('afterbegin', str);"))
+
+
+    else
+        upgradepost()
+
+    rdsize := strsize(@webbuff)
+
+pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc, i
 {
 Return codes
 -1 : Can't connect
@@ -1798,6 +1834,7 @@ Otherwise, return HTTP Status code.
 
 }
     servername[0] := 0
+    tmp2filepath[0] := 0
     str.append_str(@servername,svr)
     dns_ptr := dnsresolver(@servername)
     if dns_ptr == -1
@@ -1851,3 +1888,86 @@ Otherwise, return HTTP Status code.
         debug("Received: ",zstr_(@READBUFFER))
     else
         return(-3)
+
+    length := str2dec(@READBUFFER + str.instr(@READBUFFER,string("Content-Length: "))+ 16, 10)
+    debug("Content Length:", udec_(length))
+    rcode := str2dec(@READBUFFER + str.instr(@READBUFFER,string("HTTP/1.1 "))+ 9, 3)
+    debug("HTTP Status: ", udec_(rcode))
+    md5loc := str.instr(@READBUFFER,string("Content-MD5: ")) + 13
+
+    debug(udec(download))
+    debug(udec(psize))
+    debug(zstr_(string("Calculated content length: ")), udec_(psize - str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)) + 4 - 8))
+
+    i := 0
+    i := psize - str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)) + 4 - 8
+    if download <> 0
+'      FS.changeDirectory(String("Download"))
+      str.append_str(@tmp2filepath,String("/Download/"))
+      str.append_str(@tmp2filepath,path+str.last(path, "/")+1)
+      debug(zstr_(@tmp2filepath))
+      if \FS.openFile(@tmp2filepath,"W")
+          debug("Failed to open file for writing")
+      else
+          debug("File opened for writing ",zstr_(@tmp2filepath))
+      FS.writeData(@READBUFFER + str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)) + 4 - 8,i)
+
+    if length > i
+
+       'debug(udec(i))
+       repeat until i >= length
+          If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,10000) <> W6100.Sn_IR_TIMEOUT)
+             psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket6_Register,@READBUFFER)
+'             READBUFFER[psize] := 0
+'             debug("Received: ",zstr_(@READBUFFER))
+             if download <> 0
+                 FS.writeData(@READBUFFER, psize)
+
+             i := i + psize
+             'debug(udec(i))
+          else
+              debug(udec(i))
+              debug("Content Length:", udec_(length))
+              return(-3)
+
+    if download <> 0
+      FS.closeFile()
+      FS.changeDirectory(String("/"))
+    debug("Content Length:", udec_(length))
+    debug(udec(i))
+    return(rcode)
+
+pub upgradepost() | gur, fn, i
+   i := 1
+   tmpfilepath[0] := 0
+'  gur := getURL(string("/firmware/Blitzen24/Manifest.txt"),upgradeserver_ptr,0)
+'   str.append_str(@webbuff, string($0D, $0A, "var div = document.getElementById('main');"))
+   str.append_str(@webbuff, string("str = `<font size=+1>Upgrade log</font><br><br><pre>"))
+'   str.append_str(@webbuff, @manifest)
+
+   if not \FS.newDirectory(string("Download"))
+     str.append_str(@webbuff,String("Create /Download directory.",$0D, $0A))
+   else
+     str.append_str(@webbuff,String("/Download directory exists.",$0D, $0A))
+
+   if not \FS.newDirectory(string("Backup"))
+     str.append_str(@webbuff,String("Create /Backup directory.",$0D, $0A))
+   else
+     str.append_str(@webbuff,String("/Backup directory exists.",$0D, $0A))
+
+   fn := str.fields(@manifest, $0A)
+   str.dec(fn,@webbuff + strsize(@webbuff))
+   str.append_str(@webbuff,String(" lines in the manifest file.",$0D, $0A))
+
+   repeat fn - 1
+      tmpfilepath[0] := 0
+      str.copy_field(@tmpfilepath, str.field_pntr(@manifest, i, $0A), $0A, 256)
+      str.trim(@tmpfilepath)
+      str.append_str(@webbuff, String("Downloading "))
+      str.append_str(@webbuff, @tmpfilepath)
+      str.append_str(@webbuff, String($0D, $0A))
+      getURL(@tmpfilepath,upgradeserver_ptr,1)
+      i++
+   str.append_str(@webbuff, string("</pre><BR><BR><BR><BR>`;"))
+   str.append_str(@webbuff, string($0D, $0A, "div.insertAdjacentHTML('afterbegin', str);"))
+
