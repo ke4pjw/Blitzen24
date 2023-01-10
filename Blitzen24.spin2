@@ -1995,6 +1995,12 @@ pub upgradepost() | gur, fn, i, e
    str.append_str(@webbuff, String($0D, $0A))
    movedirectory(String("/Download"),String("/"))
 
+   str.append_str(@webbuff, String("Moving BLITZEN.CFG back to /"))
+   str.append_str(@webbuff, String($0D, $0A))
+
+   \FS.moveEntry(string("/Backup/BLITZEN.CFG"), string("/BLITZEN.CFG"))
+
+   if not \FS.changeDirectory(string("/"))
    str.append_str(@webbuff, string("</pre><BR><BR><BR><BR>`;"))
    str.append_str(@webbuff, string($0D, $0A, "div.insertAdjacentHTML('afterbegin', str);"))
 
@@ -2036,8 +2042,8 @@ pub movedirectory(sourcedir,destdir)
      if \FS.changeDirectory(sourcedir)
         debug("Can't change to ", zstr_(sourcedir))
 
-     if \FS.listEntry(sourcedir)
-         debug("Can't list directory ", zstr_(sourcedir))
+     debug("Result", \FS.listEntry(sourcedir))
+'     debug("Can't list directory ", zstr_(sourcedir))
 
      tmpfilepath[0] := 0
      str.append_str(@tmpfilepath,FS.listName())
@@ -2046,13 +2052,15 @@ pub movedirectory(sourcedir,destdir)
 
 
 
-              if not FS.listIsSystem() and not FS.listIsDirectory() and not FS.listIsReadOnly()
+          if not FS.listIsSystem() and not FS.listIsDirectory() and not FS.listIsReadOnly()
                 tmpfilepath[0] := 0
                 tmp2filepath[0] := 0
-                str.append_str(@tmpfilepath, sourcedir)
+                if str.strncmp(sourcedir,String("/"),2) <> 0
+                    str.append_str(@tmpfilepath, sourcedir)
                 str.append_str(@tmpfilepath,String("/"))
                 str.append_str(@tmpfilepath,str.rtrim(FS.listName()))
-                str.append_str(@tmp2filepath, destdir)
+                if  str.strncmp(destdir,String("/"),2) <> 0
+                    str.append_str(@tmp2filepath, destdir)
                 str.append_str(@tmp2filepath,String("/"))
                 str.append_str(@tmp2filepath,str.rtrim(FS.listName()))
                 debug("Move ",zstr_(@tmpfilepath), " to ", zstr_(@tmp2filepath))
@@ -2065,13 +2073,13 @@ pub movedirectory(sourcedir,destdir)
 
                    debug("Move ",zstr_(@tmpfilepath), " to ", zstr_(@tmp2filepath), " failed")
                    str.append_str(@webbuff, String(" failed"))
-                str.append_str(@webbuff, String($0D, $0A))
-              else
+              str.append_str(@webbuff, String($0D, $0A))
+          else
                 debug("Skipped system/directory/readonly file ",zstr_(@tmpfilepath))
                 str.append_str(@webbuff,String("Skipped system/directory/readonly file "))
-                str.append_str(@webbuff, @tmpfilepath)
+                'str.append_str(@webbuff, @tmpfilepath)
                 str.append_str(@webbuff, String($0D, $0A))
-              if not \FS.listEntries("N")
-              tmpfilepath[0] := 0
-              str.append_str(@tmpfilepath,FS.listName())
-              str.Rtrim(@tmpfilepath)
+          \FS.listEntries("N")
+          tmpfilepath[0] := 0
+          str.append_str(@tmpfilepath,FS.listName())
+          str.Rtrim(@tmpfilepath)

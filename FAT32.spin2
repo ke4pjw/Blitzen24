@@ -729,7 +729,11 @@ PUB listEntry(entryPathName) : result
 
   if(lockFileSystem("R"))
     listUncache()
-    result := evaluateName(evaluatePath(entryPathName, "R"))
+      if(rootWithSpace(entryPathName))
+        result := string("/")
+        currentWorkingDirectory := 0
+      else
+        result := evaluateName(evaluatePath(entryPathName, "R"))
     listCache()
 
   unlockFileSystem()
