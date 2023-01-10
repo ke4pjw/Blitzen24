@@ -1906,11 +1906,18 @@ Otherwise, return HTTP Status code.
       str.append_str(@tmp2filepath,String("/Download/"))
       str.append_str(@tmp2filepath,path+str.last(path, "/")+1)
       debug(zstr_(@tmp2filepath))
+
+      if \FS.newFile(@tmp2filepath)
+        debug("Failed to create file ",zstr_(@tmp2filepath))
+      else
+        debug("Created file ",zstr_(@tmp2filepath))
+
+      FS.closeFile()
       if \FS.openFile(@tmp2filepath,"W")
           debug("Failed to open file for writing")
       else
           debug("File opened for writing ",zstr_(@tmp2filepath))
-      FS.writeData(@READBUFFER + str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)) + 4 - 8,i)
+      FS.writeData(@READBUFFER + str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)) + 4,i)
 
     if length > i
 
@@ -1937,8 +1944,9 @@ Otherwise, return HTTP Status code.
     debug(udec(i))
     return(rcode)
 
-pub upgradepost() | gur, fn, i
+pub upgradepost() | gur, fn, i, e
    i := 1
+   e := 0
    tmpfilepath[0] := 0
 '  gur := getURL(string("/firmware/Blitzen24/Manifest.txt"),upgradeserver_ptr,0)
 '   str.append_str(@webbuff, string($0D, $0A, "var div = document.getElementById('main');"))
@@ -1946,19 +1954,30 @@ pub upgradepost() | gur, fn, i
 '   str.append_str(@webbuff, @manifest)
 
    if not \FS.newDirectory(string("Download"))
+     debug("Create /Download directory.")
      str.append_str(@webbuff,String("Create /Download directory.",$0D, $0A))
    else
-     str.append_str(@webbuff,String("/Download directory exists.",$0D, $0A))
+     str.append_str(@webbuff,String("/Download directory exists. Deleting files.",$0D, $0A))
+     debug("/Download directory exists. Deleting files.")
+     debug("Changing to /Download Directory.")
+     cleandirectory(string("/Download"))
 
-   if not \FS.newDirectory(string("Backup"))
+   e :=0
+   tmpfilepath[0] := 0
+
+   if not \FS.newDirectory(string("/Backup"))
      str.append_str(@webbuff,String("Create /Backup directory.",$0D, $0A))
    else
-     str.append_str(@webbuff,String("/Backup directory exists.",$0D, $0A))
+     str.append_str(@webbuff,String("/Backup directory exists. Deleting files.",$0D, $0A))
+     debug("/Backup directory exists. Deleting files.")
+     debug("Changing to /Backup Directory.")
+     cleandirectory(string("/Backup"))
 
    fn := str.fields(@manifest, $0A)
    str.dec(fn,@webbuff + strsize(@webbuff))
    str.append_str(@webbuff,String(" lines in the manifest file.",$0D, $0A))
 
+   if not \FS.changeDirectory(string("/"))
    repeat fn - 1
       tmpfilepath[0] := 0
       str.copy_field(@tmpfilepath, str.field_pntr(@manifest, i, $0A), $0A, 256)
@@ -1968,6 +1987,91 @@ pub upgradepost() | gur, fn, i
       str.append_str(@webbuff, String($0D, $0A))
       getURL(@tmpfilepath,upgradeserver_ptr,1)
       i++
+   str.append_str(@webbuff, String("Moving files to Backup"))
+   str.append_str(@webbuff, String($0D, $0A))
+   movedirectory(String("/"),String("/Backup"))
+
+   str.append_str(@webbuff, String("Moving new files to /"))
+   str.append_str(@webbuff, String($0D, $0A))
+   movedirectory(String("/Download"),String("/"))
+
    str.append_str(@webbuff, string("</pre><BR><BR><BR><BR>`;"))
    str.append_str(@webbuff, string($0D, $0A, "div.insertAdjacentHTML('afterbegin', str);"))
 
+pub cleandirectory(deldir)
+     if not \FS.changeDirectory(deldir)
+     if not \FS.listEntry(deldir)
+     tmpfilepath[0] := 0
+     str.append_str(@tmpfilepath,FS.listName())
+     str.Rtrim(@tmpfilepath)
+     repeat until tmpfilepath[0] == 0
+
+
+
+              if not FS.listIsSystem() and not FS.listIsDirectory() and not FS.listIsReadOnly()
+
+                if not \FS.deleteEntry(@tmpfilepath)
+                   debug("Deleting file ->",zstr_(@tmpfilepath), "<-")
+                   str.append_str(@webbuff,String("Deleted file "))
+                   str.append_str(@webbuff, deldir)
+                   str.append_str(@webbuff,String("/"))
+                   str.append_str(@webbuff, @tmpfilepath)
+                else
+                   str.append_str(@webbuff, String(" failed"))
+                   debug("Failed delete ->",zstr_(@tmpfilepath), "<-")
+                str.append_str(@webbuff, String($0D, $0A))
+              else
+                debug("Skipped system/directory/readonly file ",zstr_(@tmpfilepath))
+                str.append_str(@webbuff,String("Skipped system/directory/readonly file "))
+                str.append_str(@webbuff, deldir)
+                str.append_str(@webbuff,String("/"))
+                str.append_str(@webbuff, @tmpfilepath)
+                str.append_str(@webbuff, String($0D, $0A))
+              if not \FS.listEntries("N")
+              tmpfilepath[0] := 0
+              str.append_str(@tmpfilepath,FS.listName())
+              str.Rtrim(@tmpfilepath)
+pub movedirectory(sourcedir,destdir)
+
+     if \FS.changeDirectory(sourcedir)
+        debug("Can't change to ", zstr_(sourcedir))
+
+     if \FS.listEntry(sourcedir)
+         debug("Can't list directory ", zstr_(sourcedir))
+
+     tmpfilepath[0] := 0
+     str.append_str(@tmpfilepath,FS.listName())
+     str.Rtrim(@tmpfilepath)
+     repeat until tmpfilepath[0] == 0
+
+
+
+              if not FS.listIsSystem() and not FS.listIsDirectory() and not FS.listIsReadOnly()
+                tmpfilepath[0] := 0
+                tmp2filepath[0] := 0
+                str.append_str(@tmpfilepath, sourcedir)
+                str.append_str(@tmpfilepath,String("/"))
+                str.append_str(@tmpfilepath,str.rtrim(FS.listName()))
+                str.append_str(@tmp2filepath, destdir)
+                str.append_str(@tmp2filepath,String("/"))
+                str.append_str(@tmp2filepath,str.rtrim(FS.listName()))
+                debug("Move ",zstr_(@tmpfilepath), " to ", zstr_(@tmp2filepath))
+                str.append_str(@webbuff,String("Move file "))
+                str.append_str(@webbuff, @tmpfilepath)
+                str.append_str(@webbuff,String(" to "))
+                str.append_str(@webbuff, @tmp2filepath)
+
+                if \FS.moveEntry(@tmpfilepath, @tmp2filepath)
+
+                   debug("Move ",zstr_(@tmpfilepath), " to ", zstr_(@tmp2filepath), " failed")
+                   str.append_str(@webbuff, String(" failed"))
+                str.append_str(@webbuff, String($0D, $0A))
+              else
+                debug("Skipped system/directory/readonly file ",zstr_(@tmpfilepath))
+                str.append_str(@webbuff,String("Skipped system/directory/readonly file "))
+                str.append_str(@webbuff, @tmpfilepath)
+                str.append_str(@webbuff, String($0D, $0A))
+              if not \FS.listEntries("N")
+              tmpfilepath[0] := 0
+              str.append_str(@tmpfilepath,FS.listName())
+              str.Rtrim(@tmpfilepath)
