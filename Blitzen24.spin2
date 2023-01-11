@@ -95,7 +95,7 @@ OBJ
         OLED: "oled_AsmDrv"
         BASE64: "base64"
 PUB main() | i, j
-  str.append_str(@buildver, String("Blitzen 24 Edge 1.0 PR3"))
+  str.append_str(@buildver, String("Blitzen 24 Edge 1.0 PR4"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -1261,7 +1261,7 @@ PUB configjs() | dns_ptr
 
 
     WRITEBUFFER[0] := 0
-    str.append_str(@WRITEBUFFER,string("GET /firmware/Blitzen24/upgrade.txt HTTP/1.1", $0D, $0A, "Host: "))
+    str.append_str(@WRITEBUFFER,string("GET /firmware/Blitzen24/Manifest.txt HTTP/1.1", $0D, $0A, "Host: "))
     str.append_str(@WRITEBUFFER,@servername)
     str.append_str(@WRITEBUFFER,string($0D, $0A, $0D, $0A))
     W6100.SendData(W6100.IDM_BSR_Socket6_Register,@WRITEBUFFER,strsize(@WRITEBUFFER))
@@ -2005,8 +2005,8 @@ pub upgradepost() | gur, fn, i, e
    str.append_str(@webbuff, string($0D, $0A, "div.insertAdjacentHTML('afterbegin', str);"))
 
 pub cleandirectory(deldir)
-     if not \FS.changeDirectory(deldir)
-     if not \FS.listEntry(deldir)
+     \FS.changeDirectory(deldir)
+     \FS.listEntry(deldir)
      tmpfilepath[0] := 0
      str.append_str(@tmpfilepath,FS.listName())
      str.Rtrim(@tmpfilepath)
@@ -2039,10 +2039,9 @@ pub cleandirectory(deldir)
               str.Rtrim(@tmpfilepath)
 pub movedirectory(sourcedir,destdir)
 
-     if \FS.changeDirectory(sourcedir)
-        debug("Can't change to ", zstr_(sourcedir))
+     \FS.changeDirectory(sourcedir)
 
-     debug("Result", \FS.listEntry(sourcedir))
+     \FS.listEntry(sourcedir)
 '     debug("Can't list directory ", zstr_(sourcedir))
 
      tmpfilepath[0] := 0
