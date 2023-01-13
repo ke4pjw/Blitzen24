@@ -293,14 +293,14 @@ PUB main() | i, j
   WRITEBUFFER[1] := GATEWAY[1]
   WRITEBUFFER[2] := GATEWAY[2]
   WRITEBUFFER[3] := GATEWAY[3]
-  debug("Set Gateway address: ", udec_(WRITEBUFFER[0]),".",udec_(WRITEBUFFER[1]),".",udec_(WRITEBUFFER[2]),".",udec_(WRITEBUFFER[2]))
+  debug("Set Gateway address: ", udec_(WRITEBUFFER[0]),".",udec_(WRITEBUFFER[1]),".",udec_(WRITEBUFFER[2]),".",udec_(WRITEBUFFER[3]))
   W6100.writereg(W6100.REG_GAR0,W6100.IDM_BSR_Common_Register,4,@WRITEBUFFER)
 
   WRITEBUFFER[0] := SUBNETMASK[0]
   WRITEBUFFER[1] := SUBNETMASK[1]
   WRITEBUFFER[2] := SUBNETMASK[2]
   WRITEBUFFER[3] := SUBNETMASK[3]
-  debug("Set Subnet: ", udec_(WRITEBUFFER[0]),".",udec_(WRITEBUFFER[1]),".",udec_(WRITEBUFFER[2]),".",udec_(WRITEBUFFER[2]))
+  debug("Set Subnet: ", udec_(WRITEBUFFER[0]),".",udec_(WRITEBUFFER[1]),".",udec_(WRITEBUFFER[2]),".",udec_(WRITEBUFFER[3]))
   W6100.writereg(W6100.REG_SUBR0,W6100.IDM_BSR_Common_Register,4,@WRITEBUFFER)
 
 
@@ -308,7 +308,7 @@ PUB main() | i, j
   WRITEBUFFER[1] := IPADDRESS[1]
   WRITEBUFFER[2] := IPADDRESS[2]
   WRITEBUFFER[3] := IPADDRESS[3]
-  debug("Set IP Address: ", udec_(WRITEBUFFER[0]),".",udec_(WRITEBUFFER[1]),".",udec_(WRITEBUFFER[2]),".",udec_(WRITEBUFFER[2]))
+  debug("Set IP Address: ", udec_(WRITEBUFFER[0]),".",udec_(WRITEBUFFER[1]),".",udec_(WRITEBUFFER[2]),".",udec_(WRITEBUFFER[3]))
   W6100.writereg(W6100.REG_SIPR0,W6100.IDM_BSR_Common_Register,4,@WRITEBUFFER)
 
   debug("Network Configuration locked.")
@@ -1208,6 +1208,28 @@ PUB configjs() | dns_ptr
     servername[0] := 0
     ' send header
     str.append_str(@webbuff,resp_ptr)
+    str.append_str(@webbuff, string($0D, $0A, "function secondsToDhms(seconds) ", 123))
+    str.append_str(@webbuff, string($0D, $0A, "seconds = Number(seconds); "))
+    str.append_str(@webbuff, string($0D, $0A, "var d = Math.floor(seconds / (3600*24)); "))
+    str.append_str(@webbuff, string($0D, $0A, "var h = Math.floor(seconds % (3600*24) / 3600); "))
+    str.append_str(@webbuff, string($0D, $0A, "var m = Math.floor(seconds % 3600 / 60);"))
+    str.append_str(@webbuff, string($0D, $0A, "var s = Math.floor(seconds % 60); "))
+    str.append_str(@webbuff, string($0D, $0A, "var dDisplay = d > 0 ? d + (d == 1 ? 'D:' : 'D:') : ''; "))
+    str.append_str(@webbuff, string($0D, $0A, "var hDisplay = h > 0 ? h + (h == 1 ? 'H:' : 'H:') : ''; "))
+    str.append_str(@webbuff, string($0D, $0A, "var mDisplay = m > 0 ? m + (m == 1 ? 'M:' : 'M:') : ''; "))
+    str.append_str(@webbuff, string($0D, $0A, "var sDisplay = s > 0 ? s + (s == 1 ? 'S ': 'S') : ''; "))
+    str.append_str(@webbuff, string($0D, $0A, "return dDisplay + hDisplay + mDisplay + sDisplay;",125))
+
+    str.append_str(@webbuff, string($0D, $0A, "var version = document.getElementById('version');"))
+    str.append_str(@webbuff, string("str = secondsToDhms("))
+    str.append_str(@webbuff,str.dec(getsec(),-1))
+     str.append_str(@webbuff, string(");"))
+    str.append_str(@webbuff, string($0D, $0A, "version.innerHTML = 'Version: "))
+    str.append_str(@webbuff,@buildver)
+    str.append_str(@webbuff, string("<br>Uptime: '"))
+
+    str.append_str(@webbuff, string("+str;"))
+
     str.append_str(@webbuff, string($0D, $0A, "var div = document.getElementById('upgrade');"))
 
     str.append_str(@servername,upgradeserver_ptr)
@@ -1283,6 +1305,10 @@ PUB configjs() | dns_ptr
           str.append_str(@webbuff, string("</font>';"))
         else
           str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Firmware up to date.';"))
+
+
+
+
     rdsize := strsize(@webbuff)
     W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
 pub downloadconfig()
