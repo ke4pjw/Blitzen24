@@ -250,7 +250,7 @@ PUB Discards() : r
 
 PUB readreg(REGISTER,BS,BLEN,RB) : r | i , LADDRL, LADDRH, tmpdata, tmpptr, datapin
 repeat until locktry(EthernetLock) < 0
-  waitus(0)
+'  waitus(0)
 org
 ' Set the HUB FIFO
 
@@ -352,7 +352,7 @@ return r
 
 PUB writereg(REGISTER,BS,BLEN,RB) : r | i , LADDRL ,  LADDRH , datapin , tmpdata
 repeat until locktry(EthernetLock) < 0
-  waitus(0)
+'  waitus(0)
 org
 ' Parse register address
   RDFAST #0,RB
@@ -626,7 +626,7 @@ pub FastReceiveProcess(socket,rxptr,REGBUFFERTMP) |  i , LADDRL, LADDRH, tmpdata
 
 '    rtv := RX_RSR   }
 repeat until locktry(EthernetLock) < 0
-  waitms(0)
+'  waitms(0)
 org
       mov BS, socket
       mov socket_rd, socket 'Setup the socket rd register
