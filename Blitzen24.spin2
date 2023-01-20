@@ -1,3 +1,30 @@
+{
+***************************************************
+* Blitzen 24 Edge Ver 1.1 (Music City) 01/14/2023 *
+***************************************************
+
+LICENSE TERMS
+-------------
+Copyright 2023 Terry E. Trapp, KE4PJW
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+}
 CON
     _xtlfreq = 20_000_000
     _clkfreq = 270_000_000
@@ -82,6 +109,8 @@ VAR
         byte manifest[64000]
         byte tmpfilepath[256]
         byte tmp2filepath[256]
+        long resp_evt_ptr
+        long resp_gif_ptr
 OBJ
         FS: "FAT32"
         W6100: "W6100drv"
@@ -95,7 +124,7 @@ OBJ
         OLED: "oled_AsmDrv"
         BASE64: "base64"
 PUB main() | i, j
-  str.append_str(@buildver, String("Blitzen 24 Edge 1.0 PR4"))
+  str.append_str(@buildver, String("Blitzen 24 Edge 1.1 (Music City)"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -103,6 +132,8 @@ PUB main() | i, j
   resp_ico_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/x-icon", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_404_ptr := String("HTTP/1.1 404 Not Found", $0D, $0A, "Connection: close", $0D, $0A, "Content-Type: text/html", $0D, $0A, $0D, $0A, "<HTML><BODY><H1>Nope, not here.</H2></BODY></HTML>", $0D, $0A)
   resp_dl_ptr  := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: application/octet-stream", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_evt_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/event-stream", $0D, $0A, "Cache-Control: no-cache", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_gif_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/gif", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
 
   upgradeserver_ptr := String("files.griswoldfx.com")
   dot := String(".")
@@ -742,6 +773,10 @@ repeat
               rdsize :=  strsize(resp_dl_ptr)
               bytemove(@webbuff,resp_dl_ptr,rdsize)
 
+            if str.instr(@filepath,string(".GIF")) == (strsize(@filepath) - 4)
+              rdsize :=  strsize(resp_gif_ptr)
+              bytemove(@webbuff,resp_gif_ptr,rdsize)
+
             bytemove((@webbuff + rdsize),@RDATA,FS.fileSize())
             rdsize := rdsize + FS.fileSize()
             FS.closeFile()
@@ -761,7 +796,10 @@ repeat
                   configjs()
                if str.instr(@filepath,string("UPGRADE.JS")) <> -1
                   upgradejs()
-
+               if str.instr(@filepath,string("UPGRADERUN.JS")) <> -1
+                  upgraderun()
+               if str.instr(@filepath,string("REBOOT.JS")) <> -1
+                  rebootjs()
             else
                if str.instr(@filepath,string("RUNNINGCONFIG.CFG")) <> -1
                   downloadconfig()
@@ -1223,7 +1261,7 @@ PUB configjs() | dns_ptr
     str.append_str(@webbuff, string($0D, $0A, "var version = document.getElementById('version');"))
     str.append_str(@webbuff, string("str = secondsToDhms("))
     str.append_str(@webbuff,str.dec(getsec(),-1))
-     str.append_str(@webbuff, string(");"))
+    str.append_str(@webbuff, string(");"))
     str.append_str(@webbuff, string($0D, $0A, "version.innerHTML = 'Version: "))
     str.append_str(@webbuff,@buildver)
     str.append_str(@webbuff, string("<br>Uptime: '"))
@@ -1780,11 +1818,11 @@ pri upgradejs()| dns_ptr, gur
     ' Zero out buffers
     webbuff[0] := 0
 
-    ' send header
-    str.append_str(@webbuff,resp_ptr)
-    str.append_str(@webbuff, string($0D, $0A, "var div = document.getElementById('main');"))
 
     if str.instr(@READBUFFER,string("/upgrade.htm?Save=Upgrade+My+Controller")) == -1
+      ' send header
+        str.append_str(@webbuff,resp_ptr)
+        str.append_str(@webbuff, string($0D, $0A, "var div = document.getElementById('main');"))
 
         manifest[0] := 0
         gur := getURL(string("/firmware/Blitzen24/Manifest.txt"),upgradeserver_ptr,0)
@@ -1843,10 +1881,34 @@ pri upgradejs()| dns_ptr, gur
 
 
     else
-        upgradepost()
+      upgradepost()
+
 
     rdsize := strsize(@webbuff)
-
+pub upgradepost()
+    str.append_str(@webbuff,resp_ptr)
+    str.append_str(@webbuff, string("var source = new EventSource('upgraderun.js'); ", $0D, $0A))
+    str.append_str(@webbuff, string("source.onmessage = function(event) {", $0D, $0A))
+    str.append_str(@webbuff, string("  document.getElementById('main').insertAdjacentHTML('beforeend', event.data + '<br>');", $0D, $0A))
+    str.append_str(@webbuff, string("window.scrollBy(0, 500);", $0D, $0A))
+    str.append_str(@webbuff, string("};", $0D, $0A))
+    str.append_str(@webbuff, string("source.onerror = (err) => { ", $0D, $0A))
+    str.append_str(@webbuff, string("source.close();", $0D, $0A))
+    str.append_str(@webbuff, string("console.error('EventSource failed:', err);", $0D, $0A))
+    str.append_str(@webbuff, string("};", $0D, $0A))
+    return
+pub httpflush(bufferptr) | i
+    rdsize := strsize(@webbuff)
+    if rdsize > 0
+      webbuff[rdsize] := 0
+      i := 0
+      repeat until rdsize <= 1000
+         W6100.SendData(W6100.IDM_BSR_Socket1_Register,@webbuff+i,1000)
+         i := i + 1000
+         rdsize := rdsize - 1000
+      W6100.SendData(W6100.IDM_BSR_Socket1_Register,@webbuff+i,rdsize)
+      rdsize := 0
+      webbuff[0] := 0
 pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc, i
 {
 Return codes
@@ -1911,7 +1973,7 @@ Otherwise, return HTTP Status code.
  '     W6100.ReceiveData(socket,100000)
         psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket6_Register,@READBUFFER)
         READBUFFER[psize] := 0
-        debug("Received: ",zstr_(@READBUFFER))
+        'debug("Received: ",zstr_(@READBUFFER))
     else
         return(-3)
 
@@ -1970,66 +2032,94 @@ Otherwise, return HTTP Status code.
     debug(udec(i))
     return(rcode)
 
-pub upgradepost() | gur, fn, i, e
+pub upgraderun() | gur, fn, i, e
+    ' Zero out buffers
+    webbuff[0] := 0
+
    i := 1
    e := 0
    tmpfilepath[0] := 0
-'  gur := getURL(string("/firmware/Blitzen24/Manifest.txt"),upgradeserver_ptr,0)
+   str.append_str(@webbuff,resp_evt_ptr)
 '   str.append_str(@webbuff, string($0D, $0A, "var div = document.getElementById('main');"))
-   str.append_str(@webbuff, string("str = `<font size=+1>Upgrade log</font><br><br><pre>"))
+
+
+'   gur := getURL(string("/firmware/Blitzen24/Manifest.txt"),upgradeserver_ptr,0)
+'   str.append_str(@webbuff, string($0D, $0A, "var div = document.getElementById('main');"))
+   str.append_str(@webbuff, string("data: <font size=+1>Upgrade log</font>", $0A, $0A))
+   httpflush(@webbuff)
 '   str.append_str(@webbuff, @manifest)
 
    if not \FS.newDirectory(string("Download"))
      debug("Create /Download directory.")
-     str.append_str(@webbuff,String("Create /Download directory.",$0D, $0A))
+     str.append_str(@webbuff,String("data: Create /Download directory.",$0A, $0A))
+     httpflush(@webbuff)
    else
-     str.append_str(@webbuff,String("/Download directory exists. Deleting files.",$0D, $0A))
+     str.append_str(@webbuff,String("data: /Download directory exists. Deleting files.",$0A, $0A))
      debug("/Download directory exists. Deleting files.")
      debug("Changing to /Download Directory.")
+     httpflush(@webbuff)
      cleandirectory(string("/Download"))
 
-   e :=0
+
+
+   e := 0
    tmpfilepath[0] := 0
 
    if not \FS.newDirectory(string("/Backup"))
-     str.append_str(@webbuff,String("Create /Backup directory.",$0D, $0A))
+     str.append_str(@webbuff,String("data: Create /Backup directory.",$0A, $0A))
+     httpflush(@webbuff)
    else
-     str.append_str(@webbuff,String("/Backup directory exists. Deleting files.",$0D, $0A))
+     str.append_str(@webbuff,String("data: /Backup directory exists. Deleting files.",$0A, $0A))
      debug("/Backup directory exists. Deleting files.")
      debug("Changing to /Backup Directory.")
+     httpflush(@webbuff)
      cleandirectory(string("/Backup"))
 
+
    fn := str.fields(@manifest, $0A)
+   str.append_str(@webbuff,String("data: "))
    str.dec(fn,@webbuff + strsize(@webbuff))
-   str.append_str(@webbuff,String(" lines in the manifest file.",$0D, $0A))
+   str.append_str(@webbuff,String(" lines in the manifest file.",$0A, $0A))
+   httpflush(@webbuff)
 
    if not \FS.changeDirectory(string("/"))
    repeat fn - 1
       tmpfilepath[0] := 0
       str.copy_field(@tmpfilepath, str.field_pntr(@manifest, i, $0A), $0A, 256)
       str.trim(@tmpfilepath)
+      str.append_str(@webbuff,String("data: "))
       str.append_str(@webbuff, String("Downloading "))
       str.append_str(@webbuff, @tmpfilepath)
-      str.append_str(@webbuff, String($0D, $0A))
+      str.append_str(@webbuff, String($0A, $0A))
+      httpflush(@webbuff)
       getURL(@tmpfilepath,upgradeserver_ptr,1)
       i++
-   str.append_str(@webbuff, String("Moving files to Backup"))
-   str.append_str(@webbuff, String($0D, $0A))
+
+   str.append_str(@webbuff, String("data: Moving files to Backup"))
+   str.append_str(@webbuff, String($0A, $0A))
+   httpflush(@webbuff)
    movedirectory(String("/"),String("/Backup"))
 
-   str.append_str(@webbuff, String("Moving new files to /"))
-   str.append_str(@webbuff, String($0D, $0A))
+   str.append_str(@webbuff, String("data: Moving new files to /"))
+   str.append_str(@webbuff, String($0A, $0A))
+   httpflush(@webbuff)
    movedirectory(String("/Download"),String("/"))
 
-   str.append_str(@webbuff, String("Moving BLITZEN.CFG back to /"))
-   str.append_str(@webbuff, String($0D, $0A))
+
+   str.append_str(@webbuff, String("data: Moving BLITZEN.CFG back to /"))
+   str.append_str(@webbuff, String($0A, $0A))
+'  No need to flush the last output.
+   httpflush(@webbuff)
 
    \FS.moveEntry(string("/Backup/BLITZEN.CFG"), string("/BLITZEN.CFG"))
 
-   if not \FS.changeDirectory(string("/"))
-   str.append_str(@webbuff, string("</pre><BR><BR><BR><BR>`;"))
-   str.append_str(@webbuff, string($0D, $0A, "div.insertAdjacentHTML('afterbegin', str);"))
+   str.append_str(@webbuff, String("data: Done. <A HREF='reboot.htm'>Click here to reboot.</A>"))
+   str.append_str(@webbuff, String($0A, $0A))
 
+   if not \FS.changeDirectory(string("/"))
+'   str.append_str(@webbuff, string("</pre><BR><BR><BR><BR>`;"))
+'   str.append_str(@webbuff, string($0D, $0A, "div.insertAdjacentHTML('afterbegin', str);"))
+   rdsize := strsize(@webbuff)
 pub cleandirectory(deldir)
      \FS.changeDirectory(deldir)
      \FS.listEntry(deldir)
@@ -2044,23 +2134,26 @@ pub cleandirectory(deldir)
 
                 if not \FS.deleteEntry(@tmpfilepath)
                    debug("Deleting file ->",zstr_(@tmpfilepath), "<-")
-                   str.append_str(@webbuff,String("Deleted file "))
+                   str.append_str(@webbuff,String("data: Deleted file "))
                    str.append_str(@webbuff, deldir)
                    str.append_str(@webbuff,String("/"))
                    str.append_str(@webbuff, @tmpfilepath)
                 else
                    str.append_str(@webbuff, String(" failed"))
                    debug("Failed delete ->",zstr_(@tmpfilepath), "<-")
-                str.append_str(@webbuff, String($0D, $0A))
+                str.append_str(@webbuff, String($0A, $0A))
+
               else
                 debug("Skipped system/directory/readonly file ",zstr_(@tmpfilepath))
-                str.append_str(@webbuff,String("Skipped system/directory/readonly file "))
+                str.append_str(@webbuff,String("data: Skipped system/directory/readonly file "))
                 str.append_str(@webbuff, deldir)
                 str.append_str(@webbuff,String("/"))
                 str.append_str(@webbuff, @tmpfilepath)
-                str.append_str(@webbuff, String($0D, $0A))
+                str.append_str(@webbuff, String($0A, $0A))
+              httpflush(@webbuff)
               if not \FS.listEntries("N")
               tmpfilepath[0] := 0
+              debug(uhex(tmpfilepath[0]))
               str.append_str(@tmpfilepath,FS.listName())
               str.Rtrim(@tmpfilepath)
 pub movedirectory(sourcedir,destdir)
@@ -2089,22 +2182,31 @@ pub movedirectory(sourcedir,destdir)
                 str.append_str(@tmp2filepath,String("/"))
                 str.append_str(@tmp2filepath,str.rtrim(FS.listName()))
                 debug("Move ",zstr_(@tmpfilepath), " to ", zstr_(@tmp2filepath))
-                str.append_str(@webbuff,String("Move file "))
+                str.append_str(@webbuff,String("data: Move file "))
                 str.append_str(@webbuff, @tmpfilepath)
                 str.append_str(@webbuff,String(" to "))
                 str.append_str(@webbuff, @tmp2filepath)
+
 
                 if \FS.moveEntry(@tmpfilepath, @tmp2filepath)
 
                    debug("Move ",zstr_(@tmpfilepath), " to ", zstr_(@tmp2filepath), " failed")
                    str.append_str(@webbuff, String(" failed"))
-              str.append_str(@webbuff, String($0D, $0A))
+              str.append_str(@webbuff, String($0A, $0A))
           else
                 debug("Skipped system/directory/readonly file ",zstr_(@tmpfilepath))
-                str.append_str(@webbuff,String("Skipped system/directory/readonly file "))
+                str.append_str(@webbuff,String("data: Skipped system/directory/readonly file "))
                 'str.append_str(@webbuff, @tmpfilepath)
-                str.append_str(@webbuff, String($0D, $0A))
+                str.append_str(@webbuff, String($0A, $0A))
+          httpflush(@webbuff)
           \FS.listEntries("N")
           tmpfilepath[0] := 0
           str.append_str(@tmpfilepath,FS.listName())
           str.Rtrim(@tmpfilepath)
+pub rebootjs()
+    waitms(1000)
+    FS.unmountPartition()
+    FS.FATEngineStop()
+    org
+      HUBSET  ##$1000_0000    'hard reset, reboots the P2 chip
+    end

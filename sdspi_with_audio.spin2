@@ -13,6 +13,7 @@ CON 'See end of file for license
 
 'RJA added multiblock reads and removed smartpin mode to boost speed
 'RJA also allows specifying cog # in con section below
+' mountCard() added in Stop() by Terry Trapp so that P2 resets work properly once card cog is stopped.
 
 CON
     'SPI_COG=6 'cog to use
@@ -23,7 +24,9 @@ VAR  byte cog
 
 PUB Stop()
     if cog
-        cogstop(cog-1)
+       mountCard()
+       cogstop(cog-1)
+
     cog := 0
 
 PUB start_explicit( _DO, _CLK, _DI, _CS ) : card_type | domask, dimask
