@@ -111,6 +111,8 @@ VAR
         byte tmp2filepath[256]
         long resp_evt_ptr
         long resp_gif_ptr
+        byte b64md5[256]
+        byte MD5DATA[64]
 OBJ
         FS: "FAT32"
         W6100: "W6100drv"
@@ -122,7 +124,8 @@ OBJ
         DMX: "tt_dmx_tx"
         str: "jm_strings"
         OLED: "oled_AsmDrv"
-        BASE64: "base64"
+        B64: "base64"
+        MD5: "MD5"
 PUB main() | i, j
   str.append_str(@buildver, String("Blitzen 24 Edge 1.1 (Music City)"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -1909,7 +1912,7 @@ pub httpflush(bufferptr) | i
       W6100.SendData(W6100.IDM_BSR_Socket1_Register,@webbuff+i,rdsize)
       rdsize := 0
       webbuff[0] := 0
-pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc, i
+pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc, i, bc, tfs
 {
 Return codes
 -1 : Can't connect
@@ -1917,6 +1920,7 @@ Return codes
 -3 : Timed Out
 -4 : Unexpected response upon connect
 -5 : Not an HTTP reponse
+-6 : MD5 does not match
 
 Otherwise, return HTTP Status code.
 
@@ -1969,7 +1973,7 @@ Otherwise, return HTTP Status code.
     str.append_str(@WRITEBUFFER,string($0D, $0A, $0D, $0A))
     W6100.SendData(W6100.IDM_BSR_Socket6_Register,@WRITEBUFFER,strsize(@WRITEBUFFER))
 
-    If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,10000) <> W6100.Sn_IR_TIMEOUT)
+    If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,30000) <> W6100.Sn_IR_TIMEOUT)
  '     W6100.ReceiveData(socket,100000)
         psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket6_Register,@READBUFFER)
         READBUFFER[psize] := 0
@@ -1982,7 +1986,12 @@ Otherwise, return HTTP Status code.
     rcode := str2dec(@READBUFFER + str.instr(@READBUFFER,string("HTTP/1.1 "))+ 9, 3)
     debug("HTTP Status: ", udec_(rcode))
     md5loc := str.instr(@READBUFFER,string("Content-MD5: ")) + 13
-
+    debug(udec(md5loc))
+    ' initialize @b64md5
+    b64md5[0] := 0
+    str.mid(@b64md5,@READBUFFER,md5loc,255)
+    b64.inplaceDecode(@b64md5)
+    showhash(@b64md5)
     debug(udec(download))
     debug(udec(psize))
     debug(zstr_(string("Calculated content length: ")), udec_(psize - str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)) + 4 - 8))
@@ -2027,9 +2036,45 @@ Otherwise, return HTTP Status code.
 
     if download <> 0
       FS.closeFile()
+
+      if not \FS.openfile(@tmp2filepath,string("R"))
+        i := 0
+       '
+        bc := FS.fileSize()
+        tfs := bc
+  '      debug(udec(bc))
+        MD5.hashStart(@md51)
+
+        repeat
+          if bc < 64
+            FS.readdata(@MD5DATA,bc)
+            MD5.hashFinish(@MD5DATA,bc,tfs,@md51)
+            MD5DATA[bc] :=0
+            i+=bc
+            quit
+          else
+
+            FS.readdata(@MD5DATA,64)
+            MD5.hashBlock(@MD5DATA,@md51)
+          bc -= 64
+          i += 64
+        FS.closeFile()
+
       FS.changeDirectory(String("/"))
+      showhash(@md51)
+      If long[b64md5][0] <> long[md51][0] or ...
+         long[b64md5][4] <> long[md51][4] or ...
+         long[b64md5][8] <> long[md51][8] or ...
+         long[b64md5][12] <> long[md51][12]
+         debug("MD5's do not match")
+         return(-6)
+
     debug("Content Length:", udec_(length))
     debug(udec(i))
+
+
+
+
     return(rcode)
 
 pub upgraderun() | gur, fn, i, e
@@ -2092,33 +2137,59 @@ pub upgraderun() | gur, fn, i, e
       str.append_str(@webbuff, @tmpfilepath)
       str.append_str(@webbuff, String($0A, $0A))
       httpflush(@webbuff)
-      getURL(@tmpfilepath,upgradeserver_ptr,1)
+      gur := getURL(@tmpfilepath,upgradeserver_ptr,1)
+      if gur <> 200
+        e := 1
+        str.append_str(@webbuff,String("data:  Error: "))
+        case gur
+          -1: str.append_str(@webbuff,String("Can't connect"))
+          -2: str.append_str(@webbuff,String("Does not resolve"))
+          -3: str.append_str(@webbuff,String("Timed Out"))
+          -4: str.append_str(@webbuff,String("Unexpected response upon connect"))
+          -5: str.append_str(@webbuff,String("Not an HTTP reponse"))
+          -6: str.append_str(@webbuff,String("MD5 does not match"))
+          OTHER: str.append_str(@webbuff,String("HTTP Response "))
+                 str.append_str(@webbuff,str.dec(gur,-1))
+        str.append_str(@webbuff, String($0A, $0A))
+        httpflush(@webbuff)
       i++
+{
+-1 : Can't connect
+-2 : Does not resolve
+-3 : Timed Out
+-4 : Unexpected response upon connect
+-5 : Not an HTTP reponse
+-6 : MD5 does not match
+}
+   If e == 0
 
-   str.append_str(@webbuff, String("data: Moving files to Backup"))
-   str.append_str(@webbuff, String($0A, $0A))
-   httpflush(@webbuff)
-   movedirectory(String("/"),String("/Backup"))
+     str.append_str(@webbuff, String("data: Moving files to Backup"))
+     str.append_str(@webbuff, String($0A, $0A))
+     httpflush(@webbuff)
+     movedirectory(String("/"),String("/Backup"))
 
-   str.append_str(@webbuff, String("data: Moving new files to /"))
-   str.append_str(@webbuff, String($0A, $0A))
-   httpflush(@webbuff)
-   movedirectory(String("/Download"),String("/"))
+     str.append_str(@webbuff, String("data: Moving new files to /"))
+     str.append_str(@webbuff, String($0A, $0A))
+     httpflush(@webbuff)
+     movedirectory(String("/Download"),String("/"))
 
 
-   str.append_str(@webbuff, String("data: Moving BLITZEN.CFG back to /"))
-   str.append_str(@webbuff, String($0A, $0A))
-'  No need to flush the last output.
-   httpflush(@webbuff)
+     str.append_str(@webbuff, String("data: Moving BLITZEN.CFG back to /"))
+     str.append_str(@webbuff, String($0A, $0A))
+  '  No need to flush the last output.
+     httpflush(@webbuff)
 
-   \FS.moveEntry(string("/Backup/BLITZEN.CFG"), string("/BLITZEN.CFG"))
+     \FS.moveEntry(string("/Backup/BLITZEN.CFG"), string("/BLITZEN.CFG"))
 
-   str.append_str(@webbuff, String("data: Done. <A HREF='reboot.htm'>Click here to reboot.</A>"))
-   str.append_str(@webbuff, String($0A, $0A))
+     str.append_str(@webbuff, String("data: Done.<BR><H2> <A HREF='reboot.htm'>Click here to reboot.</A></H2>"))
+     str.append_str(@webbuff, String($0A, $0A))
+
+   else
+     str.append_str(@webbuff, String("data: <h2>Errors detected. Aborting</h2>"))
+     str.append_str(@webbuff, String($0A, $0A))
 
    if not \FS.changeDirectory(string("/"))
-'   str.append_str(@webbuff, string("</pre><BR><BR><BR><BR>`;"))
-'   str.append_str(@webbuff, string($0D, $0A, "div.insertAdjacentHTML('afterbegin', str);"))
+
    rdsize := strsize(@webbuff)
 pub cleandirectory(deldir)
      \FS.changeDirectory(deldir)
@@ -2210,3 +2281,9 @@ pub rebootjs()
     org
       HUBSET  ##$1000_0000    'hard reset, reboots the P2 chip
     end
+PUB showhash(hash_ptr) | i
+      i := 0
+      repeat 16
+        debug(uhex_byte_(byte[hash_ptr][i]))
+
+        i++
