@@ -1974,7 +1974,6 @@ Otherwise, return HTTP Status code.
     W6100.SendData(W6100.IDM_BSR_Socket6_Register,@WRITEBUFFER,strsize(@WRITEBUFFER))
 
     If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,30000) <> W6100.Sn_IR_TIMEOUT)
- '     W6100.ReceiveData(socket,100000)
         psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket6_Register,@READBUFFER)
         READBUFFER[psize] := 0
         'debug("Received: ",zstr_(@READBUFFER))
@@ -2067,7 +2066,8 @@ Otherwise, return HTTP Status code.
          long[b64md5][8] <> long[md51][8] or ...
          long[b64md5][12] <> long[md51][12]
          debug("MD5's do not match")
-         return(-6)
+         if rcode == 200
+           return(-6)
 
     debug("Content Length:", udec_(length))
     debug(udec(i))
