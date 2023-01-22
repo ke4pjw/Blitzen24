@@ -127,7 +127,7 @@ OBJ
         B64: "base64"
         MD5: "MD5"
 PUB main() | i, j
-  str.append_str(@buildver, String("Blitzen 24 Edge 1.1 (Music City)"))
+  str.append_str(@buildver, String("Blitzen 24 Edge 1.2 (Music City)"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -1310,6 +1310,7 @@ PUB configjs() | dns_ptr
         str.append_str(@webbuff,@servername)
         str.append_str(@webbuff, string("';"))
         rdsize := strsize(@webbuff)
+        W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
         return
 
 
@@ -1329,7 +1330,7 @@ PUB configjs() | dns_ptr
     str.append_str(@WRITEBUFFER,string($0D, $0A, $0D, $0A))
     W6100.SendData(W6100.IDM_BSR_Socket6_Register,@WRITEBUFFER,strsize(@WRITEBUFFER))
 
-    If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,10000) <> W6100.Sn_IR_TIMEOUT)
+    If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,30000) <> W6100.Sn_IR_TIMEOUT)
  '     W6100.ReceiveData(socket,100000)
         psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket6_Register,@READBUFFER)
         READBUFFER[psize] := 0
@@ -1829,7 +1830,7 @@ pri upgradejs()| dns_ptr, gur
 
         manifest[0] := 0
         gur := getURL(string("/firmware/Blitzen24/Manifest.txt"),upgradeserver_ptr,0)
-        W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
+'        W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
 
         if gur == -2
           str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Cant resolve "))
@@ -1962,6 +1963,7 @@ Otherwise, return HTTP Status code.
         READBUFFER[psize] := 0
         debug("Unexpected response of ",udec_(psize)," Bytes.")
         debug("Received: ",zstr_(@READBUFFER))
+        W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
         return(-4)
 
     WRITEBUFFER[0] := 0
@@ -1973,11 +1975,12 @@ Otherwise, return HTTP Status code.
     str.append_str(@WRITEBUFFER,string($0D, $0A, $0D, $0A))
     W6100.SendData(W6100.IDM_BSR_Socket6_Register,@WRITEBUFFER,strsize(@WRITEBUFFER))
 
-    If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,30000) <> W6100.Sn_IR_TIMEOUT)
+    If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,10000) <> W6100.Sn_IR_TIMEOUT)
         psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket6_Register,@READBUFFER)
         READBUFFER[psize] := 0
         'debug("Received: ",zstr_(@READBUFFER))
     else
+        'W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
         return(-3)
 
     length := str2dec(@READBUFFER + str.instr(@READBUFFER,string("Content-Length: "))+ 16, 10)
@@ -2031,11 +2034,13 @@ Otherwise, return HTTP Status code.
           else
               debug(udec(i))
               debug("Content Length:", udec_(length))
+              W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
               return(-3)
+    W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
 
     if download <> 0
       FS.closeFile()
-
+      waitms(50)
       if not \FS.openfile(@tmp2filepath,string("R"))
         i := 0
        '
@@ -2067,6 +2072,7 @@ Otherwise, return HTTP Status code.
          long[b64md5][12] <> long[md51][12]
          debug("MD5's do not match")
          if rcode == 200
+'           W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
            return(-6)
 
     debug("Content Length:", udec_(length))
@@ -2074,10 +2080,10 @@ Otherwise, return HTTP Status code.
 
 
 
-
+'    W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
     return(rcode)
 
-pub upgraderun() | gur, fn, i, e
+pub upgraderun() | gur, fn, i, e, r
     ' Zero out buffers
     webbuff[0] := 0
 
@@ -2138,20 +2144,56 @@ pub upgraderun() | gur, fn, i, e
       str.append_str(@webbuff, String($0A, $0A))
       httpflush(@webbuff)
       gur := getURL(@tmpfilepath,upgradeserver_ptr,1)
+      r := 0
+{
       if gur <> 200
-        e := 1
-        str.append_str(@webbuff,String("data:  Error: "))
-        case gur
-          -1: str.append_str(@webbuff,String("Can't connect"))
-          -2: str.append_str(@webbuff,String("Does not resolve"))
-          -3: str.append_str(@webbuff,String("Timed Out"))
-          -4: str.append_str(@webbuff,String("Unexpected response upon connect"))
-          -5: str.append_str(@webbuff,String("Not an HTTP reponse"))
-          -6: str.append_str(@webbuff,String("MD5 does not match"))
-          OTHER: str.append_str(@webbuff,String("HTTP Response "))
-                 str.append_str(@webbuff,str.dec(gur,-1))
-        str.append_str(@webbuff, String($0A, $0A))
-        httpflush(@webbuff)
+          str.append_str(@webbuff,String("data:  Error: "))
+          case gur
+            -1: str.append_str(@webbuff,String("Can't connect"))
+           -2: str.append_str(@webbuff,String("Does not resolve"))
+           -3: str.append_str(@webbuff,String("Timed Out"))
+           -4: str.append_str(@webbuff,String("Unexpected response upon connect"))
+           -5: str.append_str(@webbuff,String("Not an HTTP reponse"))
+           -6: str.append_str(@webbuff,String("MD5 does not match"))
+           OTHER: str.append_str(@webbuff,String("HTTP Response "))
+                  str.append_str(@webbuff,str.dec(gur,-1))
+         str.append_str(@webbuff, String($0A, $0A))
+         httpflush(@webbuff)
+ }
+      repeat until gur == 200 or r == 4
+        if gur <> 200
+          if gur == -6
+             \FS.deleteEntry(@tmp2filepath)
+                str.append_str(@webbuff,String("data: "))
+          str.append_str(@webbuff, String("Deleting and retrying  "))
+          str.append_str(@webbuff, @tmpfilepath)
+          str.append_str(@webbuff, String($0A, $0A))
+          httpflush(@webbuff)
+
+          gur := getURL(@tmpfilepath,upgradeserver_ptr,1)
+          if gur <> 200
+            str.append_str(@webbuff,String("data:  Error: "))
+            case gur
+              -1: str.append_str(@webbuff,String("Can't connect"))
+             -2: str.append_str(@webbuff,String("Does not resolve"))
+             -3: str.append_str(@webbuff,String("Timed Out"))
+             -4: str.append_str(@webbuff,String("Unexpected response upon connect"))
+             -5: str.append_str(@webbuff,String("Not an HTTP reponse"))
+             -6: str.append_str(@webbuff,String("MD5 does not match"))
+             OTHER: str.append_str(@webbuff,String("HTTP Response "))
+                    str.append_str(@webbuff,str.dec(gur,-1))
+           str.append_str(@webbuff, String($0A, $0A))
+           httpflush(@webbuff)
+           r++
+
+          else
+           str.append_str(@webbuff,String("data: "))
+           str.append_str(@webbuff, String("Retry sucessful"))
+           str.append_str(@webbuff, String($0A, $0A))
+         httpflush(@webbuff)
+
+      if r == 3
+         e := 1
       i++
 {
 -1 : Can't connect
