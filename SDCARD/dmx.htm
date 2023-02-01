@@ -28,14 +28,14 @@
 	</section>
 	<section id="pageContent">
 		<main role="main">
-			<FORM METHOD="POST">
+			<FORM METHOD="POST" onsubmit='return ValidationEvent()'>
 				<INPUT TYPE="hidden" ID="output" NAME="output" VALUE="25">
 <TABLE ID="E131">
 <TR><TD>E1.31 Universe</TD><TD>DMX-512 Output</TD></TR>
-<TR><TD><INPUT TYPE="NUMBER" ID="U1" NAME="U1" SIZE="6" min="0" max="65535"><INPUT TYPE="hidden" ID="P1" NAME="P1" VALUE="170"></TD><TD>DMX Output 1</TD></TR>
-<TR><TD><INPUT TYPE="NUMBER" ID="U2" NAME="U2" SIZE="6" min="0" max="65535"><INPUT TYPE="hidden" ID="P2" NAME="P2" VALUE="170"></TD><TD>DMX Output 2</TD></TR>
-<TR><TD><INPUT TYPE="NUMBER" ID="U3" NAME="U3" SIZE="6" min="0" max="65535"><INPUT TYPE="hidden" ID="P3" NAME="P3" VALUE="170"></TD><TD>DMX Output 3</TD></TR>
-<TR><TD><INPUT TYPE="NUMBER" ID="U4" NAME="U4" SIZE="6" min="0" max="65535"><INPUT TYPE="hidden" ID="P4" NAME="P4" VALUE="170"></TD><TD>DMX Output 4</TD></TR>
+<TR><TD><INPUT TYPE="NUMBER" ID="U1" NAME="U1" SIZE="6" min="0" max="65535" oninput="checke131(this)"><INPUT TYPE="hidden" ID="P1" NAME="P1" VALUE="170"></TD><TD>DMX Output 1</TD></TR>
+<TR><TD><INPUT TYPE="NUMBER" ID="U2" NAME="U2" SIZE="6" min="0" max="65535" oninput="checke131(this)"><INPUT TYPE="hidden" ID="P2" NAME="P2" VALUE="170"></TD><TD>DMX Output 2</TD></TR>
+<TR><TD><INPUT TYPE="NUMBER" ID="U3" NAME="U3" SIZE="6" min="0" max="65535" oninput="checke131(this)"><INPUT TYPE="hidden" ID="P3" NAME="P3" VALUE="170"></TD><TD>DMX Output 3</TD></TR>
+<TR><TD><INPUT TYPE="NUMBER" ID="U4" NAME="U4" SIZE="6" min="0" max="65535" oninput="checke131(this)"><INPUT TYPE="hidden" ID="P4" NAME="P4" VALUE="170"></TD><TD>DMX Output 4</TD></TR>
 </TABLE>
 <br>
 				<INPUT TYPE="SUBMIT" Name="Save" Value="Save">
@@ -56,5 +56,36 @@
 
 
 </body>
-       <script src="e131.js?output=25"></script>
+
+ <script>
+
+// Below Function Executes On Form Submit
+function ValidationEvent() {
+
+	let pass = true;
+	
+	for (let i = 1; i < 5; i++) {
+		if (e131set.has(document.getElementById("U" + i).value)) { pass = false; alert("Duplicate universe " + document.getElementById("U" + i).value + " on output " + e131set.get(document.getElementById("U" + i).value) ); }
+	}
+
+	return pass;   // Returns Value
+
+}
+
+
+
+// Create new script element
+const script = document.createElement('script');
+script.src = 'e131.js?output=25';
+
+// Append to the `head` element
+document.head.appendChild(script);
+
+
+
+script.addEventListener('load', function() {
+    // The script is loaded completely
+    // Do something
+});
+ </script>
 </html>
