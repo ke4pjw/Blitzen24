@@ -1,6 +1,6 @@
 {
 ***************************************************
-* Blitzen 24 Edge Ver 1.1 (Music City) 01/14/2023 *
+* Blitzen 24 Edge Ver 1.3PR (Music City) 01/21/2023 *
 ***************************************************
 
 LICENSE TERMS
@@ -127,7 +127,7 @@ OBJ
         B64: "base64"
         MD5: "MD5"
 PUB main() | i, j
-  str.append_str(@buildver, String("Blitzen 24 Edge 1.2 (Music City)"))
+  str.append_str(@buildver, String("Blitzen 24 Edge 1.3 (Music City)"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -1048,8 +1048,27 @@ pub e131js() | output, u, ei
 
       ei := ei + 4
 
+'  Populate the E131 set to ensure user does not add duplicate.
+   ei := 1
 
-  rdsize := strsize(@webbuff)
+   str.append_str(@webbuff, string($0D, $0A, "const e131set = new Map(["))
+   repeat until E131CONFIG[ei] == 0
+    if E131CONFIG[ei-1] <> output
+      str.append_str(@webbuff, string("['"))
+      str.append_str(@webbuff,str.dec(E131CONFIG[ei],-1))
+      str.append_str(@webbuff, string("','"))
+      str.append_str(@webbuff,str.dec(E131CONFIG[ei-1],-1))
+      str.append_str(@webbuff, string("']"))
+      ei := ei + 4
+       if E131CONFIG[ei] <> 0
+         str.append_str(@webbuff, string(","))
+    else
+      ei := ei + 4
+
+   str.append_str(@webbuff, string("]);"))
+   str.append_str(@webbuff, string($0D, $0A, "function checke131(tf){ if (e131set.has(tf.value)){ tf.style.background='LightPink'; } else { tf.style.background='White'; } }"))
+
+   rdsize := strsize(@webbuff)
 pub outputspost() | p, dis
     eutmp[0] := 0
     p := 0
@@ -2084,6 +2103,9 @@ Otherwise, return HTTP Status code.
     return(rcode)
 
 pub upgraderun() | gur, fn, i, e, r
+   stoppixels()
+   W6100.stopfastrx()
+
     ' Zero out buffers
     webbuff[0] := 0
 
@@ -2233,6 +2255,9 @@ pub upgraderun() | gur, fn, i, e, r
    if not \FS.changeDirectory(string("/"))
 
    rdsize := strsize(@webbuff)
+   startpixels()
+   W6100.startfastrx(W6100.IDM_BSR_Socket3_Register,@pixelbuffer,@TXBUFFER,@E131CONFIG)
+
 pub cleandirectory(deldir)
      \FS.changeDirectory(deldir)
      \FS.listEntry(deldir)
