@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Blitzen 24</title>
     <link rel="stylesheet" href="style.css">
-    <script src="script.js"></script>
+<!--    <script src="script.js"></script> -->
 </head>
 
 <body>
@@ -18,6 +18,7 @@
 				<li><a href="net.htm">Networking</a>
 				<li><a href="e131.htm?output=1">E1.31 Settings</a>
 				<li><a href="outputs.htm">Outputs</a>
+                                <li><a href="dmx.htm">DMX</a>
                                 <li><a href="configs.htm">Configs</a>
 			</ul>
 		</nav>
@@ -58,19 +59,19 @@
 	</section>
 	<section id="pageContent">
 		<main role="main">
-			<FORM METHOD="POST">
+			<FORM METHOD="POST" onsubmit='return ValidationEvent()'>
 				<INPUT TYPE="hidden" ID="OUTPUT" NAME="OUTPUT">
 <TABLE ID="E131">
 <TR><TD colspan="3" ID="td1" style="font-weight:bold"></TD></TR>
 <TR><TD>E1.31 Universe</TD><TD>Pixel Count</TD><TD>Add/Remove</TD></TR>
-<TR ID="R1"><TD><INPUT TYPE="NUMBER" ID="U1" NAME="U1" SIZE="6" min="0" max="65535"></TD><TD><INPUT TYPE="NUMBER" ID="P1" NAME="P1" SIZE="3" maxlength="3" min="1" max="170"></TD><TD style="text-align:left"><IMG ID="A1" SRC="plus.png" onClick="tableRowDisplay('R2'); tableRowHide('A1');"></TD></TR>
-<TR ID="R2"><TD><INPUT TYPE="NUMBER" ID="U2" NAME="U2" SIZE="6" min="0" max="65535"></TD><TD><INPUT TYPE="NUMBER" ID="P2" NAME="P2" SIZE="3" maxlength="3" min="1" max="170"></TD><TD style="text-align:left"><IMG ID="A2" SRC="plus.png" onClick="tableRowDisplay('R3'); tableRowHide('A2'); tableRowHide('M2');"><IMG ID="M2" SRC="minus.png" onClick="tableRowDisplay('A1'); tableRowHide('R2');"></TD></TR>
-<TR ID="R3"><TD><INPUT TYPE="NUMBER" ID="U3" NAME="U3" SIZE="6" min="0" max="65535"></TD><TD><INPUT TYPE="NUMBER" ID="P3" NAME="P3" SIZE="3" maxlength="3" min="1" max="170"></TD><TD style="text-align:left"><IMG ID="A3" SRC="plus.png" onClick="tableRowDisplay('R4'); tableRowHide('A3'); tableRowHide('M3');"><IMG ID="M3" SRC="minus.png" onClick="tableRowDisplay('A2'); tableRowDisplay('M2'); tableRowHide('R3');"></TD></TR>
-<TR ID="R4"><TD><INPUT TYPE="NUMBER" ID="U4" NAME="U4" SIZE="6" min="0" max="65535"></TD><TD><INPUT TYPE="NUMBER" ID="P4" NAME="P4" SIZE="3" maxlength="3" min="1" max="170"></TD><TD style="text-align:left"><IMG ID="A4" SRC="plus.png" onClick="tableRowDisplay('R5'); tableRowHide('A4'); tableRowHide('M4');"><IMG ID="M4" SRC="minus.png" onClick="tableRowDisplay('A3'); tableRowDisplay('M3'); tableRowHide('R4');"></TD></TR>
-<TR ID="R5"><TD><INPUT TYPE="NUMBER" ID="U5" NAME="U5" SIZE="6" min="0" max="65535"></TD><TD><INPUT TYPE="NUMBER" ID="P5" NAME="P5" SIZE="3" maxlength="3" min="1" max="170"></TD><TD style="text-align:left"><IMG ID="A5" SRC="plus.png" onClick="tableRowDisplay('R6'); tableRowHide('A5'); tableRowHide('M5');"><IMG ID="M5" SRC="minus.png" onClick="tableRowDisplay('A4'); tableRowDisplay('M4'); tableRowHide('R5');"></TD></TR>
-<TR ID="R6"><TD><INPUT TYPE="NUMBER" ID="U6" NAME="U6" SIZE="6" min="0" max="65535"></TD><TD><INPUT TYPE="NUMBER" ID="P6" NAME="P6" SIZE="3" maxlength="3" min="1" max="170"></TD><TD style="text-align:left"><IMG ID="M6" SRC="minus.png" onClick="tableRowDisplay('A5'); tableRowDisplay('M5'); tableRowHide('R6'); "></TD></TR>
+<TR ID="R1"><TD><INPUT TYPE="NUMBER" ID="U1" NAME="U1" SIZE="6" min="0" max="65535" oninput="checke131(this)"></TD><TD><INPUT TYPE="NUMBER" ID="P1" NAME="P1" SIZE="3" maxlength="3" min="1" max="170"></TD><TD style="text-align:left"><IMG ID="A1" SRC="plus.png" onClick="tableRowDisplay('R2'); tableRowHide('A1');"></TD></TR>
+<TR ID="R2"><TD><INPUT TYPE="NUMBER" ID="U2" NAME="U2" SIZE="6" min="0" max="65535" oninput="checke131(this)"></TD><TD><INPUT TYPE="NUMBER" ID="P2" NAME="P2" SIZE="3" maxlength="3" min="1" max="170"></TD><TD style="text-align:left"><IMG ID="A2" SRC="plus.png" onClick="tableRowDisplay('R3'); tableRowHide('A2'); tableRowHide('M2');"><IMG ID="M2" SRC="minus.png" onClick="tableRowDisplay('A1'); tableRowHide('R2');"></TD></TR>
+<TR ID="R3"><TD><INPUT TYPE="NUMBER" ID="U3" NAME="U3" SIZE="6" min="0" max="65535" oninput="checke131(this)"></TD><TD><INPUT TYPE="NUMBER" ID="P3" NAME="P3" SIZE="3" maxlength="3" min="1" max="170"></TD><TD style="text-align:left"><IMG ID="A3" SRC="plus.png" onClick="tableRowDisplay('R4'); tableRowHide('A3'); tableRowHide('M3');"><IMG ID="M3" SRC="minus.png" onClick="tableRowDisplay('A2'); tableRowDisplay('M2'); tableRowHide('R3');"></TD></TR>
+<TR ID="R4"><TD><INPUT TYPE="NUMBER" ID="U4" NAME="U4" SIZE="6" min="0" max="65535" oninput="checke131(this)"></TD><TD><INPUT TYPE="NUMBER" ID="P4" NAME="P4" SIZE="3" maxlength="3" min="1" max="170"></TD><TD style="text-align:left"><IMG ID="A4" SRC="plus.png" onClick="tableRowDisplay('R5'); tableRowHide('A4'); tableRowHide('M4');"><IMG ID="M4" SRC="minus.png" onClick="tableRowDisplay('A3'); tableRowDisplay('M3'); tableRowHide('R4');"></TD></TR>
+<TR ID="R5"><TD><INPUT TYPE="NUMBER" ID="U5" NAME="U5" SIZE="6" min="0" max="65535" oninput="checke131(this)"></TD><TD><INPUT TYPE="NUMBER" ID="P5" NAME="P5" SIZE="3" maxlength="3" min="1" max="170"></TD><TD style="text-align:left"><IMG ID="A5" SRC="plus.png" onClick="tableRowDisplay('R6'); tableRowHide('A5'); tableRowHide('M5');"><IMG ID="M5" SRC="minus.png" onClick="tableRowDisplay('A4'); tableRowDisplay('M4'); tableRowHide('R5');"></TD></TR>
+<TR ID="R6"><TD><INPUT TYPE="NUMBER" ID="U6" NAME="U6" SIZE="6" min="0" max="65535" oninput="checke131(this)"></TD><TD><INPUT TYPE="NUMBER" ID="P6" NAME="P6" SIZE="3" maxlength="3" min="1" max="170"></TD><TD style="text-align:left"><IMG ID="M6" SRC="minus.png" onClick="tableRowDisplay('A5'); tableRowDisplay('M5'); tableRowHide('R6'); "></TD></TR>
 </TABLE>
-				<INPUT TYPE="SUBMIT" Name="Save" Value="Save" onClick='ValidationEvent();'>
+				<INPUT TYPE="SUBMIT" Name="Save" Value="Save" >
 			</FORM> 
 		<BR><BR>
 		</main>
@@ -110,14 +111,23 @@ function tableRowHide(secId)
 
 // Below Function Executes On Form Submit
 function ValidationEvent() {
+
+	let pass = true;
 	if (document.getElementById("R2").clientHeight < 1) { document.getElementById("U2").value=''; }
 	if (document.getElementById("R3").clientHeight < 1) { document.getElementById("U3").value=''; }
 	if (document.getElementById("R4").clientHeight < 1) { document.getElementById("U4").value=''; }
 	if (document.getElementById("R5").clientHeight < 1) { document.getElementById("U5").value=''; }
 	if (document.getElementById("R6").clientHeight < 1) { document.getElementById("U6").value=''; }
 	
-return true;   // Returns Value
+	for (let i = 1; i < 7; i++) {
+		if (e131set.has(document.getElementById("U" + i).value)) { pass = false; alert("Duplicate universe " + document.getElementById("U" + i).value + " on output " + e131set.get(document.getElementById("U" + i).value) ); }
+	}
+
+	return pass;   // Returns Value
+
 }
+
+
 
 // Create new script element
 const script = document.createElement('script');
