@@ -121,6 +121,9 @@ function ValidationEvent() {
 	
 	for (let i = 1; i < 7; i++) {
 		if (e131set.has(document.getElementById("U" + i).value)) { pass = false; alert("Duplicate universe " + document.getElementById("U" + i).value + " on output " + e131set.get(document.getElementById("U" + i).value) ); }
+	        for (let c = 1; c < 7; c++) {
+                	if (i > c && document.getElementById("U" + i).value != '' && document.getElementById("U" + i).value == document.getElementById("U" + c).value) { pass = false; document.getElementById("U" + i).style.background='LightPink'; alert("Duplicate universe " + document.getElementById("U" + i).value + " in this output."); }
+		}
 	}
 
 	return pass;   // Returns Value
