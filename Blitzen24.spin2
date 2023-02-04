@@ -113,6 +113,7 @@ VAR
         long resp_gif_ptr
         byte b64md5[256]
         byte MD5DATA[64]
+        byte vbuffer[12288]
 OBJ
         FS: "FAT32"
         W6100: "W6100drv"
@@ -247,8 +248,9 @@ PUB main() | i, j
   WRITEBUFFER[0] := $41
   W6100.writereg(W6100.REG_PHYCR1,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
 
-  waitms (3000)
-  waitms (3000)
+  logo()
+'  waitms (3000)
+'  waitms (3000)
 
 
   debug("Physical Configuration Locked")
@@ -2354,3 +2356,47 @@ PUB showhash(hash_ptr) | i
         debug(uhex_byte_(byte[hash_ptr][i]))
 
         i++
+PUB logo() | i, rb, rg
+''Writes the screen buffer to the memory of the display
+  OLED.ssd1331_command($E3) ' NOP
+  OLED.ssd1331_command($E3) ' NOP
+  OLED.ssd1331_command(OLED.SSD1331_CMD_SETCOLUMN)  ' Set X
+  OLED.ssd1331_command($0)
+  OLED.ssd1331_command(95)
+  OLED.ssd1331_command(OLED.SSD1331_CMD_SETROW)  ' Set Y
+  OLED.ssd1331_command($0)
+  OLED.ssd1331_command(63)
+
+  OLED.ssd1331_command($A1)
+  OLED.ssd1331_command($0)
+  OLED.ssd1331_command($A2)
+  OLED.ssd1331_command($0)
+
+  if not \FS.openfile(string("GFX.raw"),"R")
+
+    debug("Opened Logo")
+    repeat FS.fileSize()/12288
+      FS.readData(@vbuffer, 12288)
+      i := 0
+        repeat 6144
+                rb := vbuffer[i]
+                rg := vbuffer[i+1]
+                OLED.ssd1331_Data(rg)
+                OLED.ssd1331_Data(rb)
+                i := i+2
+
+    FS.closeFile()
+  OLED.clearDisplay()
+  OLED.ssd1331_command($E3) ' NOP
+  OLED.ssd1331_command($E3) ' NOP
+  OLED.ssd1331_command(OLED.SSD1331_CMD_SETCOLUMN)  ' Set X
+  OLED.ssd1331_command($0)
+  OLED.ssd1331_command(95)
+  OLED.ssd1331_command(OLED.SSD1331_CMD_SETROW)  ' Set Y
+  OLED.ssd1331_command($0)
+  OLED.ssd1331_command(63)
+
+  OLED.ssd1331_command($A1)
+  OLED.ssd1331_command($0)
+  OLED.ssd1331_command($A2)
+  OLED.ssd1331_command($0)
