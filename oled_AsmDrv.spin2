@@ -9,6 +9,9 @@ con
 DOWNLOAD_BAUD = 2_000_000
 DEBUG_BAUD = DOWNLOAD_BAUD
 
+lchipselect = 50
+clkout = 49
+txout = 48
 ' Define colors
 Black           = $0000
 Navy            = $000F
@@ -91,30 +94,34 @@ VAR
   word  FG
   word  BG
 
-PUB start(Chipselect,TheClock,TheData):okay
+PUB start():okay
 
-'Sets up the smartpin
+'' Start SPI Engine - starts a cog
+'' returns false if no cog available
+'    stop()
+'    okay := cog := coginit(COGEXEC_NEW,@main, @command) + 1
 
 org
 
-main    dirl    Chipselect
+main    dirl    #lchipselect
 
-        dirl    TheClock
-        wrpin   trans,TheClock
-        wxpin   ##$9,TheClock            'set base period
-        dirh    TheClock
+        dirl    #clkout
+        wrpin   trans,#clkout
+        wxpin   ##$9,#clkout            'set base period
+        dirh    #clkout
 
-        dirl    TheData
-        wrpin   sync_tx,TheData          'sync tx
-        wxpin   #%1_00111,TheData        'stop/start mode
-        dirh    TheData                  'enable smartpin
+        dirl    #txout
+        wrpin   sync_tx,#txout          'sync tx
+        wxpin   #%1_00111,#txout        'stop/start mode
+        dirh    #txout                  'enable smartpin
 trans   long    %1_00101_0
 sync_tx long    %1001 << 24 | %1_11100_0  'b pin = current pin+1 and inverted
 
 end
 
 PUB init(ChipSelect,DataCommand,TheData,TheClock,Reset)
-
+  ''Startup the SPI system
+  start()
   ''Initialize variables and initialize the display
   CS:=ChipSelect
   DC:=DataCommand
@@ -124,9 +131,6 @@ PUB init(ChipSelect,DataCommand,TheData,TheClock,Reset)
 
   FG := White
   BG := Black
-
-  ''Startup the SPI system
-  start(CS,CLK,DATA)
 
   ''Setup reset and pin direction
   PINL(RST)
@@ -236,9 +240,9 @@ PUB ssd1331_Data(thedata)|tmp   'Send a byte as data to the display
   SHIFTOUT(thedata)
 
 PUB SHIFTOUT(Value)
-    setcommand(1, Value, CS, CLK, DATA)
+    setcommand(1, Value)
 
-PRI setcommand(cmd, argptr, lcs, lclk, ldt) | c
+PRI setcommand(cmd, argptr) | c
     command := cmd << 16 + argptr                       '' Write command and pointer
     c := @command
 org
@@ -251,18 +255,18 @@ loop          rdlong  txdata, c         wz    '' Wait for command via ptra
         SHL txdata,#32-8  ' Set MSB First
         REV txdata      ' Set MSB First
 
-        dirh    lcs
-        wypin   txdata, ldt           'data
-        wypin   #16,lclk             'start clock, tx data
+        dirh    #lchipselect
+        wypin   txdata,#txout           'data
+        wypin   #16,#clkout             'start clock, tx data
 
 
-busy    testp   lclk wc
+busy    testp   #clkout wc
         if_nc   jmp     #busy
 
-        dirl    lcs
+        dirl    #lchipselect
 
-        rdpin   pa,lclk
-        wypin   #1,ldt
+        rdpin   pa,#clkout
+        wypin   #1,#txout
 
         wrlong  zero,c                          ''     Zero command to signify command received
 

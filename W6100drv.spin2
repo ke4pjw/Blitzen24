@@ -37,8 +37,9 @@ CON
   CSn   = 17
   RDn   = 21
   WRn   = 22
-'  INTn  = 20  'Not used
+  INTn  = 5
   DATA  = 24 ADDPINS 7
+  CLK   = 20
   DPINS = 24 / 8
   A0    = 18
   A1    = 19
@@ -228,6 +229,7 @@ PUB reset()
   PINL (WRn)
   PINL (RDn)
   PINL (CSn)
+  PINL (CLK)
   PINH (RSET)
   waitms (3000)
 PUB setmod010()
@@ -1101,7 +1103,7 @@ if_nc  jmp #inlk
 '      DRVH ##WRn
 '      DRVH ##RDn
 '      DRVH ##CSn
-
+      DRVL ##CLK
       DRVH ##RSET
       DRVH ##MOD
       LOCKREL lelock

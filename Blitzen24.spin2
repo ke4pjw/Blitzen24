@@ -1,6 +1,6 @@
 {
 ***************************************************
-* Blitzen 24 Edge Ver 1.4PR (Music City) 02/06/2023 *
+* Blitzen 24 Edge Ver 1.3PR (Music City) 01/21/2023 *
 ***************************************************
 
 LICENSE TERMS
@@ -117,6 +117,7 @@ VAR
 OBJ
         FS: "FAT32"
         W6100: "W6100drv"
+'        vid: "p2textdrv"
         prng: "jm_prng"
         WS2811: "tt_rgbx_pixel"
         WS28112: "tt_rgbx_pixel"
@@ -127,7 +128,7 @@ OBJ
         B64: "base64"
         MD5: "MD5"
 PUB main() | i, j
-  str.append_str(@buildver, String("Blitzen 24 Edge 1.4PR (Music City)"))
+  str.append_str(@buildver, String("Blitzen 24 Edge 1.3 (Music City)"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
