@@ -6,12 +6,8 @@ Evaluation boards are available. Please contact me at ttrapp at ieee dot org if 
 
 #To Do 
 * Update SD card driver to be cogless. (Free up a cog)
-* Complete configuration for quad DMX output.
-* Add selectable network speed configuration (10/100/Auto).
-* Add "test pixels" option to outputs page.
 
 # Known Bugs
-* Webserver files over 64K cause the system to crash. This can be resolved by rewriting how the filesystem is accessed.
 
 # Build 
 This software has only been tested using the Propeller Tool.
