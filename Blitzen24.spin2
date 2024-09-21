@@ -138,7 +138,7 @@ OBJ
         qe: "jm_quadraturesmartpin"
 
 PUB main() | i, j
-  str.append_str(@buildver, String("Blitzen 24 Edge 2.0PR (Rockland)"))
+  str.append_str(@buildver, String("Blitzen 24 Edge 2.0PR (Rocklin)"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
