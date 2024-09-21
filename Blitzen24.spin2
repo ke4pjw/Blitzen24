@@ -43,6 +43,9 @@ CON
   CLK   = 49
   DATA  = 48
 
+  ENC_B    = 53  { I }                                          ' encoder data
+  ENC_A    = 54  { I }                                          ' encoder clock
+  ENC_P    = 55  {Button}
 VAR
         long PIXELCONFIG[124]
         long E131CONFIG[432]
@@ -114,6 +117,11 @@ VAR
         byte b64md5[256]
         byte MD5DATA[64]
         byte vbuffer[12288]
+        long rawptr
+        LONG qrversion
+        byte url[256]
+        long alt
+        long  qecounts                                                ' encoder value
 OBJ
         FS: "FAT32"
         W6100: "W6100drv"
@@ -126,6 +134,9 @@ OBJ
         OLED: "oled_AsmDrv"
         B64: "base64"
         MD5: "MD5"
+'        qrssd:     "qrssd"    'Object to display the QR code on an SSD1331.
+        qr:     "p2qr"        'Object that creates the QR code.
+
 PUB main() | i, j
   str.append_str(@buildver, String("Blitzen 24 Edge 1.4PR (Music City)"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -512,31 +523,106 @@ This is here to show what the data structure looks like.
       httpd(80,W6100.PM_TCP4,W6100.IDM_BSR_Socket1_Register)
 
 
-pub watchdogcog() | p,c,alt,time1,time2
- OLED.TERMPOSY(0)
- OLED.TERMPOSX(0)
- OLED.TERMSEND(string("Blitzen 24  "))
- OLED.TERMPOSX(12)
- OLED.SETFG(OLED.Red)
- OLED.TERMSEND(string($81))
- OLED.TERMPOSX(14)
- OLED.TERMSEND(string($80))
- OLED.SETFG(OLED.White)
-
- OLED.TERMPOSY(6)
- OLED.TERMPOSX(0)
-
- OLED.TERMSEND(string("MAC Address:", OLED.CR, OLED.LF))
- OLED.hex(MACADDRESS[0],2)
- OLED.hex(MACADDRESS[1],2)
- OLED.hex(MACADDRESS[2],2)
- OLED.hex(MACADDRESS[3],2)
- OLED.hex(MACADDRESS[4],2)
- OLED.hex(MACADDRESS[5],2)
-
+pub watchdogcog() | time1,time2,lt, t, ev, last, now, check, counts
+ OLED.clearDisplay()
  alt := false
  time1 := GETCT()
+ lt := 0
+ last := (pinr(ENC_A) << 1) | pinr(ENC_B)
  repeat
+    lt++
+    if lt > 30
+      OLED.ssd1331_command(OLED.SSD1331_CMD_DISPLAYOFF)
+ ' Set E1.31 Packets/s
+    wdpps :=  W6100.Counter() - wdcounter     ' Calculate E1.31 packets/sec
+    wddps :=  W6100.Discards() - wddiscards   ' Calculate E1.31 discarded packets/sec
+
+' Update counters
+    wdcounter := W6100.Counter()
+    wddiscards := W6100.Discards()
+
+'    qrcodemenu()
+    if (counts // 2) == 0
+      statsmenu()
+    else
+      qrcodemenu()
+
+    time1 := GETSEC()
+    repeat while time1 == GETSEC()
+          ev := qecounts sar 2                                        ' get encoder value ("clicks")
+          repeat 5000
+            now := (pinr(ENC_A) << 1) | pinr(ENC_B)                     ' re-sample encoder inputs
+            if (now <> last)
+
+              lt := 0
+              check := (last << 1) ^ now                                ' check for change
+              if (check.[1] == 1)                                       ' compare new A to old B
+                long[@qecounts] := ++counts
+                long[@qecounts] := ++counts
+              else
+                long[@qecounts] := --counts
+'                long[@qecounts] := --counts
+              debug(udec(counts))
+'              waitms(200)
+              OLED.clearDisplay()
+              if (counts // 2) == 0
+                statsmenu()
+              else
+                qrcodemenu()
+              OLED.ssd1331_command(OLED.SSD1331_CMD_DISPLAYON)
+              last := now
+              time1 := GETSEC()
+              quit
+'            if (pinr(ENC_P) == 0)                                         ' Set to 0 if you push the button
+'                long[@qecounts] := 0
+'                counts := 0
+
+
+{    ' Wait 1 second
+    time2 := (GETCT() - time1) / (CLKFREQ / 1_000_000)
+
+    waitus(1_000_000 - time2)
+    time1 := GETCT()
+}
+'    debug(zstr_(String("Updated")))
+'    OLED.HEX(bgtmp[0],2)
+pub qrcodemenu()
+    url[0] := 0
+    str.append_str(@url,string("http://"))
+    str.append_str(@url,str.dec(IPADDRESS[0],3))
+    str.append_str(@url,string("."))
+    str.append_str(@url,str.dec(IPADDRESS[1],3))
+    str.append_str(@url,string("."))
+    str.append_str(@url,str.dec(IPADDRESS[2],3))
+    str.append_str(@url,string("."))
+    str.append_str(@url,str.dec(IPADDRESS[3],3))
+    rawptr := qr.getimage()  ' Get the image pointer
+    qr.parseMessage(@url,qr.TYPE_RAW,0)
+    setversion(qr.getqrversion())
+    displayqr(rawptr,OLED.WHITE,OLED.BLACK) 'Display the image.
+pub statsmenu()| p,c
+    OLED.TERMPOSY(0)
+    OLED.TERMPOSX(0)
+    OLED.SETFG(OLED.White)
+    OLED.TERMSEND(string("Blitzen 24"))
+'    OLED.TERMPOSX(12)
+'    OLED.SETFG(OLED.Red)
+'    OLED.TERMSEND(string($81))
+'    OLED.TERMPOSX(14)
+'    OLED.TERMSEND(string($80))
+
+
+    OLED.TERMPOSY(6)
+    OLED.TERMPOSX(0)
+
+    OLED.TERMSEND(string("MAC Address:", OLED.CR, OLED.LF))
+    OLED.hex(MACADDRESS[0],2)
+    OLED.hex(MACADDRESS[1],2)
+    OLED.hex(MACADDRESS[2],2)
+    OLED.hex(MACADDRESS[3],2)
+    OLED.hex(MACADDRESS[4],2)
+    OLED.hex(MACADDRESS[5],2)
+
 '    debug (uhex(PIXELCONFIG[80] + 15))
 ' Ethernet Status
     W6100.readreg(W6100.REG_PHYSR,W6100.IDM_BSR_Common_Register,1,@bgtmp)
@@ -561,13 +647,6 @@ pub watchdogcog() | p,c,alt,time1,time2
     OLED.TERMSEND(string($81))
     OLED.SETFG(OLED.White)
 
-' Set E1.31 Packets/s
-    wdpps :=  W6100.Counter() - wdcounter     ' Calculate E1.31 packets/sec
-    wddps :=  W6100.Discards() - wddiscards   ' Calculate E1.31 discarded packets/sec
-
-' Update counters
-    wdcounter := W6100.Counter()
-    wddiscards := W6100.Discards()
 
 ' Counters on the OLED
     OLED.TERMPOSY(1)
@@ -619,12 +698,6 @@ pub watchdogcog() | p,c,alt,time1,time2
         OLED.TERMSEND(string($81))
         OLED.SETFG(OLED.White)
         alt := true
-    ' Wait 1 second
-    time2 := (GETCT() - time1) / (CLKFREQ / 1_000_000)
-    waitus(1_000_000 - time2)
-    time1 := GETCT()
-'    debug(zstr_(String("Updated")))
-'    OLED.HEX(bgtmp[0],2)
 
 pub ConfigPixels() |  pixelcount, pixeloffset, i, ei
 
@@ -2399,3 +2472,43 @@ PUB logo() | i, rb, rg
   OLED.ssd1331_command($0)
   OLED.ssd1331_command($A2)
   OLED.ssd1331_command($0)
+PUB displayqr(raw,fgc,bgc)|di, maxpix, c, r, pixsize
+    c := 0
+    r := 0
+    maxpix := (qrversion*4)+21
+    if maxpix <= 33
+       pixsize := 2
+    else
+       pixsize := 1
+    repeat maxpix * maxpix
+      writeQR(BYTE[raw][di++],c,r,fgc,bgc,pixsize)
+      c := c + pixsize
+      if c + pixsize > maxpix * pixsize
+        c := 0
+        r := r + pixsize
+
+'      debug(udec(c),udec(r))
+       if r > 64
+        return
+PUB setversion(ver)
+    qrversion := ver
+PUB writeQR(ch,row,col,RGB,BRGB,pixsize)|i,j,mask,r
+
+  ''Write a write to the display @ row and column
+    OLED.ssd1331_command(OLED.SSD1331_CMD_SETREMAP)       ' $A0
+    OLED.ssd1331_command($61)                       ' RGB Color
+    OLED.ssd1331_command(OLED.SSD1331_CMD_SETCOLUMN)  ' Set X
+    OLED.ssd1331_command(row)
+    OLED.ssd1331_command(row + pixsize)
+    OLED.ssd1331_command(OLED.SSD1331_CMD_SETROW)  ' Set Y
+    OLED.ssd1331_command(col)
+    OLED.ssd1331_command(col + pixsize)
+
+    repeat pixsize * pixsize
+'        debug(udec(ch))
+        if ch == 255
+           OLED.ssd1331_Data(OLED.RG16bitColor(RGB)) ' Set foreground color
+           OLED.ssd1331_Data(OLED.GB16bitColor(RGB))
+        else
+           OLED.ssd1331_Data(OLED.RG16bitColor(BRGB))' Set background color
+           OLED.ssd1331_Data(OLED.GB16bitColor(BRGB))
