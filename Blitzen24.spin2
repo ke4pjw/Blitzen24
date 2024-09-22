@@ -523,7 +523,7 @@ This is here to show what the data structure looks like.
       httpd(80,W6100.PM_TCP4,W6100.IDM_BSR_Socket1_Register)
 
 
-pub watchdogcog() | time1,time2,lt, t, ev, last, now, check, counts
+pub watchdogcog() | time1,time2,lt, t, ev, last, now, check, counts, p, c
  OLED.clearDisplay()
  alt := false
  time1 := GETCT()
@@ -541,6 +541,30 @@ pub watchdogcog() | time1,time2,lt, t, ev, last, now, check, counts
 ' Update counters
     wdcounter := W6100.Counter()
     wddiscards := W6100.Discards()
+
+    if blinkmode == true
+      if alt == true
+        p := 0
+        repeat 24
+
+          if testpixel[p] > 0
+            if testpixel[p] == 4
+              c:= 0
+            else
+              c:= testpixel[p] - 1
+            repeat PIXELCONFIG[p * 5 + 4]
+
+              PIXELBUFFER[PIXELCONFIG[(p * 5) + 3] - @PIXELBUFFER + c]  := 255
+              if testpixel[p] == 4
+                PIXELBUFFER[PIXELCONFIG[(p * 5) + 3] - @PIXELBUFFER + c + 1]  := 255
+                PIXELBUFFER[PIXELCONFIG[(p * 5) + 3] - @PIXELBUFFER + c + 2]  := 255
+
+              c := c + 3
+          p := p + 1
+        alt := false
+      else
+        bytefill(@pixelbuffer,0,73768)
+        alt := true
 
 '    qrcodemenu()
     case last
@@ -665,33 +689,13 @@ pub statsmenu()| p,c
     OLED.DEC(IPADDRESS[3])
 
     if blinkmode == true
-      if alt == true
-        p := 0
-        repeat 24
-
-          if testpixel[p] > 0
-            if testpixel[p] == 4
-              c:= 0
-            else
-              c:= testpixel[p] - 1
-            repeat PIXELCONFIG[p * 5 + 4]
-
-              PIXELBUFFER[PIXELCONFIG[(p * 5) + 3] - @PIXELBUFFER + c]  := 255
-              if testpixel[p] == 4
-                PIXELBUFFER[PIXELCONFIG[(p * 5) + 3] - @PIXELBUFFER + c + 1]  := 255
-                PIXELBUFFER[PIXELCONFIG[(p * 5) + 3] - @PIXELBUFFER + c + 2]  := 255
-
-              c := c + 3
-          p := p + 1
-        alt := false
-      else
-        bytefill(@pixelbuffer,0,73768)
+      if alt == false
         OLED.TERMPOSX(12)
         OLED.TERMPOSY(0)
         OLED.SETFG(OLED.Black)
         OLED.TERMSEND(string($81))
         OLED.SETFG(OLED.White)
-        alt := true
+
 
 pub ConfigPixels() |  pixelcount, pixeloffset, i, ei
 
