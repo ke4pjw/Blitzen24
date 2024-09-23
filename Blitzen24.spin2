@@ -528,6 +528,12 @@ pub watchdogcog() | time1,time2,lt, t, ev, last, now, check, counts, p, c
  alt := false
  time1 := GETCT()
  lt := 0
+ org
+ WRPIN ##$00000900, 53
+ WRPIN ##$00000900, 54
+ WRPIN ##$00000900, 55
+ end
+
  qe.start(54, 53, 55, TRUE, 1, 1, 3)
  last := 1
  repeat
@@ -613,12 +619,25 @@ pub qrcodemenu()
     qr.parseMessage(@url,qr.TYPE_RAW,0)
     setversion(qr.getqrversion())
     displayqr(rawptr,OLED.WHITE,OLED.BLACK) 'Display the image.
-pub vermenu()
+pub vermenu(): time
+    time := getsec()
     OLED.TERMPOSY(0)
     OLED.TERMPOSX(0)
     OLED.SETFG(OLED.White)
     OLED.TERMSEND(@buildver)
+    OLED.TERMSEND(String(OLED.CR, OLED.LF))
+    OLED.TERMSEND(String(OLED.CR, OLED.LF))
+    OLED.TERMSEND(string("Uptime:",OLED.CR, OLED.LF))
+    OLED.TERMSEND(str.dec(time / 86400,0))
+    OLED.TERMSEND(String(":"))
+    OLED.TERMSEND(str.rjdec(time // 86400 / 3600,2,"0",0))
+    OLED.TERMSEND(String(":"))
+    OLED.TERMSEND(str.rjdec(time // 3600 / 60,2,"0",0))
+    OLED.TERMSEND(String(":"))
+    OLED.TERMSEND(str.rjdec(time // 60,2,"0",0))
+
 pub statsmenu()| p,c
+    W6100.readreg(W6100.REG_PHYSR,W6100.IDM_BSR_Common_Register,1,@bgtmp)
     OLED.TERMPOSY(0)
     OLED.TERMPOSX(0)
     OLED.SETFG(OLED.White)
@@ -643,7 +662,6 @@ pub statsmenu()| p,c
 
 '    debug (uhex(PIXELCONFIG[80] + 15))
 ' Ethernet Status
-    W6100.readreg(W6100.REG_PHYSR,W6100.IDM_BSR_Common_Register,1,@bgtmp)
     if (bgtmp & 1) == 0
         OLED.SETFG(OLED.Yellow)
     If (bgtmp & 128) == 128
