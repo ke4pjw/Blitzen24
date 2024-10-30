@@ -1,6 +1,6 @@
 {
 ***************************************************
-* Blitzen 24 Edge Ver 2.0PR (Rockland) 02/06/2023 *
+* Blitzen 24 Edge Ver 2.0 (Rockland) 10/29/2024   *
 ***************************************************
 
 LICENSE TERMS
@@ -57,6 +57,7 @@ VAR
         byte BRIGHTNESS
         byte DNS[4]
         byte SPEEDDUPLEX
+        long SCREENTIMEOUT
         long TXBUFFER[8]
         byte PACKETBUFFER[4098]
         byte PIXELBUFFER[73768]
@@ -138,7 +139,7 @@ OBJ
         qe: "jm_quadraturesmartpin"
 
 PUB main() | i, j
-  str.append_str(@buildver, String("Blitzen 24 Edge 2.0PR (Rocklin)"))
+  str.append_str(@buildver, String("Blitzen 24 Edge 2.0 (Rocklin)"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -174,18 +175,18 @@ PUB main() | i, j
      OLED.TERMSEND(STRING("Can't mount FS", OLED.CR, OLED.LF))
      OLED.TERMSEND(STRING("Missing SD Card?", OLED.CR, OLED.LF))
      repeat
-  debug("Config file Size: ", udec_(@SPEEDDUPLEX - @PIXELCONFIG) )
+  debug("Config file Size: ", udec_((@SCREENTIMEOUT + 3) - @PIXELCONFIG) )
   debug("Opening config file: ")
   if not \FS.openfile(string("blitzen.cfg"),"R")
 
     debug("Opened")
-    FS.readData(@PIXELCONFIG, @SPEEDDUPLEX - @PIXELCONFIG + 1)
+    FS.readData(@PIXELCONFIG, (@SCREENTIMEOUT + 3) - @PIXELCONFIG + 1)
     FS.closeFile()
     OLED.TERMSEND(STRING("Config Found!", OLED.CR, OLED.LF))
   else
     debug("Failed")
     debug("Zeroing Memory Configuration.")
-    bytefill(@PIXELCONFIG, 0, @SPEEDDUPLEX - @PIXELCONFIG + 1)
+    bytefill(@PIXELCONFIG, 0, (@SCREENTIMEOUT +3) - @PIXELCONFIG + 1)
 
        'Configure Mac Address
     MACADDRESS[0] := $00 'wiznet don't change
@@ -212,13 +213,18 @@ PUB main() | i, j
       PIXELCONFIG[(i * 5) + 3] := @pixelbuffer
       PIXELCONFIG[(i * 5) + 4] := 0 ' Pixelcount in this pin
       i++
+    debug("Set displaytimeout based on hardware version.")
+    if HardwareVer() == 1
+      SCREENTIMEOUT := 0
+    else
+      SCREENTIMEOUT := 60
 
     FS.newFile(string("blitzen.cfg"))
     FS.closeFile()
     if not \FS.openfile(string("blitzen.cfg"),"W")
 
       debug("Writing Configuration to SD Card.", $0D, $0A)
-      FS.writeData(@PIXELCONFIG, @SPEEDDUPLEX - @PIXELCONFIG + 1)
+      FS.writeData(@PIXELCONFIG, (@SCREENTIMEOUT + 3) - @PIXELCONFIG + 1)
       FS.closeFile()
       OLED.TERMSEND(STRING("New config saved.", OLED.CR, OLED.LF))
     else
@@ -538,7 +544,7 @@ pub watchdogcog() | time1,time2,lt, t, ev, last, now, check, counts, p, c
  last := 1
  repeat
     lt++
-    if lt > 30
+    if SCREENTIMEOUT <> 0 and lt > SCREENTIMEOUT
       OLED.ssd1331_command(OLED.SSD1331_CMD_DISPLAYOFF)
  ' Set E1.31 Packets/s
     wdpps :=  W6100.Counter() - wdcounter     ' Calculate E1.31 packets/sec
@@ -635,6 +641,16 @@ pub vermenu(): time
     OLED.TERMSEND(str.rjdec(time // 3600 / 60,2,"0",0))
     OLED.TERMSEND(String(":"))
     OLED.TERMSEND(str.rjdec(time // 60,2,"0",0))
+    OLED.TERMSEND(String(OLED.CR, OLED.LF))
+    OLED.TERMSEND(String(OLED.CR, OLED.LF))
+    OLED.TERMSEND(string("Speed/Dpx:"))
+    CASE SPEEDDUPLEX
+        0: OLED.TERMSEND(string("Auto",OLED.CR, OLED.LF))
+        4: OLED.TERMSEND(string("100F",OLED.CR, OLED.LF))
+        5: OLED.TERMSEND(string("100H",OLED.CR, OLED.LF))
+        6: OLED.TERMSEND(string("10F",OLED.CR, OLED.LF))
+        7: OLED.TERMSEND(string("10H",OLED.CR, OLED.LF))
+
 
 pub statsmenu()| p,c
     W6100.readreg(W6100.REG_PHYSR,W6100.IDM_BSR_Common_Register,1,@bgtmp)
@@ -947,7 +963,7 @@ pub netpost()
     DNS[3] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("DNS3="))+ 5, 3)
 
     SPEEDDUPLEX := str2dec(@READBUFFER + str.instr(@READBUFFER,string("SD="))+ 3, 1)
-
+    SCREENTIMEOUT := str2dec(@READBUFFER + str.instr(@READBUFFER,string("DTO="))+ 4, 5)
     writeconfig()
 
 pub writeconfig()
@@ -955,7 +971,7 @@ pub writeconfig()
     if not \FS.openfile(string("blitzen.cfg"),"W")
 
       debug("Writing Configuration to SD Card.", $0D, $0A)
-      FS.writeData(@PIXELCONFIG, @SPEEDDUPLEX - @PIXELCONFIG + 1)
+      FS.writeData(@PIXELCONFIG, (@SCREENTIMEOUT + 3) - @PIXELCONFIG + 1)
       FS.closeFile()
 
     else
@@ -1332,6 +1348,10 @@ pub netjs() | idx
   str.append_str(@webbuff,str.dec(idx,-1))
   str.append_str(@webbuff, string("'; "))
 
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('DTO').value = '"))
+  str.append_str(@webbuff,str.dec(SCREENTIMEOUT,-1))
+  str.append_str(@webbuff, string("'; "))
+
 
   rdsize := strsize(@webbuff)
 
@@ -1470,8 +1490,8 @@ pub downloadconfig()
   str.append_str(@webbuff,resp_dl_ptr)
   rdsize := strsize(@webbuff)
 ' Copy running config into web buffer
-  bytemove(@webbuff + rdsize, @PIXELCONFIG, @SPEEDDUPLEX - @PIXELCONFIG + 1)
-  rdsize := rdsize + (@SPEEDDUPLEX - @PIXELCONFIG) + 1
+  bytemove(@webbuff + rdsize, @PIXELCONFIG, (@SCREENTIMEOUT + 3) - @PIXELCONFIG + 1)
+  rdsize := rdsize + ((@SCREENTIMEOUT + 3) - @PIXELCONFIG) + 1
 
 
 pub dhcpclient() | i
@@ -2528,3 +2548,21 @@ PUB writeQR(ch,row,col,RGB,BRGB,pixsize)|i,j,mask,r
         else
            OLED.ssd1331_Data(OLED.RG16bitColor(BRGB))' Set background color
            OLED.ssd1331_Data(OLED.GB16bitColor(BRGB))
+PUB HardwareVer() : r
+    PINCLEAR(ENC_P)
+    org
+     DRVH #ENC_P
+     FLTL #ENC_P
+     DRVL #ENC_P
+     FLTL #ENC_P
+    end
+    waitus(1)
+    debug(udec_(PINREAD(ENC_P)))
+    if PINREAD(ENC_P) == 1
+           ' Pin has a pullup
+     debug("Version 2 hardware")
+      r := 2
+    else
+      debug("Version 1 hardware")
+      r := 1
+    return r
