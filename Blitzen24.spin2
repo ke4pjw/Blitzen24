@@ -1,11 +1,11 @@
 {
 ***************************************************
-* Blitzen 24 Edge Ver 2.1 (Rockland) 2/20/2025    *
+* Blitzen 24 Edge Ver 2.2.1 (Rockland) 3/22/2025    *
 ***************************************************
 
 LICENSE TERMS
 -------------
-Copyright 2023 Terry E. Trapp, KE4PJW
+Copyright 2025 Terry E. Trapp, KE4PJW
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -141,7 +141,7 @@ OBJ
         qe: "jm_quadraturesmartpin"
 
 PUB main() | i, j
-  str.append_str(@buildver, String("Blitzen 24 Edge 2.1 (Rocklin)"))
+  str.append_str(@buildver, String("Blitzen 24 Edge 2.2.1 (Rocklin)"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -1062,9 +1062,10 @@ pub e131post() | output, ei, eti, u , uascii
     ' Get the output Pin this E1.31 config is associated with
     output := str2dec(@READBUFFER + str.instr(@READBUFFER,string("output="))+ 7, 2)
     debug(STRING("DMXENABLED:" ),udec_(str2dec(@READBUFFER + str.instr(@READBUFFER,string("dmxenabled="))+ 11, 2)))
-    if output == 25 and str2dec(@READBUFFER + str.instr(@READBUFFER,string("dmxenabled="))+ 11, 2) == 1
+    if output == 25
+      if str2dec(@READBUFFER + str.instr(@READBUFFER,string("dmxenabled="))+ 11, 2) == 1
         DMXENABLED := 1
-    else
+      else
         DMXENABLED := 0
 
     ' Initialize the variables to be used.
@@ -1137,9 +1138,10 @@ pub e131post() | output, ei, eti, u , uascii
     ' Stop and restart the pixel drivers
     StopPixels()
     StartPixels()
-    ' Restart the E1.31 ethernet driver
-    W6100.stopfastrx()
-    W6100.startfastrx(W6100.IDM_BSR_Socket3_Register,@pixelbuffer,@TXBUFFER,@E131CONFIG)
+    if blinkmode <> true
+      ' Restart the E1.31 ethernet driver
+      W6100.stopfastrx()
+      W6100.startfastrx(W6100.IDM_BSR_Socket3_Register,@pixelbuffer,@TXBUFFER,@E131CONFIG)
 
 pub e131js() | output, u, ei, type
 
