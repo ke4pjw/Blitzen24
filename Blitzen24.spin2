@@ -1,6 +1,6 @@
 {
 ***************************************************
-* Blitzen 24 Edge Ver 2.2.1 (Rockland) 3/22/2025    *
+* Blitzen 24 Edge Ver 2.2.2 (Rockland) 3/23/2025    *
 ***************************************************
 
 LICENSE TERMS
@@ -141,7 +141,7 @@ OBJ
         qe: "jm_quadraturesmartpin"
 
 PUB main() | i, j
-  str.append_str(@buildver, String("Blitzen 24 Edge 2.2.1 (Rocklin)"))
+  str.append_str(@buildver, String("Blitzen 24 Edge 2.2.2 (Rocklin)"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -1310,6 +1310,17 @@ pub outputjs() | p,idx
       str.append_str(@webbuff, string("'; "))
       p++
 
+    p := 1
+    repeat 28
+      if pinpixelcnt(p) == 0
+        str.append_str(@webbuff, string($0D, $0A, "document.getElementById('T"))
+        str.append_str(@webbuff,str.dec(p,-1))
+        str.append_str(@webbuff, string("').disabled = true ;"))
+        str.append_str(@webbuff, string($0D, $0A, "document.getElementById('O"))
+        str.append_str(@webbuff,str.dec(p,-1))
+        str.append_str(@webbuff, string("').disabled = true ;"))
+      p++
+
     if  DMXENABLED == 0
       str.append_str(@webbuff, string($0D, $0A, "document.getElementById('LR12').style.display = ''; document.getElementById('LR34').style.display = '';"))
     if  DMXENABLED == 1
@@ -1900,6 +1911,10 @@ pub pixelcnt(pingroup) : pixelct | index , rptcnt
       pixelct := PIXELCONFIG[index + 4]
     index := index + 5
   return pixelct
+pub pinpixelcnt(pinnum) : pinpixcnt
+  pinnum := pinnum - 1
+  pinpixcnt := PIXELCONFIG[pinnum*5+4]
+  return
 pub dmxbufferaddr() : dmxbuffer | ei
    ei := 0
    repeat until E131CONFIG[ei] == 0
