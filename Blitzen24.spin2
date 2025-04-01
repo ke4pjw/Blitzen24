@@ -1,6 +1,6 @@
 {
 ***************************************************
-* Blitzen 24 Edge Ver 2.2.2 (Rockland) 3/23/2025    *
+* Blitzen 24 Edge Ver 2.2.3 (Rockland) 3/31/2025  *
 ***************************************************
 
 LICENSE TERMS
@@ -141,7 +141,7 @@ OBJ
         qe: "jm_quadraturesmartpin"
 
 PUB main() | i, j
-  str.append_str(@buildver, String("Blitzen 24 Edge 2.2.2 (Rocklin)"))
+  str.append_str(@buildver, String("Blitzen 24 Edge 2.2.3 (Rocklin)"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -819,6 +819,8 @@ repeat
   If ( W6100.ReceiveData(socket,10000) <> W6100.Sn_IR_TIMEOUT)
  '     W6100.ReceiveData(socket,100000)
       psize := W6100.ReceiveProcess(socket,@READBUFFER)
+      If ( W6100.ReceiveData(socket,15000) <> W6100.Sn_IR_TIMEOUT and READBUFFER[psize-1] == $0A) 'Complete hack to support IOS
+        psize := psize + W6100.ReceiveProcess(socket,@READBUFFER+psize)
       READBUFFER[psize] := 0
       debug("Received: ",zstr_(@READBUFFER))
 
