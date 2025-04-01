@@ -123,7 +123,7 @@
 
 </TABLE>
 <br><input type="hidden" name="brt" value="0" ID="brt">
-				<INPUT TYPE="SUBMIT" Name="Save" Value="Save"><button type="button" onclick="disabletest();">Disable All Tests</button>
+				<button TYPE="SUBMIT" Name="Save" Value="Save">Save</button><button type="button" onclick="disabletest();">Disable All Tests</button>
 		</FORM>
 		<BR><BR>
 		</main>
@@ -141,8 +141,12 @@
 
 
 </body>
-       <script src="output.js"></script>
 <script>
+
+loadScriptWithRetry('output.js');
+
+
+
 var slider = document.getElementById("sld");
 var output = document.getElementById("bval");
 output.innerHTML = slider.value;
@@ -193,5 +197,36 @@ function disabletest()
 
 
 	}
+
+function loadScriptWithRetry(scriptSrc, maxRetries = 5, retryDelay = 500) {
+  let attempts = 0;
+
+  function attemptLoad() {
+    const script = document.createElement('script');
+    script.src = scriptSrc;
+    script.type = 'text/javascript';
+
+    script.onload = () => {
+      output.innerHTML = slider.value;
+      console.log(`Script "${scriptSrc}" loaded successfully.`);
+    };
+
+    script.onerror = () => {
+      attempts++;
+      console.error(`Failed to load script "${scriptSrc}". Attempt ${attempts} of ${maxRetries}.`);
+
+      if (attempts < maxRetries) {
+        setTimeout(attemptLoad, retryDelay);
+      } else {
+        console.error(`Failed to load script "${scriptSrc}" after ${maxRetries} attempts.`);
+      }
+    };
+
+    document.head.appendChild(script);
+  }
+  attemptLoad();
+}
+
+
 </script>
 </html>
