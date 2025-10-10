@@ -1,6 +1,6 @@
 {
 ***************************************************
-* Blitzen 24 Edge Ver 2.2.3 (Rockland) 3/31/2025  *
+* Blitzen 24 Edge Ver 2.3.0 (Rockland) 10/9/2025  *
 ***************************************************
 
 LICENSE TERMS
@@ -141,7 +141,7 @@ OBJ
         qe: "jm_quadraturesmartpin"
 
 PUB main() | i, j
-  str.append_str(@buildver, String("Blitzen 24 Edge 2.2.3 (Rocklin)"))
+  str.append_str(@buildver, String("Blitzen 24 Edge 2.3.0 (Rocklin)"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -1292,7 +1292,7 @@ pub outputjs() | p,idx
     str.append_str(@webbuff, string($0D, $0A, "document.getElementById('brt').value='"))
     str.append_str(@webbuff,str.dec(Brightness,-1))
     str.append_str(@webbuff, string("';"))
-        str.append_str(@webbuff, string($0D, $0A, "document.getElementById('sld').value='"))
+    str.append_str(@webbuff, string($0D, $0A, "document.getElementById('sld').value='"))
     str.append_str(@webbuff,str.dec(Brightness,-1))
     str.append_str(@webbuff, string("';"))
 
@@ -2034,8 +2034,10 @@ pri upgradejs()| dns_ptr, gur
         str.append_str(@webbuff, string($0D, $0A, "var div = document.getElementById('main');"))
 
         manifest[0] := 0
-        gur := getURL(string("/firmware/Blitzen24/Manifest.txt"),upgradeserver_ptr,0)
-'        W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
+        if str.instr(@READBUFFER,string("dev=Y")) == -1
+            gur := getURL(string("/firmware/Blitzen24/Manifest.txt"),upgradeserver_ptr,0)
+        else
+            gur := getURL(string("/devfirmware/Blitzen24/Manifest.txt"),upgradeserver_ptr,0)
 
         if gur == -2
           str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Cant resolve "))
@@ -2085,7 +2087,10 @@ pri upgradejs()| dns_ptr, gur
 
         str.append_str(@webbuff, string("str = `<font size=+1>Manifest file contents</font><br><br><pre>"))
         str.append_str(@webbuff,@READBUFFER + 4 + str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)))
-        str.append_str(@webbuff, string("</pre><BR><BR><FORM METHOD='GET'><INPUT TYPE='SUBMIT' Name='Save' Value='Upgrade My Controller' OnClick=''></FORM><BR><BR><BR><BR>`;"))
+        str.append_str(@webbuff, string("</pre><BR><BR><FORM METHOD='GET'><INPUT TYPE='SUBMIT' Name='Save' Value='Upgrade My Controller' OnClick=''>"))
+        if str.instr(@READBUFFER,string("dev=Y")) <> -1
+            str.append_str(@webbuff, string("<INPUT TYPE='hidden' ID='dev' NAME='OUTPUT' Value='Y'>"))
+        str.append_str(@webbuff, string("</FORM><BR><BR><BR><BR>`;"))
         str.append_str(@webbuff, string($0D, $0A, "div.insertAdjacentHTML('afterbegin', str);"))
 
 
@@ -2119,18 +2124,22 @@ pub httpflush(bufferptr) | i
       rdsize := 0
       webbuff[0] := 0
 pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc, i, bc, tfs
-{
-Return codes
--1 : Can't connect
--2 : Does not resolve
--3 : Timed Out
--4 : Unexpected response upon connect
--5 : Not an HTTP reponse
--6 : MD5 does not match
+'' Gets a file via http
+'' path: pointer to string of the path to the file on the webserver
+'' svr: hostname or IP of webserver
+'' download: If a non-zero number, download the file and place it
+'' in the /Download folder on the SD Card.
+'' download: If a zero is passed, the contents of the file are placed into @READBUFFER
+'' Return codes
+'' -1 : Can't connect
+'' -2 : Does not resolve
+'' -3 : Timed Out
+'' -4 : Unexpected response upon connect
+'' -5 : Not an HTTP reponse
+'' -6 : MD5 does not match
+''
+'' Otherwise, return HTTP Status code.
 
-Otherwise, return HTTP Status code.
-
-}
     servername[0] := 0
     tmp2filepath[0] := 0
     str.append_str(@servername,svr)
