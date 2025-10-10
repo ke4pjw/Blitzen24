@@ -141,7 +141,7 @@ OBJ
         qe: "jm_quadraturesmartpin"
 
 PUB main() | i, j
-  str.append_str(@buildver, String("Blitzen 24 Edge 2.3.0 (Rocklin)"))
+  str.append_str(@buildver, String("Blitzen 24 Edge 2.3.1 (Rocklin) Dev"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -714,11 +714,11 @@ pub statsmenu()| p,c
     OLED.SETFG(OLED.White)
     OLED.TERMPOSX(12)
 ' E1.31 Status
-    if wdcounter <> W6100.Counter()
+    if wdpps > 0
       OLED.SETFG(OLED.Green)
     else
       OLED.SETFG(OLED.Red)
-    if wddiscards <> W6100.Discards() or blinkmode == true
+    if wddps > 0 or blinkmode == true
       OLED.SETFG(OLED.Yellow)
     OLED.TERMSEND(string($81))
     OLED.SETFG(OLED.White)
