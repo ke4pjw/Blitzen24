@@ -29,14 +29,14 @@
 	<section id="pageContent">
 		<main role="main">
 			<FORM METHOD="POST">
+				Hostname <INPUT TYPE="TEXT" NAME="HOSTNAME" ID="HOSTNAME" SIZE="31" maxlength="31" style="text-align: right">.local<BR>
 				<INPUT TYPE="CHECKBOX" VALUE="1" ID="DHCP" NAME="DHCP" >DHCP ENABLED<BR>
 				IP Address <INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="IPADDRESS0" NAME="IPADDRESS0" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="IPADDRESS1" NAME="IPADDRESS1" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="IPADDRESS2" NAME="IPADDRESS2" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="IPADDRESS3" NAME="IPADDRESS3" SIZE="3" maxlength="3"><br>
 				Subnet <INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="SUBNETMASK0" NAME="SUBNETMASK0" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="SUBNETMASK1" NAME="SUBNETMASK1" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="SUBNETMASK2" NAME="SUBNETMASK2" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="SUBNETMASK3" NAME="SUBNETMASK3" SIZE="3" maxlength="3"><br>
 				Gateway <INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="GATEWAY0" NAME="GATEWAY0" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="GATEWAY1" NAME="GATEWAY1" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="GATEWAY2" NAME="GATEWAY2" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="GATEWAY3" NAME="GATEWAY3" SIZE="3" maxlength="3"><br>
 				DNS <INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="DNS0" NAME="DNS0" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="DNS1" NAME="DNS1" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="DNS2" NAME="DNS2" SIZE="3" maxlength="3">.<INPUT TYPE="NUMBER" MIN="0" MAX="255" ID="DNS3" NAME="DNS3" SIZE="3" maxlength="3"><br>
                                 Speed/Duplex <SELECT ID="SD" NAME="SD"><OPTION value="0">Auto Negotiate</OPTION><OPTION value="4">100 Full</OPTION><OPTION value="5">100 Half</OPTION><OPTION value="6">10 Full</OPTION><OPTION value="7">10 Half</OPTION></SELECT><BR>
-				Display Timeout Seconds <INPUT TYPE="NUMBER" MIN="0" MAX="65535" ID="DTO" NAME="DTO" SIZE="5" maxlength="5"> (0 is always on)<BR>
-				<button TYPE="SUBMIT" Name="Save" Value="Save" OnClick='ChangeValidation();'>Save</button>
+				<INPUT TYPE="SUBMIT" Name="Save" Value="Save" OnClick='ChangeValidation();'>
 			</FORM> 
 		<BR><BR>
 		</main>
@@ -84,7 +84,7 @@ function ChangeValidation() {
 		document.getElementById("GATEWAY2").required = true;
 		document.getElementById("GATEWAY3").required = true;
 		}
-	document.getElementById("DTO").required = true;
+	
 return true;   // Returns Value
 }
    </script>
