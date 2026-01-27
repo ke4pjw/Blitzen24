@@ -1,6 +1,6 @@
 {
 ***************************************************
-* Blitzen 24 Edge Ver 2.3.0 (Rockland) 10/9/2025  *
+* Blitzen 24 Edge Ver 2.3.3 (Rockland)  1/25/2026 *
 ***************************************************
 
 LICENSE TERMS
@@ -46,6 +46,9 @@ CON
   ENC_B    = 53  { I }                                          ' encoder data
   ENC_A    = 54  { I }                                          ' encoder clock
   ENC_P    = 55  {Button}
+
+  STRUCT nametype(BYTE namefield[32])
+
 VAR
         long PIXELCONFIG[144]
         long E131CONFIG[432]
@@ -59,6 +62,9 @@ VAR
         byte SPEEDDUPLEX
         long SCREENTIMEOUT
         long DMXENABLED
+        byte HOSTNAME[32]
+        nametype OUTPUTNAME[32]
+        long ENDOFCONFIG ' End of the loadable config
         long TXBUFFER[8]
         byte PACKETBUFFER[4098]
         byte PIXELBUFFER[73768]
@@ -141,7 +147,7 @@ OBJ
         qe: "jm_quadraturesmartpin"
 
 PUB main() | i, j
-  str.append_str(@buildver, String("Blitzen 24 Edge 2.3.1 (Rocklin) Dev"))
+  str.append_str(@buildver, String("Blitzen 24 Edge 2.3.3 (Rocklin) Dev"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -177,7 +183,7 @@ PUB main() | i, j
      OLED.TERMSEND(STRING("Can't mount FS", OLED.CR, OLED.LF))
      OLED.TERMSEND(STRING("Missing SD Card?", OLED.CR, OLED.LF))
      repeat
-  debug("Config memory Size: ", udec_((@DMXENABLED + 3) - @PIXELCONFIG) )
+  debug("Config memory Size: ", udec_((@ENDOFCONFIG + 3) - @PIXELCONFIG) )
   debug("Opening config file: ")
   if not \FS.openfile(string("blitzen.cfg"),"R")
 
@@ -203,14 +209,14 @@ PUB main() | i, j
         i++
 
     else
-      FS.readData(@PIXELCONFIG, (@DMXENABLED + 3) - @PIXELCONFIG + 1)
+      FS.readData(@PIXELCONFIG, (@ENDOFCONFIG + 3) - @PIXELCONFIG + 1)
       OLED.TERMSEND(STRING("V2 "))
     FS.closeFile()
     OLED.TERMSEND(STRING("Config Found!", OLED.CR, OLED.LF))
   else
     debug("Failed")
     debug("Zeroing Memory Configuration.")
-    bytefill(@PIXELCONFIG, 0, (@DMXENABLED +3) - @PIXELCONFIG + 1)
+    bytefill(@PIXELCONFIG, 0, (@ENDOFCONFIG +3) - @PIXELCONFIG + 1)
 
        'Configure Mac Address
     MACADDRESS[0] := $00 'wiznet don't change
@@ -248,7 +254,7 @@ PUB main() | i, j
     if not \FS.openfile(string("blitzen.cfg"),"W")
 
       debug("Writing Configuration to SD Card.", $0D, $0A)
-      FS.writeData(@PIXELCONFIG, (@DMXENABLED + 3) - @PIXELCONFIG + 1)
+      FS.writeData(@PIXELCONFIG, (@ENDOFCONFIG + 3) - @PIXELCONFIG + 1)
       FS.closeFile()
       OLED.TERMSEND(STRING("New config saved.", OLED.CR, OLED.LF))
     else
@@ -303,7 +309,7 @@ PUB main() | i, j
   WRITEBUFFER[0] := W6100.SYSR_NETU
   W6100.writereg(W6100.REG_NETLCKR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
 
-  debug("Set MAC address: ",uhex_(MACADDRESS[0],2),":",uhex_(MACADDRESS[1],2),":", uhex_(MACADDRESS[2],2),":",uhex_(MACADDRESS[3],2),":",uhex_(MACADDRESS[4],2),":", uhex_(MACADDRESS[5],2),":")
+  debug("Set MAC address: ",uhex_(MACADDRESS[0]),":",uhex_(MACADDRESS[1]),":", uhex_(MACADDRESS[2]),":",uhex_(MACADDRESS[3]),":",uhex_(MACADDRESS[4]),":", uhex_(MACADDRESS[5]))
 
   W6100.writereg(W6100.REG_SHAR0,W6100.IDM_BSR_Common_Register,6,@MACADDRESS)
 
@@ -963,6 +969,13 @@ repeat
 
 
 pub netpost()
+
+        ' Get the output name
+     if str.instr(@READBUFFER,string("HOSTNAME=")) <> -1
+       strcopy(@tmpfilepath, @READBUFFER + str.instr(@READBUFFER,string("HOSTNAME="))+9, str.instr(@READBUFFER + str.instr(@READBUFFER,string("HOSTNAME="))+9,string("&")))
+       URLDecode(@tmpfilepath,@HOSTNAME)
+       tmpfilepath[0] := 0 ' Zero out the tmp string. tmpfilepath is used because it is available.
+
      if str.instr(@READBUFFER,string("DHCP=1")) <> -1
         DHCP := 1
      else
@@ -997,7 +1010,7 @@ pub writeconfig()
     if not \FS.openfile(string("blitzen.cfg"),"W")
 
       debug("Writing Configuration to SD Card.", $0D, $0A)
-      FS.writeData(@PIXELCONFIG, (@DMXENABLED + 3) - @PIXELCONFIG + 1)
+      FS.writeData(@PIXELCONFIG, (@ENDOFCONFIG + 3) - @PIXELCONFIG + 1)
       FS.closeFile()
 
     else
@@ -1069,6 +1082,12 @@ pub e131post() | output, ei, eti, u , uascii
         DMXENABLED := 1
       else
         DMXENABLED := 0
+
+    ' Get the output name
+    if str.instr(@READBUFFER,string("ON=")) <> -1
+      strcopy(@tmpfilepath, @READBUFFER + str.instr(@READBUFFER,string("ON="))+3, str.instr(@READBUFFER + str.instr(@READBUFFER,string("ON="))+3,string("&")))
+      URLDecode(@tmpfilepath,@OUTPUTNAME[output-1].namefield)
+      tmpfilepath[0] := 0 ' Zero out the tmp string. tmpfilepath is used because it is available.
 
     ' Initialize the variables to be used.
     u  := 1
@@ -1159,6 +1178,13 @@ pub e131js() | output, u, ei, type
 
    u  := 1
    ei := 0
+   if DMXENABLED <> 1 and type <> 2
+
+       str.append_str(@webbuff, string($0D, $0A, "document.getElementById('ON').value='"))
+       singlequoteescape(@OUTPUTNAME[output-1].namefield, @tmpfilepath)
+       str.append_str(@webbuff, @tmpfilepath)
+       str.append_str(@webbuff, string("';"))
+       tmpfilepath[0] := 0
 
    repeat until E131CONFIG[ei] == 0
       if E131CONFIG[ei] == output
@@ -1333,10 +1359,18 @@ pub outputjs() | p,idx
 pub netjs() | idx
 
 ' Zero out buffer
-   webbuff[0] := 0
+  webbuff[0] := 0
 
 ' send header
-   str.append_str(@webbuff,resp_ptr)
+  str.append_str(@webbuff,resp_ptr)
+
+  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('HOSTNAME').value='"))
+  singlequoteescape(@HOSTNAME, @tmpfilepath)
+  str.append_str(@webbuff, @tmpfilepath)
+  str.append_str(@webbuff, string("';"))
+  tmpfilepath[0] := 0
+
+
 
 ' set checkbox if DHCP is enabled
   if DHCP == 1
@@ -1552,8 +1586,8 @@ pub downloadconfig()
   str.append_str(@webbuff,resp_dl_ptr)
   rdsize := strsize(@webbuff)
 ' Copy running config into web buffer
-  bytemove(@webbuff + rdsize, @PIXELCONFIG, (@DMXENABLED + 3) - @PIXELCONFIG + 1)
-  rdsize := rdsize + ((@DMXENABLED + 3) - @PIXELCONFIG) + 1
+  bytemove(@webbuff + rdsize, @PIXELCONFIG, (@ENDOFCONFIG + 3) - @PIXELCONFIG + 1)
+  rdsize := rdsize + ((@ENDOFCONFIG + 3) - @PIXELCONFIG) + 1
 
 
 pub dhcpclient() | i
@@ -1927,18 +1961,18 @@ pub dmxbufferaddr() : dmxbuffer | ei
    return -1
 pub dnsresolver(hostname) : rv | i, l
   debug("Configuring Protocol Mode UDP on Socket 0", $0D, $0A)
-  W6100.Open(53,W6100.PM_UDP4,W6100.IDM_BSR_Socket0_Register)
+  W6100.Open(53,W6100.PM_UDP4,W6100.IDM_BSR_Socket2_Register)
   ' Set Destination IP
   WRITEBUFFER[0] := DNS[0]
   WRITEBUFFER[1] := DNS[1]
   WRITEBUFFER[2] := DNS[2]
   WRITEBUFFER[3] := DNS[3]
-  W6100.writereg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket0_Register,4,@WRITEBUFFER)
+  W6100.writereg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket2_Register,4,@WRITEBUFFER)
 
   ' Set Destination port
   WRITEBUFFER[0] := 00
   WRITEBUFFER[1] := 53
-  W6100.writereg(W6100.REG_Sn_DPORTR,W6100.IDM_BSR_Socket0_Register,2,@WRITEBUFFER)
+  W6100.writereg(W6100.REG_Sn_DPORTR,W6100.IDM_BSR_Socket2_Register,2,@WRITEBUFFER)
 
   ' Transaction ID
   RequestID[0] := prng.xrandomize($00,$FF)
@@ -1986,23 +2020,23 @@ pub dnsresolver(hostname) : rv | i, l
   WRITEBUFFER[i+3] := 1   ' $0001 is IN for Internet
 
   'Send Query
-  W6100.SendData(W6100.IDM_BSR_Socket0_Register,@WRITEBUFFER,i+4)
+  W6100.SendData(W6100.IDM_BSR_Socket2_Register,@WRITEBUFFER,i+4)
 
   'clearing readbuffer
   BYTEFILL(@READBUFFER,$00,1024)
 
-  W6100.readreg(W6100.REG_Sn_IR,W6100.IDM_BSR_Socket0_Register,1,@READBUFFER)
+  W6100.readreg(W6100.REG_Sn_IR,W6100.IDM_BSR_Socket2_Register,1,@READBUFFER)
   debug("Checking Sn_IR Socket Status: ", uhex_(READBUFFER[0]))
 
   repeat until READBUFFER[8] == RequestID[0] && READBUFFER[9] == RequestID[1]
      ' Set timeout to 5 seconds
      l := GETSEC() + 5
-     repeat until W6100.ReceiveData(W6100.IDM_BSR_Socket0_Register,1) == 0
+     repeat until W6100.ReceiveData(W6100.IDM_BSR_Socket2_Register,1) == 0
       if GETSEC() >= l
          debug("DNS Server timed out.")
          return -1
 
-     psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket0_Register,@READBUFFER)
+     psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket2_Register,@READBUFFER)
 
      debug("Received XID is: ", uhex_(READBUFFER[8]),":",uhex_(READBUFFER[9]))
   if READBUFFER[10] == $81 && READBUFFER[11] == $80
@@ -2651,3 +2685,127 @@ PUB HardwareVer() : r
       debug("Version 1 hardware")
       r := 1
     return r
+
+PUB URLDecode(src, dst) : len | c, hex1, hex2
+'' Decode URL-encoded string from src to dst
+'' src: pointer to source URL-encoded string (zero-terminated)
+'' dst: pointer to destination buffer
+'' Returns: length of decoded string
+
+  len := 0
+
+  repeat while c := BYTE[src++]
+    case c
+      "+":
+        ' Plus sign becomes space
+        BYTE[dst++] := " "
+        len++
+
+      "%":
+        ' Percent encoding - next two chars are hex digits
+        hex1 := BYTE[src++]
+        hex2 := BYTE[src++]
+
+        if hex1 and hex2
+          ' Convert hex digits to byte value
+          BYTE[dst++] := (HexDigitValue(hex1) << 4) | HexDigitValue(hex2)
+          len++
+        else
+          ' Invalid encoding, just copy the percent
+          BYTE[dst++] := "%"
+          len++
+          if hex1
+            BYTE[dst++] := hex1
+            len++
+
+      other:
+        ' Regular character, copy as-is
+        BYTE[dst++] := c
+        len++
+
+  ' Null terminate the destination
+  BYTE[dst] := 0
+
+PRI HexDigitValue(c) : value
+'' Convert ASCII hex digit to numeric value
+
+  case c
+    "0".."9":
+      return c - "0"
+    "A".."F":
+      return c - "A" + 10
+    "a".."f":
+      return c - "a" + 10
+    other:
+      return 0
+
+PUB HTMLEncode(src, dst) : len | c
+'' Encode string to HTML-safe format
+'' src: pointer to source string (zero-terminated)
+'' dst: pointer to destination buffer (must be large enough - up to 6x source size)
+'' Returns: length of encoded string
+
+  len := 0
+
+  repeat while c := BYTE[src++]
+    case c
+      "<":
+        ' Less-than becomes &lt;
+        BYTEMOVE(dst, @"&lt;", 4)
+        dst += 4
+        len += 4
+
+      ">":
+        ' Greater-than becomes &gt;
+        BYTEMOVE(dst, @"&gt;", 4)
+        dst += 4
+        len += 4
+
+      "&":
+        ' Ampersand becomes &amp;
+        BYTEMOVE(dst, @"&amp;", 5)
+        dst += 5
+        len += 5
+
+      '"':
+        ' Double quote becomes &quot;
+        BYTEMOVE(dst, @"&quot;", 6)
+        dst += 6
+        len += 6
+
+      "'":
+        ' Single quote becomes &#39;
+        BYTEMOVE(dst, @"&#39;", 5)
+        dst += 5
+        len += 5
+
+      other:
+        ' Regular character, copy as-is
+        BYTE[dst++] := c
+        len++
+
+  ' Null terminate the destination
+  BYTE[dst] := 0
+PUB singlequoteescape(src, dst) : len | c
+  len := 0
+
+  repeat while c := BYTE[src++]
+    case c
+      "\":
+        ' "'" becomes "\\"
+        BYTEMOVE(dst, @"\\", 2)
+        dst += 2
+        len += 2
+
+      "'":
+        ' "'" becomes "\'"
+        BYTEMOVE(dst, @"\'", 2)
+        dst += 2
+        len += 2
+
+      other:
+        ' Regular character, copy as-is
+        BYTE[dst++] := c
+        len++
+  ' Null terminate the destination
+  BYTE[dst] := 0                            
