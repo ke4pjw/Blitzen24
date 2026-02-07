@@ -573,13 +573,15 @@ pub ConnectTCP(socket) : rtv
 '  readreg(REG_Sn_SR,socket,1,@REGBUFFER)
   rtv := REGBUFFER[0]
 
-pub EstablishTCP(socket) : rtv
+pub EstablishTCP(socket,tot) : rtv | ctimeout
+  ctimeout := getms()
   readreg(REG_Sn_IR,socket,1,@REGBUFFER)
-   repeat until (REGBUFFER[0] & Sn_IR_CON) == Sn_IR_CON || (REGBUFFER[0] & Sn_IR_TIMEOUT) == Sn_IR_TIMEOUT
+  repeat until (REGBUFFER[0] & Sn_IR_CON) == Sn_IR_CON || (REGBUFFER[0] & Sn_IR_TIMEOUT) == Sn_IR_TIMEOUT
     readreg(REG_Sn_IR,socket,1,@REGBUFFER)
-    if (REGBUFFER[0] & Sn_IR_TIMEOUT) == Sn_IR_TIMEOUT
+    if ((REGBUFFER[0] & Sn_IR_TIMEOUT) == Sn_IR_TIMEOUT) or ((getms() > ctimeout + tot) & tot >= 1)
       'Timeout(socket)
       rtv := Sn_IR_TIMEOUT
+      return(rtv)
   REGBUFFER[0] := Sn_IR_CON
   writereg(REG_Sn_IRCLR,socket,1,@REGBUFFER)
 
