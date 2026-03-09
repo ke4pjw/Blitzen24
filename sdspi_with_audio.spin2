@@ -8,7 +8,7 @@ CON 'See end of file for license
     Original spin version by Radical Eye Software Copyright 2008
 }}
     'sectorsize =   512
-    spi_clk_max =   25_000_00   ' 20mhz safe
+    spi_clk_max =   20_000_00   ' 20mhz safe
     spi_clk_inv =   1           ' 1 inverted, 0 non-inverted
 
 'RJA added multiblock reads and removed smartpin mode to boost speed

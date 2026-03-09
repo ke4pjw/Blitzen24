@@ -1,11 +1,11 @@
 {
 **************************************************
-*  Wiznet 6100 Driver Ver 1.10   1/6/2023        *
+*  Wiznet 6100 Driver Ver 1.5    2/26/2026        *
 **************************************************
 
 LICENSE TERMS
 -------------
-Copyright 2021, 2022 Terry E. Trapp, KE4PJW
+Copyright 2026 Terry E. Trapp, KE4PJW
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -113,6 +113,7 @@ CON
   REG_Sn_TX_BSR = $0200
   REG_Sn_RX_BSR = $0220
   REG_Sn_MR     = $0000
+  REG_Sn_MSSR   = $0110
   REG_Sn_MR2    = $0144
   REG_Sn_DHAR   = $0118
   REG_Sn_DIPR   = $0120
@@ -204,10 +205,10 @@ VAR
   long E131Ptr2Discards
   long  ADDRH
   long  ADDRL
-  byte  REGBUFFER[2]
-  word  TX_WR
-  word  RX_RD
-  word  RX_RSR
+  byte  REGBUFFER[16]
+  word  TX_WR[8]
+  word  RX_RD[8]
+  word  RX_RSR[8]
   long  e131cog
   long  E131Counter
   long  E131Discards
@@ -235,6 +236,9 @@ org
 
 end
 PUB reset()
+'' Resets the W6100
+''
+''
   PINL (RSET)
   PINL (WRn)
   PINL (RDn)
@@ -242,9 +246,16 @@ PUB reset()
   PINH (RSET)
   waitms (3000)
 PUB setmod010()
+'' Sets W6100 to Mode 010 (Parallel Data Mode)
+''
+''
   PINH (MOD)
 
 PUB initparallel() : r
+'' Sets up pins for parallel mode
+'' Set SPIMODE to false
+'' Returns the lock used for EthernetLock
+'  SPIMODE := false
   setuppins()
   EthernetLock := locknew()
    if EthernetLock >= 0  and  EthernetLock <= 15
@@ -253,11 +264,22 @@ PUB initparallel() : r
 
   return EthernetLock
 PUB Counter() : r
+'' The packet counter for E1.31
+''
+''
     return E131Counter
 PUB Discards() : r
+'' The number of E1.31 packets that are destened for a Universe not configured.
+''
+''
     return E131Discards
 
 PUB readreg(REGISTER,BS,BLEN,RB) : r | i , LADDRL, LADDRH, tmpdata, tmpptr, datapin
+'' Reads from a register. Returns last byte
+'' REGISTER : Regsiter to Read (See CON Section)
+'' BS : Block Selection Register (See CON Section)
+'' BLEN : Number of bytes to read from the Buffer
+'' RB : String address to write buffer to
 repeat until locktry(EthernetLock) < 0
 '  waitus(0)
 org
@@ -360,6 +382,12 @@ lockrel(ethernetlock)
 return r
 
 PUB writereg(REGISTER,BS,BLEN,RB) : r | i , LADDRL ,  LADDRH , datapin , tmpdata
+'' Writes to a register.
+'' REGISTER : Regsiter to Write (See CON Section)
+'' BS : Block Selection Register (See CON Section)
+'' BLEN : Number of bytes to write to the Buffer
+'' RB : String address to write buffer from
+
 repeat until locktry(EthernetLock) < 0
 '  waitus(0)
 org
@@ -504,136 +532,167 @@ lockrel(ethernetlock)
 return
 
 Pub Disconnect(socket)
+'' Disconnect the socket/close connection.
+'' Expects socket: Socket Register from Block Selection. See Con Section. Example: IDM_BSR_Socket6_Register
+'' Returns nothing.
     'send("Disconnect attempt")
 
 
- '   readreg(REG_Sn_IR,IDM_BSR_Socket1_Register,1,@REGBUFFER)
+ '   readreg(REG_Sn_IR,IDM_BSR_Socket1_Register,1,@REGBUFFER+((socket >> 5)*2))
   '  If REGBUFFER[0] <> $1C
-    REGBUFFER[0] := CR_DISCON
-    writereg(REG_Sn_CR,socket,1,@REGBUFFER)
-    repeat until REGBUFFER[0] == 0
-        readreg(REG_Sn_CR,socket,1,@REGBUFFER)
+    REGBUFFER[(socket >> 5)*2] := CR_DISCON
+    writereg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2))
+    repeat until REGBUFFER[(socket >> 5)*2] == 0
+        readreg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2))
 
-    repeat while (REGBUFFER[0] & (Sn_IR_TIMEOUT + Sn_IR_DISCON)) == $00
-        readreg(REG_Sn_IR,socket,1,@REGBUFFER)
+    repeat while (REGBUFFER[(socket >> 5)*2] & (Sn_IR_TIMEOUT + Sn_IR_DISCON)) == $00
+        readreg(REG_Sn_IR,socket,1,@REGBUFFER+((socket >> 5)*2))
         'vid.hex(REGBUFFER[0],2)
         'vid.nl()
-      if (REGBUFFER[0] & (Sn_IR_TIMEOUT + Sn_IR_DISCON)) == Sn_IR_DISCON
-       REGBUFFER[0] := Sn_IR_DISCON
+      if (REGBUFFER[(socket >> 5)*2] & (Sn_IR_TIMEOUT + Sn_IR_DISCON)) == Sn_IR_DISCON
+       REGBUFFER[(socket >> 5)*2] := Sn_IR_DISCON
       else
-       REGBUFFER[0] := Sn_IR_TIMEOUT
-      writereg(REG_Sn_IRCLR,socket,1,@REGBUFFER)
+       REGBUFFER[(socket >> 5)*2] := Sn_IR_TIMEOUT
+      writereg(REG_Sn_IRCLR,socket,1,@REGBUFFER+((socket >> 5)*2))
 
     'send("Disconnected")
     'vid.nl()
     ' Gonna try this bullshit right here because I am sure I didn't clear all of the interrupts
-    REGBUFFER[0] := $1F
-    writereg(REG_Sn_IRCLR,socket,1,@REGBUFFER)
+    REGBUFFER[(socket >> 5)*2] := $1F
+    writereg(REG_Sn_IRCLR,socket,1,@REGBUFFER+((socket >> 5)*2))
 
 
 pub Open(port,PM,socket)
-
-  readreg(REG_Sn_SR,socket,1,@REGBUFFER)
-  'vid.hex(REGBUFFER[0],2)
+'' Opens/sets port on socket
+'' Expects-
+''  Port: is TCP/UDP Port Number
+''  PM:  Protocol Mode. See in CON section. Example: PM_TCP4 for TCP IPv4
+''  Socket: Socket Register from Block Selection. See Con Section. Example: IDM_BSR_Socket6_Register
+'' Returns nothing.
+  readreg(REG_Sn_SR,socket,1,@REGBUFFER+((socket >> 5)*2))
+  'vid.hex(REGBUFFER[(socket >> 5)*2],2)
   'vid.nl()
-  repeat until REGBUFFER[0] == SOCK_INIT or REGBUFFER[0] == SOCK_UDP
-    REGBUFFER[0] := PM
-    writereg(REG_Sn_MR,socket,1,@REGBUFFER)
+  repeat until REGBUFFER[(socket >> 5)*2] == SOCK_INIT or REGBUFFER[(socket >> 5)*2] == SOCK_UDP
+    REGBUFFER[(socket >> 5)*2] := PM
+    writereg(REG_Sn_MR,socket,1,@REGBUFFER+((socket >> 5)*2))
 
    ' Set Listening port
-    REGBUFFER[0] := port.BYTE[1]
-    REGBUFFER[1] := port.BYTE[0]
-    writereg(REG_Sn_PORTR,socket,2,@REGBUFFER)
+    REGBUFFER[(socket >> 5)*2] := port.BYTE[1]
+    REGBUFFER[((socket >> 5)*2)+1] := port.BYTE[0]
+    writereg(REG_Sn_PORTR,socket,2,@REGBUFFER+((socket >> 5)*2))
 
   ' Choose the form of the destructor. (Open the socket)
-    REGBUFFER[0] := CR_Open
-    writereg(REG_Sn_CR,socket,1,@REGBUFFER)
-      repeat until REGBUFFER[0] == 0
-         readreg(REG_Sn_CR,socket,1,@REGBUFFER)
+    REGBUFFER[(socket >> 5)*2] := CR_Open
+    writereg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2))
+      repeat until REGBUFFER[(socket >> 5)*2] == 0
+         readreg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2))
 
-    readreg(REG_Sn_SR,socket,1,@REGBUFFER)
-    'vid.hex(REGBUFFER[0],2)
+    readreg(REG_Sn_SR,socket,1,@REGBUFFER+((socket >> 5)*2))
+    'vid.hex(REGBUFFER[(socket >> 5)*2],2)
     'vid.nl()
 
 pub ListenTCP(socket) : rtv
-  REGBUFFER[0] := CR_LISTEN
-  writereg(REG_Sn_CR,socket,1,@REGBUFFER)
-  readreg(REG_Sn_SR,socket,1,@REGBUFFER)
-    repeat until REGBUFFER[0] == 0
-       readreg(REG_Sn_CR,socket,1,@REGBUFFER)
-  readreg(REG_Sn_SR,socket,1,@REGBUFFER)
-  rtv := REGBUFFER[0]
+'' Creates listener on socket
+'' Expects socket: Socket Register from Block Selection. See Con Section. Example: IDM_BSR_Socket6_Register
+'' Returns value in REG_Sn_SR for given socket.
+  REGBUFFER[(socket >> 5)*2] := CR_LISTEN
+  writereg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2))
+  readreg(REG_Sn_SR,socket,1,@REGBUFFER+((socket >> 5)*2))
+    repeat until REGBUFFER[(socket >> 5)*2] == 0
+       readreg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2))
+  readreg(REG_Sn_SR,socket,1,@REGBUFFER+((socket >> 5)*2))
+  rtv := REGBUFFER[(socket >> 5)*2]
 
 pub ConnectTCP(socket) : rtv
-  REGBUFFER[0] := CR_CONNECT
-  writereg(REG_Sn_CR,socket,1,@REGBUFFER)
-  readreg(REG_Sn_CR,socket,1,@REGBUFFER)
-    repeat until REGBUFFER[0] == 0
-       readreg(REG_Sn_CR,socket,1,@REGBUFFER)
-'  readreg(REG_Sn_SR,socket,1,@REGBUFFER)
-  rtv := REGBUFFER[0]
+'' Creates connection on socket
+'' Expects socket: Socket Register from Block Selection. See Con Section. Example: IDM_BSR_Socket6_Register
+'' Returns value in REG_Sn_SR for given socket.
+
+  REGBUFFER[(socket >> 5)*2] := CR_CONNECT
+  writereg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2))
+  readreg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2))
+    repeat until REGBUFFER[(socket >> 5)*2] == 0
+       readreg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2))
+'  readreg(REG_Sn_SR,socket,1,@REGBUFFER+((socket >> 5)*2))
+  rtv := REGBUFFER[(socket >> 5)*2]
 
 pub EstablishTCP(socket,tot) : rtv | ctimeout
+'' Establish connection on socket
+'' Expects socket: Socket Register from Block Selection. See Con Section. Example: IDM_BSR_Socket6_Register
+'' Expects timeout timer in ms
+'' Returns Sn_IR_TIMEOUT if no connection established
   ctimeout := getms()
-  readreg(REG_Sn_IR,socket,1,@REGBUFFER)
-  repeat until (REGBUFFER[0] & Sn_IR_CON) == Sn_IR_CON || (REGBUFFER[0] & Sn_IR_TIMEOUT) == Sn_IR_TIMEOUT
-    readreg(REG_Sn_IR,socket,1,@REGBUFFER)
-    if ((REGBUFFER[0] & Sn_IR_TIMEOUT) == Sn_IR_TIMEOUT) or ((getms() > ctimeout + tot) & tot >= 1)
+  readreg(REG_Sn_IR,socket,1,@REGBUFFER+((socket >> 5)*2))
+   repeat until (REGBUFFER[(socket >> 5)*2] & Sn_IR_CON) == Sn_IR_CON || (REGBUFFER[(socket >> 5)*2] & Sn_IR_TIMEOUT) == Sn_IR_TIMEOUT
+    readreg(REG_Sn_IR,socket,1,@REGBUFFER+((socket >> 5)*2))
+    if ((REGBUFFER[(socket >> 5)*2] & Sn_IR_TIMEOUT) == Sn_IR_TIMEOUT) or ((getms() > ctimeout + tot) & tot >= 1)
       'Timeout(socket)
       rtv := Sn_IR_TIMEOUT
       return(rtv)
-  REGBUFFER[0] := Sn_IR_CON
-  writereg(REG_Sn_IRCLR,socket,1,@REGBUFFER)
+  REGBUFFER[(socket >> 5)*2] := Sn_IR_CON
+  writereg(REG_Sn_IRCLR,socket,1,@REGBUFFER+((socket >> 5)*2))
 
 pub ReceiveData(socket,tmov) : rtv | tmo
-    tmo := 0
-    RX_RSR := 0
-    repeat until RX_RSR > 0 or tmo > tmov
-      readreg(REG_Sn_RX_RSR,socket,2,@REGBUFFER)
-      RX_RSR := REGBUFFER[0]
-      RX_RSR <<= 8
-      RX_RSR := RX_RSR + REGBUFFER[1]
-      tmo++
-    if tmo > tmov
+'' Receives Data from socket.
+'' Expects:
+''  socket: Socket Register from Block Selection. See Con Section. Example: IDM_BSR_Socket6_Register
+''  tmov: Number of milliseconds before timing out
+'' Returns Sn_IR_TIMEOUT if no data received
+'' To actually place data into a buffer, call ReceiveProcess() if
+'' Sn_IR_TIMEOUT is *NOT* returned
+
+    tmo := getms()
+    RX_RSR[(socket >> 5)] := 0
+    repeat until RX_RSR[(socket >> 5)] > 0 or getms() >  tmo + tmov
+      readreg(REG_Sn_RX_RSR,socket,2,@REGBUFFER+((socket >> 5)*2))
+      RX_RSR[(socket >> 5)] := REGBUFFER[(socket >> 5)*2]
+      RX_RSR[(socket >> 5)] <<= 8
+      RX_RSR[(socket >> 5)] := RX_RSR[(socket >> 5)] + REGBUFFER[((socket >> 5)*2)+1]
+    if getms() >  tmo + tmov
        rtv := Sn_IR_TIMEOUT
     'send("TMO: ")
     'vid.dec(tmo)
     'vid.nl()
 pub FastReceiveData(socket,tmov) : rtv | tmo , rsr
-    rsr := readreg(REG_Sn_RX_RSR,socket,2,@REGBUFFER)
+'' Can't remmber if this works. Not sure why it exists.
+''
+''
+    rsr := readreg(REG_Sn_RX_RSR,socket,2,@REGBUFFER+((socket >> 5)*2))
     repeat until rsr > 0
-        rsr := readreg(REG_Sn_RX_RSR,socket,2,@REGBUFFER)
+        rsr := readreg(REG_Sn_RX_RSR,socket,2,@REGBUFFER+((socket >> 5)*2))
 
-    RX_RSR := rsr
+    RX_RSR[(socket >> 5)] := rsr
 
 pub FastReceiveProcess(socket,rxptr,REGBUFFERTMP) |  i , LADDRL, LADDRH, tmpdata, RB, datapin, REGISTER, BLEN, BS, socket_rd, l_RX_RSR, l_RX_RD, r
-
-{    RX_RD := readreg(REG_Sn_RX_RD,socket,2,@REGBUFFER)
+'' Can't remmber if this works. Not sure why it exists.
+''
+''
+{    RX_RD := readreg(REG_Sn_RX_RD,socket,2,@REGBUFFER+((socket >> 5)*2))
 
 {
-    RX_RD := REGBUFFER[0]
+    RX_RD := REGBUFFER[(socket >> 5)*2]
     RX_RD <<= 8
-    RX_RD := RX_RD + REGBUFFER[1]
+    RX_RD := RX_RD + REGBUFFER[1+((socket >> 5)*2)]
  }
 
 '    send("Read buffer starting at: ")
-'    hex(REGBUFFER[0],2)
-'    hex(REGBUFFER[1],2)
+'    hex(REGBUFFER[(socket >> 5)*2],2)
+'    hex(REGBUFFER[1+((socket >> 5)*2)],2)
 '    nl()
     readreg(RX_RD,socket + $10,RX_RSR,rxptr)
 
 
 '    send("Update RX Buffer Start Address: ")
     RX_RD := RX_RD + RX_RSR
-    REGBUFFER[0] := RX_RD.BYTE[1]
-    REGBUFFER[1] := RX_RD.BYTE[0]
-    writereg(REG_Sn_RX_RD,socket,2,@REGBUFFER)
-'    hex(REGBUFFER[0],2)
-'    hex(REGBUFFER[1],2)
+    REGBUFFER[(socket >> 5)*2] := RX_RD.BYTE[1]
+    REGBUFFER[1+((socket >> 5)*2)] := RX_RD.BYTE[0]
+    writereg(REG_Sn_RX_RD,socket,2,@REGBUFFER+((socket >> 5)*2))
+'    hex(REGBUFFER[(socket >> 5)*2],2)
+'    hex(REGBUFFER[1+((socket >> 5)*2)],2)
 '    nl()
-    REGBUFFER[1] := CR_RECV
-    writereg(REG_Sn_CR,socket,1,@REGBUFFER+1)
-    repeat until readreg(REG_Sn_CR,socket,1,@REGBUFFER) == 0
+    REGBUFFER[1+((socket >> 5)*2)] := CR_RECV
+    writereg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2)+1)
+    repeat until readreg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2)) == 0
 
 '    rtv := RX_RSR   }
 repeat until locktry(EthernetLock) < 0
@@ -655,7 +714,7 @@ start mov REGISTER, ##REG_Sn_RX_RSR
 '      debug(uhex(REGISTER))
       mov BLEN, #2 ' get two bytes
 '      debug(uhex(BLEN))
-      mov RB, REGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      mov RB, REGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER+((socket >> 5)*2) is $00 later on.
 '      debug(uhex(RB))
       call #rx
 '      debug(uhex(r))
@@ -668,7 +727,7 @@ if_z  jmp #start ' If r is empty, go fish.
 ' Check it again to be sure
       mov REGISTER, ##REG_Sn_RX_RSR
       mov BLEN, #2 ' get two bytes
-      mov RB, REGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      mov RB, REGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER+((socket >> 5)*2) is $00 later on.
       call #rx
       cmp r, l_RX_RSR wz  ' r is what is returned from rx. rx returns the last two bytes as a word.
 if_nz  jmp #start ' If r is not the same as l_RX_RSR, go fish.
@@ -679,7 +738,7 @@ if_nz  jmp #start ' If r is not the same as l_RX_RSR, go fish.
 ' Find the rx buffer address to start reading bytes (RX_RD)
       mov REGISTER, ##REG_Sn_RX_RD
       mov BLEN, #2 ' get two bytes
-      mov RB, REGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      mov RB, REGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER+((socket >> 5)*2) is $00 later on.
       call #rx
       mov l_RX_RD, r ' r is what is returned from rx. rx returns the last two bytes as a word.
 {
@@ -692,7 +751,7 @@ if_nz  jmp #start ' If r is not the same as l_RX_RSR, go fish.
       mov REGISTER, l_RX_RD
       mov BS, socket_rd
       mov BLEN, l_RX_RSR
-      mov RB, rxptr ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      mov RB, rxptr ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER+((socket >> 5)*2) is $00 later on.
       call #rx
 
 
@@ -711,7 +770,7 @@ if_nz  jmp #start ' If r is not the same as l_RX_RSR, go fish.
       mov REGISTER, ##REG_Sn_RX_RD
       mov BLEN, #2 ' get two bytes
 '      sub REGBUFFERTMP, #1
-      mov RB, REGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      mov RB, REGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER+((socket >> 5)*2) is $00 later on.
       call #tx
 
 
@@ -933,47 +992,54 @@ end
 lockrel(ethernetlock)
 
 pub ReceiveProcess(socket,rxptr) : rtv
-
-    readreg(REG_Sn_RX_RD,socket,2,@REGBUFFER)
+'' Reads data from socket and writes it to the pointer at rxptr
+'' Expects-
+''  socket: Socket Register from Block Selection. See Con Section. Example: IDM_BSR_Socket6_Register
+''  rxptr: Pointer to location in memory to write data to
+'' Returns number of bytes in packet.
+    readreg(REG_Sn_RX_RD,socket,2,@REGBUFFER+((socket >> 5)*2))
 '    send("RX Buffer Start Address: ")
-'    hex(REGBUFFER[0],2)
-'    hex(REGBUFFER[1],2)
+'    hex(REGBUFFER[(socket >> 5)*2],2)
+'    hex(REGBUFFER[1+((socket >> 5)*2)],2)
 '    nl()
-    RX_RD := REGBUFFER[0]
-    RX_RD <<= 8
-    RX_RD := RX_RD + REGBUFFER[1]
+    RX_RD[(socket >> 5)] := REGBUFFER[(socket >> 5)*2]
+    RX_RD[(socket >> 5)] <<= 8
+    RX_RD[(socket >> 5)] := RX_RD[(socket >> 5)] + REGBUFFER[((socket >> 5)*2)+1]
 
 
 '    send("Read buffer starting at: ")
-'    hex(REGBUFFER[0],2)
-'    hex(REGBUFFER[1],2)
+'    hex(REGBUFFER[(socket >> 5)*2],2)
+'    hex(REGBUFFER[1+((socket >> 5)*2)],2)
 '    nl()
-    readreg(RX_RD,socket + $10,RX_RSR,rxptr)
+    readreg(RX_RD[(socket >> 5)],socket + $10,RX_RSR[(socket >> 5)],rxptr)
 
 
 '    send("Update RX Buffer Start Address: ")
-    RX_RD := RX_RD + RX_RSR
-    REGBUFFER[0] := RX_RD.BYTE[1]
-    REGBUFFER[1] := RX_RD.BYTE[0]
-    writereg(REG_Sn_RX_RD,socket,2,@REGBUFFER)
-'    hex(REGBUFFER[0],2)
-'    hex(REGBUFFER[1],2)
+    RX_RD[(socket >> 5)] := RX_RD[(socket >> 5)] + RX_RSR[(socket >> 5)]
+    REGBUFFER[(socket >> 5)*2] := RX_RD.BYTE[((socket >> 5)*2) + 1]
+    REGBUFFER[((socket >> 5)*2)+1] := RX_RD.BYTE[(socket >> 5)*2]
+    writereg(REG_Sn_RX_RD,socket,2,@REGBUFFER+((socket >> 5)*2))
+'    hex(REGBUFFER[(socket >> 5)*2],2)
+'    hex(REGBUFFER[1+((socket >> 5)*2)],2)
 '    nl()
-    REGBUFFER[1] := CR_RECV
-    writereg(REG_Sn_CR,socket,1,@REGBUFFER+1)
-    repeat until REGBUFFER[0] == 0
-       readreg(REG_Sn_CR,socket,1,@REGBUFFER)
-    rtv := RX_RSR
+    REGBUFFER[((socket >> 5)*2)+1] := CR_RECV
+    writereg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2)+1)
+    repeat until REGBUFFER[(socket >> 5)*2] == 0
+       readreg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2))
+    rtv := RX_RSR[(socket >> 5)]
 
 pub SendData(socket,sendptr,ptrlen) : rtv | i
-    readreg(REG_Sn_TX_WR,socket,2,@REGBUFFER)
+'' Sends ptrlen bytes of data located that sendptr memory location to socket
+'' Returns nothing
+''
+    readreg(REG_Sn_TX_WR,socket,2,@REGBUFFER+((socket >> 5)*2))
     'send("TX Buffer Start Address: ")
-    'vid.hex(REGBUFFER[0],2)
-    'vid.hex(REGBUFFER[1],2)
+    'vid.hex(REGBUFFER[(socket >> 5)*2],2)
+    'vid.hex(REGBUFFER[1+((socket >> 5)*2)],2)
     'vid.nl()
-    TX_WR := REGBUFFER[0]
-    TX_WR <<= 8
-    TX_WR := TX_WR + REGBUFFER[1]
+    TX_WR[(socket >> 5)] := REGBUFFER[(socket >> 5)*2]
+    TX_WR[(socket >> 5)] <<= 8
+    TX_WR[(socket >> 5)] := TX_WR[(socket >> 5)] + REGBUFFER[((socket >> 5)*2)+1]
 
    ' bytemove(@WRITEBUFFER,sendptr,strsize(sendptr))
 
@@ -984,20 +1050,20 @@ pub SendData(socket,sendptr,ptrlen) : rtv | i
       'send(WRITEBUFFER[i])
       i++
     }
-    writereg(TX_WR,socket + $08,ptrlen,sendptr)
+    writereg(TX_WR[(socket >> 5)],socket + $08,ptrlen,sendptr)
     'vid.nl()
 
 
     'send("Update TX Buffer Start Address: ")
-'    TX_WR := TX_WR + strsize(@WRITEBUFFER)
-    TX_WR := TX_WR + ptrlen
-    REGBUFFER[0] := TX_WR.BYTE[1]
-    REGBUFFER[1] := TX_WR.BYTE[0]
-    'vid.hex(REGBUFFER[0],2)
-    'vid.hex(REGBUFFER[1],2)
+'    TX_WR[(socket >> 5)] := TX_WR[(socket >> 5)] + strsize(@WRITEBUFFER)
+    TX_WR[(socket >> 5)] := TX_WR[(socket >> 5)] + ptrlen
+    REGBUFFER[(socket >> 5)*2] := TX_WR.BYTE[((socket >> 5)*2)+1]
+    REGBUFFER[((socket >> 5)*2)+1] := TX_WR.BYTE[(socket >> 5)*2]
+    'vid.hex(REGBUFFER[(socket >> 5)*2],2)
+    'vid.hex(REGBUFFER[1+((socket >> 5)*2)],2)
     'vid.hex(TX_WR,4)
     'vid.nl()
-    writereg(REG_Sn_TX_WR,socket,2,@REGBUFFER)
+    writereg(REG_Sn_TX_WR,socket,2,@REGBUFFER+((socket >> 5)*2))
  {
     readreg(REG_Sn_IR,socket,1,@READBUFFER)
     'send("Checking Sn_IR Socket Status: ")
@@ -1016,51 +1082,68 @@ pub SendData(socket,sendptr,ptrlen) : rtv | i
   }
     'send("Sending Webpage")
     'vid.nl()
-    REGBUFFER[0] := CR_SEND
-    writereg(REG_Sn_CR,socket,1,@REGBUFFER)
-    repeat until REGBUFFER[0] == 0
-       readreg(REG_Sn_CR,socket,1,@REGBUFFER)
-    repeat while (REGBUFFER[0] & $18) == $00
-       readreg(REG_Sn_IMR,socket,1,@REGBUFFER)
+    REGBUFFER[(socket >> 5)*2] := CR_SEND
+    writereg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2))
+    repeat until REGBUFFER[(socket >> 5)*2] == 0
+
+       readreg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2))
+'
+'       debug(udec(REGBUFFER[(socket >> 5)*2]))
+'       debug(udec(REGBUFFER[1+((socket >> 5)*2)]))
+
+    repeat while (REGBUFFER[(socket >> 5)*2] & $18) == $00
+       readreg(REG_Sn_IMR,socket,1,@REGBUFFER+((socket >> 5)*2))
 
 'Not sure we need this
 
-    if (REGBUFFER[0] & $18) == $10
-         REGBUFFER[0] := $10
-         writereg(REG_Sn_IRCLR,socket,1,@REGBUFFER)
+    if (REGBUFFER[(socket >> 5)*2] & $18) == $10
+         REGBUFFER[(socket >> 5)*2] := $10
+         writereg(REG_Sn_IRCLR,socket,1,@REGBUFFER+((socket >> 5)*2))
 
     waitus(850)
     'send("Webpage Sent")
     'vid.nl()
+pub isdisconnected(socket) : rtv
+'' Returns True if socket is disconnected
+'' Expects socket: Socket Register from Block Selection. See Con Section. Example: IDM_BSR_Socket6_Register
+''
+    waitms(1)
+    return readreg(REG_Sn_IR,socket,1,@REGBUFFER+((socket >> 5)*2)) & Sn_IR_DISCON == Sn_IR_DISCON
 
 pub SendDataTCP(socket,sendptr,ptrlen) : rtv | i
-    readreg(REG_Sn_TX_WR,socket,2,@REGBUFFER)
-    TX_WR := REGBUFFER[0]
-    TX_WR <<= 8
-    TX_WR := TX_WR + REGBUFFER[1]
-    writereg(TX_WR,socket + $08,ptrlen,sendptr)
+'' Unsure if this is needed
+'' May be a duplicate of SendData
+''
+    readreg(REG_Sn_TX_WR,socket,2,@REGBUFFER+((socket >> 5)*2))
+    TX_WR[(socket >> 5)] := REGBUFFER[(socket >> 5)*2]
+    TX_WR[(socket >> 5)] <<= 8
+    TX_WR[(socket >> 5)] := TX_WR[(socket >> 5)] + REGBUFFER[((socket >> 5)*2)+1]
+    writereg(TX_WR[(socket >> 5)],socket + $08,ptrlen,sendptr)
 
     'send("Update TX Buffer Start Address: ")
 
-    TX_WR := TX_WR + ptrlen
-    REGBUFFER[0] := TX_WR.BYTE[1]
-    REGBUFFER[1] := TX_WR.BYTE[0]
+    TX_WR[(socket >> 5)] := TX_WR[(socket >> 5)] + ptrlen
+    REGBUFFER[(socket >> 5)*2] := TX_WR.BYTE[((socket >> 5)*2)+1]
+    REGBUFFER[((socket >> 5)*2)+1] := TX_WR.BYTE[((socket >> 5)*2)]
 
-    writereg(REG_Sn_TX_WR,socket,2,@REGBUFFER)
+    writereg(REG_Sn_TX_WR,socket,2,@REGBUFFER+((socket >> 5)*2))
 
 pub EndDataTCP(socket) : rtv | i
+'' Unsure if this is needed
+'' May be a duplicate of Disconnect()
+''
     'send("Sending Webpage")
     'vid.nl()
-    REGBUFFER[0] := CR_SEND
-    writereg(REG_Sn_CR,socket,1,@REGBUFFER)
-    repeat until REGBUFFER[0] == 0
-       readreg(REG_Sn_CR,socket,1,@REGBUFFER)
-    repeat while (REGBUFFER[0] & $18) == $00
-       readreg(REG_Sn_IMR,socket,1,@REGBUFFER)
+    REGBUFFER[(socket >> 5)*2] := CR_SEND
+    writereg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2))
+    repeat until REGBUFFER[(socket >> 5)*2] == 0
+       readreg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2))
+    repeat while (REGBUFFER[(socket >> 5)*2] & $18) == $00
+       readreg(REG_Sn_IMR,socket,1,@REGBUFFER+((socket >> 5)*2))
 
-    if (REGBUFFER[0] & $18) == $10
-         REGBUFFER[0] := $10
-         writereg(REG_Sn_IRCLR,socket,1,@REGBUFFER)
+    if (REGBUFFER[(socket >> 5)*2] & $18) == $10
+         REGBUFFER[(socket >> 5)*2] := $10
+         writereg(REG_Sn_IRCLR,socket,1,@REGBUFFER+((socket >> 5)*2))
     'send("Webpage Sent")
     'vid.nl()
 
@@ -1075,8 +1158,17 @@ PUB hex(value, digits)
     value ROL= 4
     send(lookupz(value & $F : "0".."9", "A".."F"))
 PUB nl()
+'' Send newline to SEND()
+''
+''
  send( $0D, $0A)
 PUB startfastrx(skt,pbf,txb,e131ptr)
+'' Start E1.31 cog.
+'' skt is the Socket to listen on
+'' pbf is the pointer to the pixelbuffer
+'' txb is the pointer to buffer to use for the REGBUFFER
+'' e131prt is a pointer to the E1.31 configuration memory structure
+
     longmove(@E131Socket, @skt, 4)
     E131Ptr2Counter  := @E131Counter
     E131Ptr2Discards := @E131Discards
@@ -1096,9 +1188,9 @@ debug(uhex(ethernetlock))
 
     return
 pub stopfastrx()
-
-'' Stops pixel driver cog (if running)
-
+'' Stops E1.31 cog, if running
+''
+''
   if (e131cog)
     cogstop(e131cog - 1)
     e131cog := 0
@@ -1150,7 +1242,7 @@ if_nc  jmp #inlk
 lstart mov lREGISTER, ##REG_Sn_RX_RSR
 
       mov lBLEN, #2 ' get two bytes
-      mov lRB, lREGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      mov lRB, lREGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER+((socket >> 5)*2) is $00 later on.
 '      debug(uhex(lREGISTER))
 '      debug(uhex(lBLEN))
 '      debug(uhex(lRB))
@@ -1165,7 +1257,7 @@ if_z  jmp #lstart ' If r is empty, go fish.
 ' Check it again to be sure
       mov lREGISTER, ##REG_Sn_RX_RSR
       mov lBLEN, #2 ' get two bytes
-      mov lRB, lREGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      mov lRB, lREGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER+((socket >> 5)*2) is $00 later on.
       call #lrx
       cmp lr, ll_RX_RSR wz  ' lr is what is returned from rx. rx returns the last two bytes as a word.
 if_nz  jmp #lstart ' If lr is not the same as ll_RX_RSR, go fish.
@@ -1173,7 +1265,7 @@ if_nz  jmp #lstart ' If lr is not the same as ll_RX_RSR, go fish.
 ' Find the rx buffer address to start reading bytes (RX_RD)
       mov lREGISTER, ##REG_Sn_RX_RD
       mov lBLEN, #2 ' get two bytes
-      mov lRB, lREGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      mov lRB, lREGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER+((socket >> 5)*2) is $00 later on.
       call #lrx
       mov ll_RX_RD, lr ' lr is what is returned from rx. rx returns the last two bytes as a word.
 
@@ -1183,7 +1275,7 @@ if_nz  jmp #lstart ' If lr is not the same as ll_RX_RSR, go fish.
       mov lREGISTER, E131ADDR
       mov lBS, lsocket_rd
       mov lBLEN, #2 ' get two bytes
-      mov lRB, lREGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      mov lRB, lREGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER+((socket >> 5)*2) is $00 later on.
       call #lrx
       mov tE131ADDR, lr
 '      debug(uhex(lr))
@@ -1196,7 +1288,7 @@ if_nz  jmp #lskipit
       mov lREGISTER, E131ADDR
       mov lBS, lsocket_rd
       mov lBLEN, #2 ' get two bytes
-      mov lRB, lREGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      mov lRB, lREGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER+((socket >> 5)*2) is $00 later on.
       call #lrx
 '      debug(uhex(E131ADDR))
 '      debug(uhex(lr))
@@ -1234,7 +1326,7 @@ if_nz jmp #e131lutenum
 '      mov lBLEN, ll_RX_RSR
       mov lBLEN, pixlen  ' Number of bytes
 '      debug(uhex(pixlen))
-      mov lRB, lrxptr ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      mov lRB, lrxptr ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER+((socket >> 5)*2) is $00 later on.
       call #lrx
 
       ADD lE131Counter, #1  ' Increment E131 packet counter
@@ -1254,7 +1346,7 @@ if_nz jmp #e131lutenum
       mov lREGISTER, ##REG_Sn_RX_RD
       mov lBLEN, #2 ' get two bytes
 '      sub lREGBUFFERTMP, #1
-      mov lRB, lREGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER is $00 later on.
+      mov lRB, lREGBUFFERTMP ' Put em in the tmp buffer. This is not needed. Might want to skip doing this if @REGBUFFER+((socket >> 5)*2) is $00 later on.
       call #ltx
 
 

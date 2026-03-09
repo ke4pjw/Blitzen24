@@ -114,7 +114,6 @@ VAR
         byte serverip[4]
         byte buildver[256]
         long upgradeserver_ptr
-        long watchdogstack[1023]
         byte md51[16]
         byte md52[16]
         byte manifest[64000]
@@ -130,8 +129,10 @@ VAR
         byte url[256]
         long alt
         byte MDNSGRP[8]
-        byte MDNSBUFFER[1024]
-        LONG mdnsstack[128]
+        byte MDNSBUFFER[1536]
+        long MSS
+        long watchdogstack[1023] ' Keep this on bottom
+
 OBJ
         FS: "FAT32"
         W6100: "W6100drv"
@@ -216,8 +217,8 @@ PUB main() | i, j
       OLED.TERMSEND(STRING("V2 "))
     if strsize(@hostname) == 0
         str.append_str(@HOSTNAME, String("blitzen-"))
-        str.append_str(@HOSTNAME,str.hex(MACADDRESS[4],0))
-        str.append_str(@HOSTNAME,str.hex(MACADDRESS[5],0))
+        str.append_str(@HOSTNAME,str.fxhex(MACADDRESS[4],2,0))
+        str.append_str(@HOSTNAME,str.fxhex(MACADDRESS[5],2,0))
     FS.closeFile()
     OLED.TERMSEND(STRING("Config Found!", OLED.CR, OLED.LF))
   else
@@ -565,18 +566,12 @@ This is here to show what the data structure looks like.
 '  COGSPIN(NEWCOG, httpd(80,W6100.PM_TCP4,W6100.IDM_BSR_Socket1_Register), @httpdstack)
 '  repeat
   MDNSopen()
-  MDNSbeacon()
+'  MDNSbeacon(0,0,0,0)
 '  TASKSPIN(-1,mdnstest(), @mdnsstack)
 '    waitms(5000)
 
   repeat
       httpd(80,W6100.PM_TCP4,W6100.IDM_BSR_Socket1_Register)
-
-pub mdnstest()
-  repeat
-    MDNSbeacon()
-    debug("MDNS Beacon")
-    waitms(9000)
 
 pub watchdogcog() | time1,time2,lt, t, ev, last, now, check, counts, p, c, dnscounter
  OLED.clearDisplay()
@@ -835,20 +830,20 @@ repeat
 
   debug("Waiting for TCP request on Socket 1 port 80")
 
-  repeat until (W6100.EstablishTCP(socket, 100) <> W6100.Sn_IR_TIMEOUT)
+  repeat until (W6100.EstablishTCP(socket, 1) <> W6100.Sn_IR_TIMEOUT)
     mdnscheck()
   W6100.readreg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket1_Register,4,@READBUFFER)
   debug("Connection Established from ", udec_(READBUFFER[0]),".",udec_(READBUFFER[1]),".",udec_(READBUFFER[2]),".",udec_(READBUFFER[3]))
 
   debug("Checking Sn_RX_RSR Socket Status/number of bytes in buffer: ")
 
-  If ( W6100.ReceiveData(socket,10000) <> W6100.Sn_IR_TIMEOUT)
+  If (W6100.ReceiveData(socket,100) <> W6100.Sn_IR_TIMEOUT)
  '     W6100.ReceiveData(socket,100000)
-      psize := W6100.ReceiveProcess(socket,@READBUFFER)
-      If ( W6100.ReceiveData(socket,15000) <> W6100.Sn_IR_TIMEOUT and READBUFFER[psize-1] == $0A) 'Complete hack to support IOS
+    psize := W6100.ReceiveProcess(socket,@READBUFFER)
+    If ( W6100.ReceiveData(socket,100) <> W6100.Sn_IR_TIMEOUT and READBUFFER[psize-1] == $0A) 'Complete hack to support IOS
         psize := psize + W6100.ReceiveProcess(socket,@READBUFFER+psize)
-      READBUFFER[psize] := 0
-      debug("Received: ",zstr_(@READBUFFER))
+    READBUFFER[psize] := 0
+    debug("Received: ",zstr_(@READBUFFER))
 
 {
       i:=0
@@ -860,13 +855,13 @@ repeat
         i++
 }
 
-      debug("Packet Length: ", udec_(psize))
-      debug("Start Filename: ",udec_(str.instr(@READBUFFER,string("GET /"))+5))
-      debug("End Filename: ", udec_(str.instr(@READBUFFER,string("HTTP/1.1"))-1))
+    debug("Packet Length: ", udec_(psize))
+    debug("Start Filename: ",udec_(str.instr(@READBUFFER,string("GET /"))+5))
+    debug("End Filename: ", udec_(str.instr(@READBUFFER,string("HTTP/1.1"))-1))
 
-      READBUFFER[2000] := 0
-      if str.instr(@READBUFFER,string("HTTP/1.1")) <> -1 and (str.instr(@READBUFFER,string("GET /")) <> -1  or str.instr(@READBUFFER,string("POST /")) <> -1  ) and (str.instr(@READBUFFER,string("HTTP/1.1")) > str.instr(@READBUFFER,string("GET /")) or str.instr(@READBUFFER,string("HTTP/1.1")) > str.instr(@READBUFFER,string("POST /")))
-        bytefill(@filepath,0,25)
+    READBUFFER[2000] := 0
+    if str.instr(@READBUFFER,string("HTTP/1.1")) <> -1 and (str.instr(@READBUFFER,string("GET /")) <> -1  or str.instr(@READBUFFER,string("POST /")) <> -1  ) and (str.instr(@READBUFFER,string("HTTP/1.1")) > str.instr(@READBUFFER,string("GET /")) or str.instr(@READBUFFER,string("HTTP/1.1")) > str.instr(@READBUFFER,string("POST /")))
+       bytefill(@filepath,0,25)
 
         if str.instr(@READBUFFER,string("GET /")) <> -1
           str.mid(@filepath, @READBUFFER, str.instr(@READBUFFER,string("GET /"))+5, (str.instr(@READBUFFER,string("HTTP/1.1"))) - (str.instr(@READBUFFER,string("GET /"))) - 6 )
@@ -893,10 +888,10 @@ repeat
           if str.instr(@filepath,string("UPGRADE.HTM")) <> -1
             upgradepost()
 
-        debug("Filename: ", zstr_(@filepath))
+       debug("Filename: ", zstr_(@filepath))
 
         ' Set default document
-         if (str.instr(@READBUFFER,string("HTTP/1.1"))-1) == 5
+       if (str.instr(@READBUFFER,string("HTTP/1.1"))-1) == 5
            filepath[0] := 0
            str.append_str(@filepath,string("index.htm"))
 
@@ -905,7 +900,7 @@ repeat
       'results := FS.openfile(string("test.txt"),string("R"))
 
 '      if str.strncmp(@filepath,str.rtrim(FS.openfile(@filepath,string("R"))),strsize(@filepath)) == 0
-         if not \FS.openfile(@filepath,string("R"))
+       if not \FS.openfile(@filepath,string("R"))
             FS.readdata(@RDATA, FS.fileSize())
 
             ' Default response header
@@ -946,8 +941,10 @@ repeat
             bytemove((@webbuff + rdsize),@RDATA,FS.fileSize())
             rdsize := rdsize + FS.fileSize()
             FS.closeFile()
-         else
+       else
             if str.instr(@filepath,string(".JS")) <> -1
+               bytemove(@webbuff,resp_404_ptr,strsize(resp_404_ptr))
+               rdsize :=  strsize(resp_404_ptr)
                if str.instr(@filepath,string("COUNTERS.JS")) <> -1
                   countersjs()
                   'This is here as an easy way to trigger a DNS lookup when testing.
@@ -973,14 +970,14 @@ repeat
 
                   bytemove(@webbuff,resp_404_ptr,strsize(resp_404_ptr))
                   rdsize :=  strsize(resp_404_ptr)
-
-         webbuff[rdsize] := 0
-         i := 0
-         repeat until rdsize <= 1000
-            W6100.SendData(socket,@webbuff+i,1000)
-            i := i + 1000
-            rdsize := rdsize - 1000
-         W6100.SendData(socket,@webbuff+i,rdsize)
+       mssset(socket)
+       webbuff[rdsize] := 0
+       i := 0
+       repeat until rdsize <= mss
+          W6100.SendData(socket,@webbuff+i,mss)
+          i := i + mss
+          rdsize := rdsize - mss
+       W6100.SendData(socket,@webbuff+i,rdsize)
 
 
 
@@ -988,9 +985,10 @@ repeat
 
 '      W6100.SendDataTCP(socket,resp_ptr,strsize(resp_ptr))' Send the page
 '      W6100.SendDataTCP(socket,@RDATA,strsize(RDATA))' Send the page
-'      W6100.EndDataTCP(socket)
-
-        W6100.Disconnect(socket)
+'         W6100.EndDataTCP(socket)
+'      if W6100.isdisconnected(socket) <> True
+       waitms(20)
+       W6100.Disconnect(socket)
 
 
 pub netpost()
@@ -1079,7 +1077,7 @@ pub configspost(socket) | length, startpoint, datarxed, bpos, qc, cpysize
       debug($0D, $0A)
 '      waitms(3000)
 '      waitms(3000)
-      repeat until W6100.ReceiveData(socket,5000) == W6100.Sn_IR_TIMEOUT
+      repeat until W6100.ReceiveData(socket,500) == W6100.Sn_IR_TIMEOUT
              startpoint := datarxed ' Set the last offset where you wrote to last.
              psize := W6100.ReceiveProcess(socket,@READBUFFER)
              psize := psize
@@ -1207,8 +1205,10 @@ pub e131js() | output, u, ei, type
 
    u  := 1
    ei := 0
-   if DMXENABLED <> 1 and type <> 2
+'   if DMXENABLED <> 1 and type <> 2
+   if type <> 2
 
+       tmpfilepath[0] := 0
        str.append_str(@webbuff, string($0D, $0A, "document.getElementById('ON').value='"))
        singlequoteescape(@OUTPUTNAME[output-1].namefield, @tmpfilepath)
        str.append_str(@webbuff, @tmpfilepath)
@@ -1372,6 +1372,8 @@ pub outputjs() | p,idx
 
     p := 1
     repeat 28
+      Debug(udec(pinpixelcnt(p)))
+      Debug(udec(p))
       if pinpixelcnt(p) == 0
         str.append_str(@webbuff, string($0D, $0A, "document.getElementById('T"))
         str.append_str(@webbuff,str.dec(p,-1))
@@ -1391,6 +1393,7 @@ pub outputjs() | p,idx
     str.append_str(@webbuff, string(".local</DIV>';"))
 
     rdsize := strsize(@webbuff)
+    debug(zstr(@webbuff))
 pub netjs() | idx
 
 ' Zero out buffer
@@ -1589,7 +1592,7 @@ PUB configjs() | dns_ptr
 
     debug("Checking Sn_RX_RSR Socket Status/number of bytes in buffer: ")
 
-    If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,10000) <> W6100.Sn_IR_TIMEOUT)
+    If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,100) <> W6100.Sn_IR_TIMEOUT)
  '     W6100.ReceiveData(socket,100000)
         psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket6_Register,@READBUFFER)
         READBUFFER[psize] := 0
@@ -1602,7 +1605,7 @@ PUB configjs() | dns_ptr
     str.append_str(@WRITEBUFFER,string($0D, $0A, $0D, $0A))
     W6100.SendData(W6100.IDM_BSR_Socket6_Register,@WRITEBUFFER,strsize(@WRITEBUFFER))
 
-    If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,30000) <> W6100.Sn_IR_TIMEOUT)
+    If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,300) <> W6100.Sn_IR_TIMEOUT)
  '     W6100.ReceiveData(socket,100000)
         psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket6_Register,@READBUFFER)
         READBUFFER[psize] := 0
@@ -2001,7 +2004,7 @@ pub pixelcnt(pingroup) : pixelct | index , rptcnt
 pub pinpixelcnt(pinnum) : pinpixcnt
   pinnum := pinnum - 1
   pinpixcnt := PIXELCONFIG[pinnum*5+4]
-  return
+  return pinpixcnt
 pub dmxbufferaddr() : dmxbuffer | ei
    ei := 0
    repeat until E131CONFIG[ei] == 0
@@ -2257,7 +2260,7 @@ pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc,
 
     debug("Checking Sn_RX_RSR Socket Status/number of bytes in buffer: ")
 
-    If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,10000) <> W6100.Sn_IR_TIMEOUT)
+    If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,100) <> W6100.Sn_IR_TIMEOUT)
         psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket6_Register,@READBUFFER)
         READBUFFER[psize] := 0
         debug("Unexpected response of ",udec_(psize)," Bytes.")
@@ -2274,7 +2277,7 @@ pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc,
     str.append_str(@WRITEBUFFER,string($0D, $0A, $0D, $0A))
     W6100.SendData(W6100.IDM_BSR_Socket6_Register,@WRITEBUFFER,strsize(@WRITEBUFFER))
 
-    If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,10000) <> W6100.Sn_IR_TIMEOUT)
+    If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,100) <> W6100.Sn_IR_TIMEOUT)
         psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket6_Register,@READBUFFER)
         READBUFFER[psize] := 0
         'debug("Received: ",zstr_(@READBUFFER))
@@ -2321,7 +2324,7 @@ pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc,
 
        'debug(udec(i))
        repeat until i >= length
-          If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,10000) <> W6100.Sn_IR_TIMEOUT)
+          If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,100) <> W6100.Sn_IR_TIMEOUT)
              psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket6_Register,@READBUFFER)
 '             READBUFFER[psize] := 0
 '             debug("Received: ",zstr_(@READBUFFER))
@@ -2860,52 +2863,129 @@ PUB singlequoteescape(src, dst) : len | c
         len++
   ' Null terminate the destination
   BYTE[dst] := 0
-PUB MDNSopen()
+PUB MDNSopen() | temp
  MDNSGRP[0] := 1
  MDNSGRP[1] := 0
- MDNSGRP[2] := 224
+ MDNSGRP[2] := $5E
  MDNSGRP[3] := 0
  MDNSGRP[4] := 0
  MDNSGRP[5] := 251
  MDNSGRP[6] := $14
  MDNSGRP[7] := $E9
  W6100.writereg(W6100.REG_Sn_DHAR,W6100.IDM_BSR_Socket4_Register,6,@MDNSGRP)
+ MDNSGRP[2] := 224
  W6100.writereg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket4_Register,4,@MDNSGRP+2)
  W6100.writereg(W6100.REG_Sn_DPORTR,W6100.IDM_BSR_Socket4_Register,2,@MDNSGRP+6)
+ 'temp := W6100.PM_M_UDP4
+ 'W6100.writereg(W6100.REG_Sn_Mr,W6100.IDM_BSR_Socket4_Register,1,@temp)
  W6100.Open(5353,W6100.PM_M_UDP4,W6100.IDM_BSR_Socket4_Register)
 
-PUB MDNScheck() | i
-  BYTEFILL(@MDNSBUFFER,0,1024)
+PUB MDNScheck() | flags, SrcPort, SrcIP
+  BYTEFILL(@MDNSBUFFER,0,1536)
   W6100.readreg(W6100.REG_Sn_IR,W6100.IDM_BSR_Socket4_Register,1,@MDNSBUFFER)
+
 '  debug("Checking Sn_IR Socket Status: ", uhex_(MDNSBUFFER[0]))
-  if  W6100.ReceiveData(W6100.IDM_BSR_Socket4_Register,1) == 0
+  if  W6100.ReceiveData(W6100.IDM_BSR_Socket4_Register,1) <> W6100.Sn_IR_TIMEOUT
+'    W6100.readreg(W6100.REG_Sn_DPORTR,W6100.IDM_BSR_Socket4_Register,2,@SrcPort)
+'    byteswap(@SrcPort,@SrcPort+1,1)
+
+'    W6100.readreg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket4_Register,4,@SrcIP)
+
     psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket4_Register,@MDNSBUFFER)
-    MDNSBUFFER[21 + MDNSBUFFER[20]] := 0 ' Terminate requested hostname with 0
-    str.lcstr(@MDNSBUFFER+21) ' Why do resolvers send upper case? Come on man!
-    debug(zstr(@MDNSBUFFER+21))
-    debug(zstr(@hostname))
-    if STRCOMP(@MDNSBUFFER+21, @hostname) == -1
-        debug("Matched hostname")
-        MDNSbeacon()
+    flags := (MDNSBUFFER[10] << 8) | MDNSBUFFER[11]
+    if flags < $8000 and MDNSBUFFER[21+MDNSBUFFER[20]+8] == 1 and MDNSBUFFER[20] == strsize(@hostname)' QR bit = 0, it's a query and Is it an A record?
+       MDNSBUFFER[21 + MDNSBUFFER[20]] := 0 ' Terminate requested hostname with 0
+       str.lcstr(@MDNSBUFFER+21) ' Why do resolvers send upper case? Come on man!
+'       debug(zstr(@MDNSBUFFER+21))
+'       debug(zstr(@hostname))
+       if STRCOMP(@MDNSBUFFER+21, @hostname) == -1
+'            debug("Matched hostname")
+            SrcPort := WORD[@MDNSBUFFER+6]
+            byteswap(@SrcPort,@SrcPort+1,1)
+            SrcIP := LONG[@MDNSBUFFER+2]
+'            debug("UDP Port Number: ",udec(SrcPort))
+'            debug("UDP Source IP: ",udec_(byte[@SrcIP]),".",udec_(byte[@SrcIP+1]),".",udec_(byte[@SrcIP+2]),".",udec_(byte[@SrcIP+3]))
+'            debug("UDP Source IP: ",udec_(MDNSBUFFER[2]),".",udec_(MDNSBUFFER[3]),".",udec_(MDNSBUFFER[4]),".",udec_(MDNSBUFFER[5]) )
+'            debug("UDP Port Number: ",uhex_(MDNSBUFFER[6]), uhex_(MDNSBUFFER[7]) )
+'            debug(udec(MDNSBUFFER[21+MDNSBUFFER[20]+8]))
+            if MDNSBUFFER[21+MDNSBUFFER[20]+8] == 1 ' Is it an A record?
+                MDNSbeacon(MDNSBUFFER[8],MDNSBUFFER[9],SrcPort,SrcIP)
+            if MDNSBUFFER[21+MDNSBUFFER[20]+8] == $1C ' Is it an AAAA record?
+                MDNSbeaconNOANSWER(MDNSBUFFER[8],MDNSBUFFER[9],SrcPort,SrcIP)
+PUB MDNSbeaconNOANSWER(id1,id2,SrcPort,SrcIP) | temp
+    if SrcPort == 5353
+        W6100.SendData(W6100.IDM_BSR_Socket4_Register,@MDNSBUFFER,build_mdns_negative_aaaa_response(id1,id2))
+    else
+        temp := W6100.PM_UDP4
+        W6100.writereg(W6100.REG_Sn_Mr,W6100.IDM_BSR_Socket4_Register,1,@temp)
 
-PUB MDNSbeacon()
+        temp := W6100.CR_CLOSE
+        W6100.writereg(W6100.REG_Sn_CR,W6100.IDM_BSR_Socket4_Register,1,@temp)
+        REPEAT until W6100.readreg(W6100.REG_Sn_SR,W6100.IDM_BSR_Socket4_Register,1,@temp) == W6100.SOCK_CLOSED
 
- W6100.SendData(W6100.IDM_BSR_Socket4_Register,@MDNSBUFFER,build_mdns_announcement())
 
- PUB build_mdns_announcement() : packet_length | ptr, len, i
+        W6100.writereg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket4_Register,4,@SrcIP)
+        byteswap(@SrcPort,@SrcPort+1,1)
+        W6100.writereg(W6100.REG_Sn_DPORTR,W6100.IDM_BSR_Socket4_Register,2,@SrcPort)
+'        debug(ubin(w6100.readreg(W6100.REG_Sn_Mr,W6100.IDM_BSR_Socket4_Register,1,@temp)))
+        W6100.Open(5353,W6100.PM_UDP4,W6100.IDM_BSR_Socket4_Register)
+        W6100.SendData(W6100.IDM_BSR_Socket4_Register,@MDNSBUFFER,build_mdns_negative_aaaa_response(id1,id2))
+        waitms(20)
+        temp := W6100.CR_CLOSE
+        W6100.writereg(W6100.REG_Sn_CR,W6100.IDM_BSR_Socket4_Register,1,@temp)
+        REPEAT until W6100.readreg(W6100.REG_Sn_SR,W6100.IDM_BSR_Socket4_Register,1,@temp) == W6100.SOCK_CLOSED
+        MDNSopen()
+
+PUB MDNSbeacon(id1,id2,SrcPort,SrcIP) | temp
+
+  if SrcPort == 5353
+        W6100.SendData(W6100.IDM_BSR_Socket4_Register,@MDNSBUFFER,build_mdns_response(id1,id2))
+
+        W6100.SendData(W6100.IDM_BSR_Socket4_Register,@MDNSBUFFER,build_mdns_announcement(0,0))
+
+  else
+
+'        debug("Unicast Received")
+'        debug("UDP Source IP: ",udec_(byte[@SrcIP]),".",udec_(byte[@SrcIP+1]),".",udec_(byte[@SrcIP+2]),".",udec_(byte[@SrcIP+3]))
+'        debug("UDP Port Number: ", udec_(SrcPort))
+'        W6100.Disconnect(W6100.IDM_BSR_Socket4_Register)
+        temp := W6100.PM_UDP4
+        W6100.writereg(W6100.REG_Sn_Mr,W6100.IDM_BSR_Socket4_Register,1,@temp)
+
+        temp := W6100.CR_CLOSE
+        W6100.writereg(W6100.REG_Sn_CR,W6100.IDM_BSR_Socket4_Register,1,@temp)
+        REPEAT until W6100.readreg(W6100.REG_Sn_SR,W6100.IDM_BSR_Socket4_Register,1,@temp) == W6100.SOCK_CLOSED
+
+
+        W6100.writereg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket4_Register,4,@SrcIP)
+        byteswap(@SrcPort,@SrcPort+1,1)
+        W6100.writereg(W6100.REG_Sn_DPORTR,W6100.IDM_BSR_Socket4_Register,2,@SrcPort)
+'        debug(ubin(w6100.readreg(W6100.REG_Sn_Mr,W6100.IDM_BSR_Socket4_Register,1,@temp)))
+        W6100.Open(5353,W6100.PM_UDP4,W6100.IDM_BSR_Socket4_Register)
+        W6100.SendData(W6100.IDM_BSR_Socket4_Register,@MDNSBUFFER,build_mdns_response(id1,id2))
+        waitms(20)
+
+'        REPEAT until W6100.readreg(W6100.REG_Sn_IR,W6100.IDM_BSR_Socket4_Register, 1, @temp) == W6100.Sn_IR_SENDOK
+
+        temp := W6100.CR_CLOSE
+        W6100.writereg(W6100.REG_Sn_CR,W6100.IDM_BSR_Socket4_Register,1,@temp)
+        REPEAT until W6100.readreg(W6100.REG_Sn_SR,W6100.IDM_BSR_Socket4_Register,1,@temp) == W6100.SOCK_CLOSED
+        MDNSopen()
+
+PUB build_mdns_announcement(id1,id2) : packet_length | ptr, len, i
 
 '' Build mDNS announcement packet in MDNSBUFFER
 '' Uses HOSTNAME (null-terminated string) and IPADDRESS (4 bytes)
 '' Returns total packet length
 
-  BYTEFILL(@MDNSBUFFER,0,1024)
+  BYTEFILL(@MDNSBUFFER,0,1536)
   ptr := @MDNSBUFFER
 
   ' ===== DNS HEADER (12 bytes) =====
 
   ' Transaction ID: 0x0000
-  byte[ptr++] := $00
-  byte[ptr++] := $00
+  byte[ptr++] := id1
+  byte[ptr++] := id2
 
   ' Flags: 0x8400 (Response, Authoritative)
   byte[ptr++] := $84
@@ -2974,4 +3054,172 @@ PUB MDNSbeacon()
 
   ' Return total packet length
   packet_length := ptr - @MDNSBUFFER
-                           
+
+PUB build_mdns_response(id1,id2) : packet_length | ptr, len, i
+
+'' Build mDNS response packet in MDNSBUFFER (solicited response to query)
+'' Uses HOSTNAME (null-terminated string) and IPADDRESS (4 bytes)
+'' Returns total packet length
+
+  BYTEFILL(@MDNSBUFFER, 0, 1536)
+  ptr := @MDNSBUFFER
+
+  ' ===== DNS HEADER (12 bytes) =====
+
+  ' Transaction ID: 0x0000
+  byte[ptr++] := id1
+  byte[ptr++] := id2
+
+  ' Flags: 0x8400 (Response, Authoritative)
+  byte[ptr++] := $84
+  byte[ptr++] := $00
+
+  ' Question Count: 0x0001 (CHANGED - echo the question)
+  byte[ptr++] := $00
+  byte[ptr++] := $01
+
+  ' Answer Count: 0x0001
+  byte[ptr++] := $00
+  byte[ptr++] := $01
+
+  ' Authority Count: 0x0000
+  byte[ptr++] := $00
+  byte[ptr++] := $00
+
+  ' Additional Count: 0x0000
+  byte[ptr++] := $00
+  byte[ptr++] := $00
+
+  ' ===== QUESTION SECTION (echo what was asked) =====
+
+  ' First label: hostname (length-prefixed)
+  len := strsize(@HOSTNAME)
+  byte[ptr++] := len                    ' Length byte
+  repeat i from 0 to len-1              ' Copy hostname
+    byte[ptr++] := str.lower(byte[@HOSTNAME][i])
+
+  ' Second label: "local" (length-prefixed)
+  byte[ptr++] := 5                      ' Length of "local"
+  byte[ptr++] := "l"
+  byte[ptr++] := "o"
+  byte[ptr++] := "c"
+  byte[ptr++] := "a"
+  byte[ptr++] := "l"
+
+  ' Root label (terminator)
+  byte[ptr++] := $00
+
+  ' QTYPE: 0x0001 (A record)
+  byte[ptr++] := $00
+  byte[ptr++] := $01
+
+  ' QCLASS: 0x0001 (IN class - no cache-flush in questions)
+  byte[ptr++] := $00
+  byte[ptr++] := $01
+
+  ' ===== ANSWER SECTION =====
+
+  ' NAME: Use compression pointer to question (offset 12 = 0x0C)
+  byte[ptr++] := $C0                    ' Pointer flag (top 2 bits = 11)
+  byte[ptr++] := $0C                    ' Offset to question name at byte 12
+
+  ' TYPE: 0x0001 (A record - IPv4 address)
+  byte[ptr++] := $00
+  byte[ptr++] := $01
+
+  ' CLASS: 0x8001 (IN class with cache-flush bit not set)
+  byte[ptr++] := $00
+  byte[ptr++] := $01
+
+  ' TTL: 120 seconds (0x00000078)
+  byte[ptr++] := $00
+  byte[ptr++] := $00
+  byte[ptr++] := $00
+  byte[ptr++] := $78
+
+  ' RDLENGTH: 0x0004 (4 bytes for IPv4 address)
+  byte[ptr++] := $00
+  byte[ptr++] := $04
+
+  ' RDATA: IP Address (4 bytes)
+  byte[ptr++] := IPADDRESS[0]
+  byte[ptr++] := IPADDRESS[1]
+  byte[ptr++] := IPADDRESS[2]
+  byte[ptr++] := IPADDRESS[3]
+
+  ' Return total packet length
+  packet_length := ptr - @MDNSBUFFER
+
+PUB build_mdns_negative_aaaa_response(id1,id2) : packet_length | ptr, len, i
+
+  BYTEFILL(@MDNSBUFFER, 0, 1536)
+  ptr := @MDNSBUFFER
+
+  ' DNS Header
+  byte[ptr++] := id1  ' Transaction ID
+  byte[ptr++] := id2
+  byte[ptr++] := $84  ' Response, Authoritative
+  byte[ptr++] := $00
+  byte[ptr++] := $00  ' Questions: 1
+  byte[ptr++] := $01
+  byte[ptr++] := $00  ' Answers: 0 (no AAAA record)
+  byte[ptr++] := $00
+  byte[ptr++] := $00  ' Authority: 0
+  byte[ptr++] := $00
+  byte[ptr++] := $00  ' Additional: 1 (NSEC record)
+  byte[ptr++] := $01
+
+  ' Question section (echo the AAAA query)
+  len := strsize(@HOSTNAME)
+  byte[ptr++] := len
+  repeat i from 0 to len-1
+    byte[ptr++] := str.lower(byte[@HOSTNAME][i])
+  byte[ptr++] := 5
+  bytemove(ptr, string("local"), 5)
+  ptr += 5
+  byte[ptr++] := $00
+
+  byte[ptr++] := $00  ' QTYPE: AAAA
+  byte[ptr++] := $1C
+  byte[ptr++] := $00  ' QCLASS: IN
+  byte[ptr++] := $01
+
+  ' Additional section: NSEC record
+  byte[ptr++] := $C0  ' Name compression pointer
+  byte[ptr++] := $0C
+
+  byte[ptr++] := $00  ' TYPE: NSEC
+  byte[ptr++] := $2F
+  byte[ptr++] := $80  ' CLASS: IN + cache-flush
+  byte[ptr++] := $01
+  byte[ptr++] := $00  ' TTL: 120 seconds
+  byte[ptr++] := $00
+  byte[ptr++] := $00
+  byte[ptr++] := $78
+
+  ' RDLENGTH - will calculate
+  i := ptr
+  ptr += 2
+
+  ' RDATA: Next domain name (same as this one)
+  byte[ptr++] := $C0
+  byte[ptr++] := $0C
+
+  ' Type bitmap: Indicates we have A records but not AAAA
+  ' Window block 0, bitmap length 1
+  byte[ptr++] := $00  ' Window number
+  byte[ptr++] := $01  ' Bitmap length
+  byte[ptr++] := $40  ' Bit 1 set = A record exists (bit 0=unused, bit 1=A)
+
+  ' Fill RDLENGTH
+  len := ptr - i - 2
+  byte[i] := len.BYTE[1]
+  byte[i+1] := len.BYTE[0]
+
+  packet_length := ptr - @MDNSBUFFER
+
+
+PUB mssset(socket)
+    mss := 0
+    W6100.readreg(W6100.REG_Sn_MSSR,socket,2,@MSS)
+    BYTESWAP(@MSS,@MSS+1,1)                          
