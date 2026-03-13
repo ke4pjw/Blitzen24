@@ -32,10 +32,11 @@ CON
   PGM_RX   = 63  { I }                                          ' programming / debug
   PGM_TX   = 62  { O }
 
-  DOPin = 58
-  CLKPin = 61
-  DIPin = 59
-  CSPin = 60
+  ' SD card SPI pins (directly wired to microSD slot)
+  SD_MISO = 58   ' was DOPin  — Master In, Slave Out (data FROM card)
+  SD_SCK  = 61   ' was CLKPin — Serial Clock
+  SD_MOSI = 59   ' was DIPin  — Master Out, Slave In (data TO card)
+  SD_CS   = 60   ' was CSPin  — Chip Select
 
   CS    = 50
   RST   = 52
@@ -134,7 +135,7 @@ VAR
         long watchdogstack[1023] ' Keep this on bottom
 
 OBJ
-        FS: "FAT32"
+        sd: "micro_sd_fat32_fs"
         W6100: "W6100drv"
         prng: "jm_prng"
         WS2811: "tt_rgbx_pixel"
@@ -150,7 +151,7 @@ OBJ
         qr:     "p2qr"        'Object that creates the QR code.
         qe: "jm_quadraturesmartpin"
 
-PUB main() | i, j
+PUB main() | i, j, handle, fsize
   str.append_str(@buildver, String("Blitzen 24 Edge 2.3.3 (Rocklin) Dev"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -180,27 +181,25 @@ PUB main() | i, j
 
   debug("Starting SD driver and mounting filesystem")
 
-  if \FS.FATEngineStart(DOPin, CLKPin, DIPin, CSPin, 0)
-     OLED.TERMSEND(STRING("Missing SD Card?", OLED.CR, OLED.LF))
-     repeat
-  if \FS.mountPartition(0)
-     OLED.TERMSEND(STRING("Can't mount FS", OLED.CR, OLED.LF))
+  if sd.mount(SD_CS, SD_MOSI, SD_MISO, SD_SCK) < 0
      OLED.TERMSEND(STRING("Missing SD Card?", OLED.CR, OLED.LF))
      repeat
   debug("Config memory Size: ", udec_((@ENDOFCONFIG + 3) - @PIXELCONFIG) )
   debug("Opening config file: ")
-  if not \FS.openfile(string("blitzen.cfg"),"R")
+  handle := sd.openFileRead(string("blitzen.cfg"))
+  if handle >= 0
 
     debug("Opened")
-    debug("Config file Size:", udec_(FS.fileSize()))
-    if (@DMXENABLED + 3) - @PIXELCONFIG > FS.fileSize()
+    fsize := sd.fileSizeHandle(handle)
+    debug("Config file Size:", udec_(fsize))
+    if (@DMXENABLED + 3) - @PIXELCONFIG > fsize
       debug("V1 Config")
-      FS.readData(@PIXELCONFIG, 496)
-'      debug("Position:", udec_(fs.fileTell()))
-'      FS.fileSeek(fs.fileTell() + 84)
- '     debug("File Position:", udec_(fs.fileTell()), " E131 Pos:", udec_(@E131CONFIG-@PIXELCONFIG))
-      FS.readData(@E131CONFIG, (@DMXENABLED + 3) - @E131CONFIG + 1)
-      debug("Position:", udec_(fs.fileTell()))
+      sd.readHandle(handle, @PIXELCONFIG, 496)
+'      debug("Position:", udec_(sd.tellHandle(handle)))
+'      sd.seekHandle(handle, sd.tellHandle(handle) + 84)
+ '     debug("File Position:", udec_(sd.tellHandle(handle)), " E131 Pos:", udec_(@E131CONFIG-@PIXELCONFIG))
+      sd.readHandle(handle, @E131CONFIG, (@DMXENABLED + 3) - @E131CONFIG + 1)
+      debug("Position:", udec_(sd.tellHandle(handle)))
       OLED.TERMSEND(STRING("V1 "))
       'Add needed data structures since this is a v1 config.
       i := 0
@@ -213,13 +212,13 @@ PUB main() | i, j
         i++
 
     else
-      FS.readData(@PIXELCONFIG, (@ENDOFCONFIG + 3) - @PIXELCONFIG + 1)
+      sd.readHandle(handle, @PIXELCONFIG, (@ENDOFCONFIG + 3) - @PIXELCONFIG + 1)
       OLED.TERMSEND(STRING("V2 "))
     if strsize(@hostname) == 0
         str.append_str(@HOSTNAME, String("blitzen-"))
         str.append_str(@HOSTNAME,str.fxhex(MACADDRESS[4],2,0))
         str.append_str(@HOSTNAME,str.fxhex(MACADDRESS[5],2,0))
-    FS.closeFile()
+    sd.closeFileHandle(handle)
     OLED.TERMSEND(STRING("Config Found!", OLED.CR, OLED.LF))
   else
     debug("Failed")
@@ -259,13 +258,13 @@ PUB main() | i, j
     else
       SCREENTIMEOUT := 60
 
-    FS.newFile(string("blitzen.cfg"))
-    FS.closeFile()
-    if not \FS.openfile(string("blitzen.cfg"),"W")
+    sd.deleteFile(string("blitzen.cfg"))           ' Remove if exists (ignore error)
+    handle := sd.createFileNew(string("blitzen.cfg"))
+    if handle >= 0
 
       debug("Writing Configuration to SD Card.", $0D, $0A)
-      FS.writeData(@PIXELCONFIG, (@ENDOFCONFIG + 3) - @PIXELCONFIG + 1)
-      FS.closeFile()
+      sd.writeHandle(handle, @PIXELCONFIG, (@ENDOFCONFIG + 3) - @PIXELCONFIG + 1)
+      sd.closeFileHandle(handle)
       OLED.TERMSEND(STRING("New config saved.", OLED.CR, OLED.LF))
     else
 
@@ -812,7 +811,7 @@ pub ConfigPixels() |  pixelcount, pixeloffset, i, ei
     ei := ei + 4
 
 
-pub httpd(port,PM,socket) | i
+pub httpd(port,PM,socket) | i, handle, fsize
 
 repeat
 
@@ -843,7 +842,7 @@ repeat
     If ( W6100.ReceiveData(socket,100) <> W6100.Sn_IR_TIMEOUT and READBUFFER[psize-1] == $0A) 'Complete hack to support IOS
         psize := psize + W6100.ReceiveProcess(socket,@READBUFFER+psize)
     READBUFFER[psize] := 0
-    debug("Received: ",zstr_(@READBUFFER))
+'    debug("Received: ",zstr_(@READBUFFER))
 
 {
       i:=0
@@ -897,11 +896,13 @@ repeat
 
 
 
-      'results := FS.openfile(string("test.txt"),string("R"))
+      'results := sd.openFileRead(string("test.txt"))
 
-'      if str.strncmp(@filepath,str.rtrim(FS.openfile(@filepath,string("R"))),strsize(@filepath)) == 0
-       if not \FS.openfile(@filepath,string("R"))
-            FS.readdata(@RDATA, FS.fileSize())
+'      if str.strncmp(@filepath,str.rtrim(sd.openFileRead(@filepath)),strsize(@filepath)) == 0
+       handle := sd.openFileRead(@filepath)
+       if handle >= 0
+            fsize := sd.fileSizeHandle(handle)
+            sd.readHandle(handle, @RDATA, fsize)
 
             ' Default response header
             rdsize :=  strsize(resp_ptr)
@@ -938,9 +939,9 @@ repeat
               rdsize :=  strsize(resp_gif_ptr)
               bytemove(@webbuff,resp_gif_ptr,rdsize)
 
-            bytemove((@webbuff + rdsize),@RDATA,FS.fileSize())
-            rdsize := rdsize + FS.fileSize()
-            FS.closeFile()
+            bytemove((@webbuff + rdsize),@RDATA,fsize)
+            rdsize := rdsize + fsize
+            sd.closeFileHandle(handle)
        else
             if str.instr(@filepath,string(".JS")) <> -1
                bytemove(@webbuff,resp_404_ptr,strsize(resp_404_ptr))
@@ -1032,13 +1033,15 @@ pub netpost()
     SCREENTIMEOUT := str2dec(@READBUFFER + str.instr(@READBUFFER,string("DTO="))+ 4, 5)
     writeconfig()
 
-pub writeconfig()
+pub writeconfig() | handle
 
-    if not \FS.openfile(string("blitzen.cfg"),"W")
+    sd.deleteFile(string("blitzen.cfg"))           ' Delete existing (ignore error if not found)
+    handle := sd.createFileNew(string("blitzen.cfg"))
+    if handle >= 0
 
       debug("Writing Configuration to SD Card.", $0D, $0A)
-      FS.writeData(@PIXELCONFIG, (@ENDOFCONFIG + 3) - @PIXELCONFIG + 1)
-      FS.closeFile()
+      sd.writeHandle(handle, @PIXELCONFIG, (@ENDOFCONFIG + 3) - @PIXELCONFIG + 1)
+      sd.closeFileHandle(handle)
 
     else
 
@@ -2211,7 +2214,7 @@ pub httpflush(bufferptr) | i
       W6100.SendData(W6100.IDM_BSR_Socket1_Register,@webbuff+i,rdsize)
       rdsize := 0
       webbuff[0] := 0
-pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc, i, bc, tfs
+pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc, i, bc, tfs, handle
 '' Gets a file via http
 '' path: pointer to string of the path to the file on the webserver
 '' svr: hostname or IP of webserver
@@ -2303,22 +2306,20 @@ pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc,
     i := 0
     i := psize - str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)) + 4 - 8
     if download <> 0
-'      FS.changeDirectory(String("Download"))
+'      sd.changeDirectory(String("Download"))
       str.append_str(@tmp2filepath,String("/Download/"))
       str.append_str(@tmp2filepath,path+str.last(path, "/")+1)
       debug(zstr_(@tmp2filepath))
 
-      if \FS.newFile(@tmp2filepath)
+      sd.deleteFile(@tmp2filepath)                    ' Remove if exists (ignore error)
+      handle := sd.createFileNew(@tmp2filepath)
+      if handle < 0
         debug("Failed to create file ",zstr_(@tmp2filepath))
       else
         debug("Created file ",zstr_(@tmp2filepath))
 
-      FS.closeFile()
-      if \FS.openFile(@tmp2filepath,"W")
-          debug("Failed to open file for writing")
-      else
-          debug("File opened for writing ",zstr_(@tmp2filepath))
-      FS.writeData(@READBUFFER + str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)) + 4,i)
+      if handle >= 0
+        sd.writeHandle(handle, @READBUFFER + str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)) + 4,i)
 
     if length > i
 
@@ -2329,7 +2330,7 @@ pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc,
 '             READBUFFER[psize] := 0
 '             debug("Received: ",zstr_(@READBUFFER))
              if download <> 0
-                 FS.writeData(@READBUFFER, psize)
+                 sd.writeHandle(handle, @READBUFFER, psize)
 
              i := i + psize
              'debug(udec(i))
@@ -2341,32 +2342,33 @@ pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc,
     W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
 
     if download <> 0
-      FS.closeFile()
+      sd.closeFileHandle(handle)
       waitms(50)
-      if not \FS.openfile(@tmp2filepath,string("R"))
+      handle := sd.openFileRead(@tmp2filepath)
+      if handle >= 0
         i := 0
        '
-        bc := FS.fileSize()
+        bc := sd.fileSizeHandle(handle)
         tfs := bc
   '      debug(udec(bc))
         MD5.hashStart(@md51)
 
         repeat
           if bc < 64
-            FS.readdata(@MD5DATA,bc)
+            sd.readHandle(handle, @MD5DATA,bc)
             MD5.hashFinish(@MD5DATA,bc,tfs,@md51)
             MD5DATA[bc] :=0
             i+=bc
             quit
           else
 
-            FS.readdata(@MD5DATA,64)
+            sd.readHandle(handle, @MD5DATA,64)
             MD5.hashBlock(@MD5DATA,@md51)
           bc -= 64
           i += 64
-        FS.closeFile()
+        sd.closeFileHandle(handle)
 
-      FS.changeDirectory(String("/"))
+      sd.changeDirectory(String("/"))
       showhash(@md51)
       If long[b64md5][0] <> long[md51][0] or ...
          long[b64md5][4] <> long[md51][4] or ...
@@ -2405,7 +2407,7 @@ pub upgraderun() | gur, fn, i, e, r
    httpflush(@webbuff)
 '   str.append_str(@webbuff, @manifest)
 
-   if not \FS.newDirectory(string("Download"))
+   if sd.newDirectory(string("Download")) == sd.SUCCESS
      debug("Create /Download directory.")
      str.append_str(@webbuff,String("data: Create /Download directory.",$0A, $0A))
      httpflush(@webbuff)
@@ -2421,7 +2423,7 @@ pub upgraderun() | gur, fn, i, e, r
    e := 0
    tmpfilepath[0] := 0
 
-   if not \FS.newDirectory(string("/Backup"))
+   if sd.newDirectory(string("/Backup")) == sd.SUCCESS
      str.append_str(@webbuff,String("data: Create /Backup directory.",$0A, $0A))
      httpflush(@webbuff)
    else
@@ -2438,7 +2440,7 @@ pub upgraderun() | gur, fn, i, e, r
    str.append_str(@webbuff,String(" lines in the manifest file.",$0A, $0A))
    httpflush(@webbuff)
 
-   if not \FS.changeDirectory(string("/"))
+   sd.changeDirectory(string("/"))
    repeat fn - 1
       tmpfilepath[0] := 0
       str.copy_field(@tmpfilepath, str.field_pntr(@manifest, i, $0A), $0A, 256)
@@ -2468,7 +2470,7 @@ pub upgraderun() | gur, fn, i, e, r
       repeat until gur == 200 or r == 4
         if gur <> 200
           if gur == -6
-             \FS.deleteEntry(@tmp2filepath)
+             sd.deleteFile(@tmp2filepath)
                 str.append_str(@webbuff,String("data: "))
           str.append_str(@webbuff, String("Deleting and retrying  "))
           str.append_str(@webbuff, @tmpfilepath)
@@ -2526,7 +2528,7 @@ pub upgraderun() | gur, fn, i, e, r
   '  No need to flush the last output.
      httpflush(@webbuff)
 
-     \FS.moveEntry(string("/Backup/BLITZEN.CFG"), string("/BLITZEN.CFG"))
+     sd.moveFile(string("/Backup/BLITZEN.CFG"), string("/"))
 
      str.append_str(@webbuff, String("data: Done.<BR><H2> <A HREF='reboot.htm'>Click here to reboot.</A></H2>"))
      str.append_str(@webbuff, String($0A, $0A))
@@ -2535,25 +2537,27 @@ pub upgraderun() | gur, fn, i, e, r
      str.append_str(@webbuff, String("data: <h2>Errors detected. Aborting</h2>"))
      str.append_str(@webbuff, String($0A, $0A))
 
-   if not \FS.changeDirectory(string("/"))
+   sd.changeDirectory(string("/"))
 
    rdsize := strsize(@webbuff)
    startpixels()
    W6100.startfastrx(W6100.IDM_BSR_Socket3_Register,@pixelbuffer,@TXBUFFER,@E131CONFIG)
 
-pub cleandirectory(deldir)
-     \FS.changeDirectory(deldir)
-     \FS.listEntry(deldir)
-     tmpfilepath[0] := 0
-     str.append_str(@tmpfilepath,FS.listName())
-     str.Rtrim(@tmpfilepath)
-     repeat until tmpfilepath[0] == 0
+pub cleandirectory(deldir) | dirhandle, attrs
+     sd.changeDirectory(deldir)
+     dirhandle := sd.openDirectory(string("."))
+     if dirhandle < 0
+       return
+     repeat while sd.readDirectoryHandle(dirhandle)
+              tmpfilepath[0] := 0
+              str.append_str(@tmpfilepath,sd.fileName())
+              str.Rtrim(@tmpfilepath)
+              if tmpfilepath[0] == 0
+                quit
+              attrs := sd.attributes()
+              if not (attrs & sd.ATTR_SYSTEM) and not (attrs & sd.ATTR_DIRECTORY) and not (attrs & sd.ATTR_READONLY)
 
-
-
-              if not FS.listIsSystem() and not FS.listIsDirectory() and not FS.listIsReadOnly()
-
-                if not \FS.deleteEntry(@tmpfilepath)
+                if sd.deleteFile(@tmpfilepath) == sd.SUCCESS
                    debug("Deleting file ->",zstr_(@tmpfilepath), "<-")
                    str.append_str(@webbuff,String("data: Deleted file "))
                    str.append_str(@webbuff, deldir)
@@ -2572,36 +2576,35 @@ pub cleandirectory(deldir)
                 str.append_str(@webbuff, @tmpfilepath)
                 str.append_str(@webbuff, String($0A, $0A))
               httpflush(@webbuff)
-              if not \FS.listEntries("N")
-              tmpfilepath[0] := 0
-              debug(uhex(tmpfilepath[0]))
-              str.append_str(@tmpfilepath,FS.listName())
-              str.Rtrim(@tmpfilepath)
-pub movedirectory(sourcedir,destdir)
+     sd.closeDirectoryHandle(dirhandle)
+pub movedirectory(sourcedir,destdir) | dirhandle, attrs
 
-     \FS.changeDirectory(sourcedir)
+     sd.changeDirectory(sourcedir)
 
-     \FS.listEntry(sourcedir)
+     dirhandle := sd.openDirectory(string("."))
 '     debug("Can't list directory ", zstr_(sourcedir))
 
-     tmpfilepath[0] := 0
-     str.append_str(@tmpfilepath,FS.listName())
-     str.Rtrim(@tmpfilepath)
-     repeat until tmpfilepath[0] == 0
+     if dirhandle < 0
+       return
+     repeat while sd.readDirectoryHandle(dirhandle)
+          tmpfilepath[0] := 0
+          str.append_str(@tmpfilepath,sd.fileName())
+          str.Rtrim(@tmpfilepath)
+          if tmpfilepath[0] == 0
+            quit
+          attrs := sd.attributes()
 
-
-
-          if not FS.listIsSystem() and not FS.listIsDirectory() and not FS.listIsReadOnly()
+          if not (attrs & sd.ATTR_SYSTEM) and not (attrs & sd.ATTR_DIRECTORY) and not (attrs & sd.ATTR_READONLY)
                 tmpfilepath[0] := 0
                 tmp2filepath[0] := 0
                 if str.strncmp(sourcedir,String("/"),2) <> 0
                     str.append_str(@tmpfilepath, sourcedir)
                 str.append_str(@tmpfilepath,String("/"))
-                str.append_str(@tmpfilepath,str.rtrim(FS.listName()))
+                str.append_str(@tmpfilepath,str.rtrim(sd.fileName()))
                 if  str.strncmp(destdir,String("/"),2) <> 0
                     str.append_str(@tmp2filepath, destdir)
                 str.append_str(@tmp2filepath,String("/"))
-                str.append_str(@tmp2filepath,str.rtrim(FS.listName()))
+                str.append_str(@tmp2filepath,str.rtrim(sd.fileName()))
                 debug("Move ",zstr_(@tmpfilepath), " to ", zstr_(@tmp2filepath))
                 str.append_str(@webbuff,String("data: Move file "))
                 str.append_str(@webbuff, @tmpfilepath)
@@ -2609,7 +2612,7 @@ pub movedirectory(sourcedir,destdir)
                 str.append_str(@webbuff, @tmp2filepath)
 
 
-                if \FS.moveEntry(@tmpfilepath, @tmp2filepath)
+                if sd.moveFile(@tmpfilepath, destdir) <> sd.SUCCESS
 
                    debug("Move ",zstr_(@tmpfilepath), " to ", zstr_(@tmp2filepath), " failed")
                    str.append_str(@webbuff, String(" failed"))
@@ -2620,14 +2623,11 @@ pub movedirectory(sourcedir,destdir)
                 'str.append_str(@webbuff, @tmpfilepath)
                 str.append_str(@webbuff, String($0A, $0A))
           httpflush(@webbuff)
-          \FS.listEntries("N")
-          tmpfilepath[0] := 0
-          str.append_str(@tmpfilepath,FS.listName())
-          str.Rtrim(@tmpfilepath)
+     sd.closeDirectoryHandle(dirhandle)
 pub rebootjs()
     waitms(1000)
-    FS.unmountPartition()
-    FS.FATEngineStop()
+    sd.unmount()
+    sd.stop()
     org
       HUBSET  ##$1000_0000    'hard reset, reboots the P2 chip
     end
@@ -2637,7 +2637,7 @@ PUB showhash(hash_ptr) | i
         debug(uhex_byte_(byte[hash_ptr][i]))
 
         i++
-PUB logo() | i, rb, rg
+PUB logo() | i, rb, rg, handle, fsize
 ''Writes the screen buffer to the memory of the display
   OLED.ssd1331_command($E3) ' NOP
   OLED.ssd1331_command($E3) ' NOP
@@ -2653,11 +2653,13 @@ PUB logo() | i, rb, rg
   OLED.ssd1331_command($A2)
   OLED.ssd1331_command($0)
 
-  if not \FS.openfile(string("GFX.raw"),"R")
+  handle := sd.openFileRead(string("GFX.raw"))
+  if handle >= 0
 
     debug("Opened Logo")
-    repeat FS.fileSize()/12288
-      FS.readData(@vbuffer, 12288)
+    fsize := sd.fileSizeHandle(handle)
+    repeat fsize/12288
+      sd.readHandle(handle, @vbuffer, 12288)
       i := 0
         repeat 6144
                 rb := vbuffer[i]
@@ -2666,7 +2668,7 @@ PUB logo() | i, rb, rg
                 OLED.ssd1331_Data(rb)
                 i := i+2
 
-    FS.closeFile()
+    sd.closeFileHandle(handle)
   OLED.clearDisplay()
   OLED.ssd1331_command($E3) ' NOP
   OLED.ssd1331_command($E3) ' NOP
@@ -2918,17 +2920,16 @@ PUB MDNSbeaconNOANSWER(id1,id2,SrcPort,SrcIP) | temp
     else
         temp := W6100.PM_UDP4
         W6100.writereg(W6100.REG_Sn_Mr,W6100.IDM_BSR_Socket4_Register,1,@temp)
-
+        waitms(10)
         temp := W6100.CR_CLOSE
         W6100.writereg(W6100.REG_Sn_CR,W6100.IDM_BSR_Socket4_Register,1,@temp)
         REPEAT until W6100.readreg(W6100.REG_Sn_SR,W6100.IDM_BSR_Socket4_Register,1,@temp) == W6100.SOCK_CLOSED
 
-
+        W6100.Open(5353,W6100.PM_UDP4,W6100.IDM_BSR_Socket4_Register)
         W6100.writereg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket4_Register,4,@SrcIP)
         byteswap(@SrcPort,@SrcPort+1,1)
         W6100.writereg(W6100.REG_Sn_DPORTR,W6100.IDM_BSR_Socket4_Register,2,@SrcPort)
 '        debug(ubin(w6100.readreg(W6100.REG_Sn_Mr,W6100.IDM_BSR_Socket4_Register,1,@temp)))
-        W6100.Open(5353,W6100.PM_UDP4,W6100.IDM_BSR_Socket4_Register)
         W6100.SendData(W6100.IDM_BSR_Socket4_Register,@MDNSBUFFER,build_mdns_negative_aaaa_response(id1,id2))
         waitms(20)
         temp := W6100.CR_CLOSE
@@ -2945,10 +2946,10 @@ PUB MDNSbeacon(id1,id2,SrcPort,SrcIP) | temp
 
   else
 
-'        debug("Unicast Received")
-'        debug("UDP Source IP: ",udec_(byte[@SrcIP]),".",udec_(byte[@SrcIP+1]),".",udec_(byte[@SrcIP+2]),".",udec_(byte[@SrcIP+3]))
-'        debug("UDP Port Number: ", udec_(SrcPort))
-'        W6100.Disconnect(W6100.IDM_BSR_Socket4_Register)
+        debug("Unicast Received")
+        debug("UDP Source IP: ",udec_(byte[@SrcIP]),".",udec_(byte[@SrcIP+1]),".",udec_(byte[@SrcIP+2]),".",udec_(byte[@SrcIP+3]))
+        debug("UDP Port Number: ", udec_(SrcPort))
+        W6100.Disconnect(W6100.IDM_BSR_Socket4_Register)
         temp := W6100.PM_UDP4
         W6100.writereg(W6100.REG_Sn_Mr,W6100.IDM_BSR_Socket4_Register,1,@temp)
 
@@ -2956,12 +2957,11 @@ PUB MDNSbeacon(id1,id2,SrcPort,SrcIP) | temp
         W6100.writereg(W6100.REG_Sn_CR,W6100.IDM_BSR_Socket4_Register,1,@temp)
         REPEAT until W6100.readreg(W6100.REG_Sn_SR,W6100.IDM_BSR_Socket4_Register,1,@temp) == W6100.SOCK_CLOSED
 
-
+        W6100.Open(5353,W6100.PM_UDP4,W6100.IDM_BSR_Socket4_Register)
         W6100.writereg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket4_Register,4,@SrcIP)
         byteswap(@SrcPort,@SrcPort+1,1)
         W6100.writereg(W6100.REG_Sn_DPORTR,W6100.IDM_BSR_Socket4_Register,2,@SrcPort)
 '        debug(ubin(w6100.readreg(W6100.REG_Sn_Mr,W6100.IDM_BSR_Socket4_Register,1,@temp)))
-        W6100.Open(5353,W6100.PM_UDP4,W6100.IDM_BSR_Socket4_Register)
         W6100.SendData(W6100.IDM_BSR_Socket4_Register,@MDNSBUFFER,build_mdns_response(id1,id2))
         waitms(20)
 
