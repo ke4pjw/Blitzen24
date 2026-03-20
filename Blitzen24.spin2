@@ -50,6 +50,12 @@ CON
 
   STRUCT nametype(BYTE namefield[32])
 
+  ' Multi-task HTTP listener constants
+  MAX_TASKS = 4
+  MAX_MSS   = 1460
+
+  STRUCT HTTPD_CTX(byte readbuffer[2024], byte filepath[256], byte webbuff[8192], long fh, long rdsize, word psize, long mss)
+
 VAR
         long PIXELCONFIG[144]
         long E131CONFIG[432]
@@ -93,10 +99,6 @@ VAR
         long dhcp_ptr
         long resp_dl_ptr
         word psize
-        BYTE FILEPATH[2048]
-        BYTE RDATA[64000]
-        byte webbuff[64000]
-        long rdsize
         long elock
         long tPIXELCONFIG[90]
         long tE131CONFIG[432]
@@ -122,6 +124,7 @@ VAR
         byte tmp2filepath[256]
         long resp_evt_ptr
         long resp_gif_ptr
+        long resp_js_ptr
         byte b64md5[256]
         byte MD5DATA[64]
         byte vbuffer[12288]
@@ -131,7 +134,13 @@ VAR
         long alt
         byte MDNSGRP[8]
         byte MDNSBUFFER[1536]
-        long MSS
+        ' SIR dispatcher — hub flags set by dispatcher, read by tasks
+        byte socket_ready[MAX_TASKS]
+        ' Multi-task HTTP listener contexts and stacks
+        HTTPD_CTX ctx[MAX_TASKS]
+        long task_stack_1[1024]
+        long task_stack_2[1024]
+        long task_stack_3[1024]
         long watchdogstack[1023] ' Keep this on bottom
 
 OBJ
@@ -152,7 +161,7 @@ OBJ
         qe: "jm_quadraturesmartpin"
 
 PUB main() | i, j, handle, fsize
-  str.append_str(@buildver, String("Blitzen 24 Edge 2.3.3 (Rocklin) Dev"))
+  str.append_str(@buildver, String("Blitzen 24 Edge 2.4.0 (Rocklin) Dev"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -162,6 +171,7 @@ PUB main() | i, j, handle, fsize
   resp_dl_ptr  := String("Content-Type: application/octet-stream", $0D, $0A)
   resp_evt_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/event-stream", $0D, $0A, "Cache-Control: no-cache", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_gif_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/gif", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
+  resp_js_ptr  := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: application/javascript", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
 
   upgradeserver_ptr := String("files.griswoldfx.com")
   dot := String(".")
@@ -561,6 +571,16 @@ This is here to show what the data structure looks like.
 
   debug("Starting web server")
 
+  ' Enable SIR for HTTP sockets (1,2,4,5) and mDNS (7)
+  WRITEBUFFER[0] := %1011_0110
+  W6100.writereg(W6100.REG_SIMR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
+  ' Clear residual interrupts on all HTTP sockets from previous boot
+  WRITEBUFFER[0] := $FF
+  W6100.writereg(W6100.REG_Sn_IRCLR,W6100.IDM_BSR_Socket1_Register,1,@WRITEBUFFER)
+  W6100.writereg(W6100.REG_Sn_IRCLR,W6100.IDM_BSR_Socket2_Register,1,@WRITEBUFFER)
+  W6100.writereg(W6100.REG_Sn_IRCLR,W6100.IDM_BSR_Socket4_Register,1,@WRITEBUFFER)
+  W6100.writereg(W6100.REG_Sn_IRCLR,W6100.IDM_BSR_Socket5_Register,1,@WRITEBUFFER)
+  W6100.writereg(W6100.REG_Sn_IRCLR,W6100.IDM_BSR_Socket7_Register,1,@WRITEBUFFER)
 
 '  COGSPIN(NEWCOG, httpd(80,W6100.PM_TCP4,W6100.IDM_BSR_Socket1_Register), @httpdstack)
 '  repeat
@@ -569,8 +589,11 @@ This is here to show what the data structure looks like.
 '  TASKSPIN(-1,mdnstest(), @mdnsstack)
 '    waitms(5000)
 
-  repeat
-      httpd(80,W6100.PM_TCP4,W6100.IDM_BSR_Socket1_Register)
+  ' Spawn 3 HTTP listener tasks on Sockets 2-4, then run Task 0 on Socket 1
+  TASKSPIN(1, httpd(80, W6100.PM_TCP4, W6100.IDM_BSR_Socket2_Register), @task_stack_1)
+  TASKSPIN(2, httpd(80, W6100.PM_TCP4, W6100.IDM_BSR_Socket5_Register), @task_stack_2)
+  TASKSPIN(3, httpd(80, W6100.PM_TCP4, W6100.IDM_BSR_Socket4_Register), @task_stack_3)
+  httpd(80, W6100.PM_TCP4, W6100.IDM_BSR_Socket1_Register)  ' Task 0 in main context
 
 pub watchdogcog() | time1,time2,lt, t, ev, last, now, check, counts, p, c, dnscounter
  OLED.clearDisplay()
@@ -811,192 +834,215 @@ pub ConfigPixels() |  pixelcount, pixeloffset, i, ei
     ei := ei + 4
 
 
-pub httpd(port,PM,socket) | i, handle, fsize
+pub httpd(port,PM,socket) | t, i, sir, sockbit, firstopen
+
+  t := TASKID()
+  sockbit := 1 << (socket >> 5)  ' SIR bit for this task's socket
+  firstopen := true
 
 repeat
+  ' First time: full Open + ListenTCP. After that: fast ReopenTCP.
+  if firstopen
+    W6100.Open(port,PM,socket)
+    if W6100.ListenTCP(socket) <> W6100.SOCK_LISTEN
+      debug("Socket Listener failed!")
+      Return
+    firstopen := false
+  else
+    W6100.ReopenTCP(socket)
 
-  debug("Configuring Protocol Mode TCP on Socket 1")
+  ' Clear any stale interrupts before entering dispatcher loop
+  ctx[t].readbuffer[0] := $FF
+  W6100.writereg(W6100.REG_Sn_IRCLR, socket, 1, @ctx[t].readbuffer)
 
-  W6100.Open(port,PM,socket)
+  ' Clear our ready flag
+  socket_ready[t] := 0
 
-  debug("Configuring listener on Socket 1")
+  ' Main loop — single SIR read dispatches all sockets, yield to other tasks
+  repeat
+        ' Every task reads SIR on its turn — still just 1 bus transaction per task
+        sir := W6100.ReadSIR()
+        if sir & sockbit                   ' Our own socket has activity
+          socket_ready[t] := 1
+        if t == 0                          ' Task 0 also dispatches for other tasks
+          if sir & %0000_0100              ' Socket 2 → Task 1
+            socket_ready[1] := 1
+          if sir & %0010_0000              ' Socket 5 → Task 2
+            socket_ready[2] := 1
+          if sir & %0001_0000              ' Socket 4 → Task 3
+            socket_ready[3] := 1
+          if sir & %1000_0000              ' Socket 7 → mDNS
+            mdnscheck()
+        ' Check our flag — if set, confirm the connection
+        if socket_ready[t]
+          socket_ready[t] := 0
+          if W6100.EstablishTCP(socket, 1) <> W6100.Sn_IR_TIMEOUT
+            quit
+        TASKNEXT()
+  W6100.writereg(W6100.REG_Sn_IRCLR, socket, 1, @ctx[t].readbuffer)
+  W6100.readreg(W6100.REG_Sn_DIPR,socket,4,@ctx[t].readbuffer)
+    ' Get MSS for this socket
+  W6100.readreg(W6100.REG_Sn_MSSR, socket, 2, @ctx[t].mss)
+  BYTESWAP(@ctx[t].mss, @ctx[t].mss+1, 1)
 
-   ' Instantiate Stay Puff listener on opened socket.
-  if W6100.ListenTCP(socket) <> W6100.SOCK_LISTEN
-     debug("Socket Listener failed!")
+      If (W6100.ReceiveData(socket,100) <> W6100.Sn_IR_TIMEOUT)
+        ctx[t].psize := W6100.ReceiveProcess(socket,@ctx[t].readbuffer)
+        If ( W6100.ReceiveData(socket,100) <> W6100.Sn_IR_TIMEOUT and ctx[t].readbuffer[ctx[t].psize-1] == $0A) 'Complete hack to support IOS
+            ctx[t].psize := ctx[t].psize + W6100.ReceiveProcess(socket,@ctx[t].readbuffer+ctx[t].psize)
+        ctx[t].readbuffer[ctx[t].psize] := 0
 
-     Return
+    '    debug("Packet Length: ", udec_(ctx[t].psize))
+    '    debug("Start Filename: ",udec_(str.instr(@ctx[t].readbuffer,string("GET /"))+5))
+    '    debug("End Filename: ", udec_(str.instr(@ctx[t].readbuffer,string("HTTP/1.1"))-1))
 
-  debug("Waiting for TCP request on Socket 1 port 80")
+        ctx[t].readbuffer[2000] := 0
+        if str.instr(@ctx[t].readbuffer,string("HTTP/1.1")) <> -1 and (str.instr(@ctx[t].readbuffer,string("GET /")) <> -1  or str.instr(@ctx[t].readbuffer,string("POST /")) <> -1  ) and (str.instr(@ctx[t].readbuffer,string("HTTP/1.1")) > str.instr(@ctx[t].readbuffer,string("GET /")) or str.instr(@ctx[t].readbuffer,string("HTTP/1.1")) > str.instr(@ctx[t].readbuffer,string("POST /")))
+           bytefill(@ctx[t].filepath,0,25)
 
-  repeat until (W6100.EstablishTCP(socket, 1) <> W6100.Sn_IR_TIMEOUT)
-    mdnscheck()
-  W6100.readreg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket1_Register,4,@READBUFFER)
-  debug("Connection Established from ", udec_(READBUFFER[0]),".",udec_(READBUFFER[1]),".",udec_(READBUFFER[2]),".",udec_(READBUFFER[3]))
+            if str.instr(@ctx[t].readbuffer,string("GET /")) <> -1
+              str.mid(@ctx[t].filepath, @ctx[t].readbuffer, str.instr(@ctx[t].readbuffer,string("GET /"))+5, (str.instr(@ctx[t].readbuffer,string("HTTP/1.1"))) - (str.instr(@ctx[t].readbuffer,string("GET /"))) - 6 )
+           '  Set filename to all uppercase
+              str.ucstr(@ctx[t].filepath)
 
-  debug("Checking Sn_RX_RSR Socket Status/number of bytes in buffer: ")
+             ' Save config if token is in GET request
+              if str.instr(@ctx[t].filepath,string("?SAVE=Y")) <> -1
+                  writeconfig()
 
-  If (W6100.ReceiveData(socket,100) <> W6100.Sn_IR_TIMEOUT)
- '     W6100.ReceiveData(socket,100000)
-    psize := W6100.ReceiveProcess(socket,@READBUFFER)
-    If ( W6100.ReceiveData(socket,100) <> W6100.Sn_IR_TIMEOUT and READBUFFER[psize-1] == $0A) 'Complete hack to support IOS
-        psize := psize + W6100.ReceiveProcess(socket,@READBUFFER+psize)
-    READBUFFER[psize] := 0
-'    debug("Received: ",zstr_(@READBUFFER))
-
-{
-      i:=0
-      repeat until i == psize 'or i > 256
-        if READBUFFER[i] > 31 and READBUFFER[i] < 128
-           debug(READBUFFER[i])
-        else
-           debug("`")
-        i++
-}
-
-    debug("Packet Length: ", udec_(psize))
-    debug("Start Filename: ",udec_(str.instr(@READBUFFER,string("GET /"))+5))
-    debug("End Filename: ", udec_(str.instr(@READBUFFER,string("HTTP/1.1"))-1))
-
-    READBUFFER[2000] := 0
-    if str.instr(@READBUFFER,string("HTTP/1.1")) <> -1 and (str.instr(@READBUFFER,string("GET /")) <> -1  or str.instr(@READBUFFER,string("POST /")) <> -1  ) and (str.instr(@READBUFFER,string("HTTP/1.1")) > str.instr(@READBUFFER,string("GET /")) or str.instr(@READBUFFER,string("HTTP/1.1")) > str.instr(@READBUFFER,string("POST /")))
-       bytefill(@filepath,0,25)
-
-        if str.instr(@READBUFFER,string("GET /")) <> -1
-          str.mid(@filepath, @READBUFFER, str.instr(@READBUFFER,string("GET /"))+5, (str.instr(@READBUFFER,string("HTTP/1.1"))) - (str.instr(@READBUFFER,string("GET /"))) - 6 )
-       '  Set filename to all uppercase
-          str.ucstr(@filepath)
-
-         ' Save config if token is in GET request
-          if str.instr(@filepath,string("?SAVE=Y")) <> -1
-              writeconfig()
-
-        else
-
-          str.mid(@filepath, @READBUFFER, str.instr(@READBUFFER,string("POST /"))+6, (str.instr(@READBUFFER,string("HTTP/1.1"))) - (str.instr(@READBUFFER,string("POST /"))) - 7 )
-        ' Set filename to all uppercase
-          str.ucstr(@filepath)
-          if str.instr(@filepath,string("NET.HTM")) <> -1
-            netpost()
-          if str.instr(@filepath,string("E131.HTM")) <> -1 or str.instr(@filepath,string("DMX.HTM")) <> -1
-            e131post()
-          if str.instr(@filepath,string("CONFIGS.HTM")) <> -1
-            configspost(socket)
-          if str.instr(@filepath,string("OUTPUTS.HTM")) <> -1
-            outputspost()
-          if str.instr(@filepath,string("UPGRADE.HTM")) <> -1
-            upgradepost()
-
-       debug("Filename: ", zstr_(@filepath))
-
-        ' Set default document
-       if (str.instr(@READBUFFER,string("HTTP/1.1"))-1) == 5
-           filepath[0] := 0
-           str.append_str(@filepath,string("index.htm"))
-
-
-
-      'results := sd.openFileRead(string("test.txt"))
-
-'      if str.strncmp(@filepath,str.rtrim(sd.openFileRead(@filepath)),strsize(@filepath)) == 0
-       handle := sd.openFileRead(@filepath)
-       if handle >= 0
-            fsize := sd.fileSizeHandle(handle)
-            sd.readHandle(handle, @RDATA, fsize)
-
-            ' Default response header
-            rdsize :=  strsize(resp_ptr)
-            bytemove(@webbuff,resp_ptr,rdsize)
-
-            ' Other MIME Type Response headers
-            if str.instr(@filepath,string(".JPG")) == (strsize(@filepath) - 4)
-              rdsize :=  strsize(resp_jpg_ptr)
-              bytemove(@webbuff,resp_jpg_ptr,rdsize)
-
-            if str.instr(@filepath,string(".ICO")) == (strsize(@filepath) - 4)
-              rdsize :=  strsize(resp_ico_ptr)
-              bytemove(@webbuff,resp_ico_ptr,rdsize)
-
-
-            if str.instr(@filepath,string(".PNG")) == (strsize(@filepath) - 4)
-              rdsize :=  strsize(resp_png_ptr)
-              bytemove(@webbuff,resp_png_ptr,rdsize)
-
-            if str.instr(@filepath,string(".CSS")) == (strsize(@filepath) - 4)
-              rdsize :=  strsize(resp_css_ptr)
-              bytemove(@webbuff,resp_css_ptr,rdsize)
-
-            if str.instr(@filepath,string(".CFG")) == (strsize(@filepath) - 4)
-              webbuff[0] := 0
-              str.append_str(@webbuff, string("HTTP/1.1 200 OK", $0D, $0A))
-              str.append_str(@webbuff,resp_dl_ptr)
-              str.append_str(@webbuff, string("Content-Disposition: attachment; filename=", $22))
-              str.append_str(@webbuff, @HOSTNAME)
-              str.append_str(@webbuff, string("-boot.cfg", $22, $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A))
-              rdsize :=  strsize(@webbuff)
-
-            if str.instr(@filepath,string(".GIF")) == (strsize(@filepath) - 4)
-              rdsize :=  strsize(resp_gif_ptr)
-              bytemove(@webbuff,resp_gif_ptr,rdsize)
-
-            bytemove((@webbuff + rdsize),@RDATA,fsize)
-            rdsize := rdsize + fsize
-            sd.closeFileHandle(handle)
-       else
-            if str.instr(@filepath,string(".JS")) <> -1
-               bytemove(@webbuff,resp_404_ptr,strsize(resp_404_ptr))
-               rdsize :=  strsize(resp_404_ptr)
-               if str.instr(@filepath,string("COUNTERS.JS")) <> -1
-                  countersjs()
-                  'This is here as an easy way to trigger a DNS lookup when testing.
-                  'dnsresolver(@servername)
-               if str.instr(@filepath,string("NET.JS")) <> -1
-                  netjs()
-               if str.instr(@filepath,string("E131.JS")) <> -1
-                  e131js()
-               if str.instr(@filepath,string("OUTPUT.JS")) <> -1
-                  outputjs()
-               if str.instr(@filepath,string("CONFIG.JS")) <> -1
-                  configjs()
-               if str.instr(@filepath,string("UPGRADE.JS")) <> -1
-                  upgradejs()
-               if str.instr(@filepath,string("UPGRADERUN.JS")) <> -1
-                  upgraderun()
-               if str.instr(@filepath,string("REBOOT.JS")) <> -1
-                  rebootjs()
             else
-               if str.instr(@filepath,string("RUNNINGCONFIG.CFG")) <> -1
-                  downloadconfig()
-               else
 
-                  bytemove(@webbuff,resp_404_ptr,strsize(resp_404_ptr))
-                  rdsize :=  strsize(resp_404_ptr)
-       mssset(socket)
-       webbuff[rdsize] := 0
-       i := 0
-       repeat until rdsize <= mss
-          W6100.SendData(socket,@webbuff+i,mss)
-          i := i + mss
-          rdsize := rdsize - mss
-       W6100.SendData(socket,@webbuff+i,rdsize)
+              str.mid(@ctx[t].filepath, @ctx[t].readbuffer, str.instr(@ctx[t].readbuffer,string("POST /"))+6, (str.instr(@ctx[t].readbuffer,string("HTTP/1.1"))) - (str.instr(@ctx[t].readbuffer,string("POST /"))) - 7 )
+            ' Set filename to all uppercase
+              str.ucstr(@ctx[t].filepath)
+              if str.instr(@ctx[t].filepath,string("NET.HTM")) <> -1
+                netpost()
+              if str.instr(@ctx[t].filepath,string("E131.HTM")) <> -1 or str.instr(@ctx[t].filepath,string("DMX.HTM")) <> -1
+                e131post()
+              if str.instr(@ctx[t].filepath,string("CONFIGS.HTM")) <> -1
+                configspost(socket)
+              if str.instr(@ctx[t].filepath,string("OUTPUTS.HTM")) <> -1
+                outputspost()
+              if str.instr(@ctx[t].filepath,string("UPGRADE.HTM")) <> -1
+                upgradepost()
+
+    '       debug("Filename: ", zstr_(@ctx[t].filepath))
+
+            ' Set default document
+           if (str.instr(@ctx[t].readbuffer,string("HTTP/1.1"))-1) == 5
+               ctx[t].filepath[0] := 0
+               str.append_str(@ctx[t].filepath,string("index.htm"))
+
+           ctx[t].fh := sd.openFileRead(@ctx[t].filepath)
+           if ctx[t].fh >= 0
+
+                ' Default response header
+                ctx[t].rdsize :=  strsize(resp_ptr)
+                bytemove(@ctx[t].webbuff,resp_ptr,ctx[t].rdsize)
+
+                ' Other MIME Type Response headers
+                if str.instr(@ctx[t].filepath,string(".JPG")) == (strsize(@ctx[t].filepath) - 4)
+                  ctx[t].rdsize :=  strsize(resp_jpg_ptr)
+                  bytemove(@ctx[t].webbuff,resp_jpg_ptr,ctx[t].rdsize)
+
+                if str.instr(@ctx[t].filepath,string(".ICO")) == (strsize(@ctx[t].filepath) - 4)
+                  ctx[t].rdsize :=  strsize(resp_ico_ptr)
+                  bytemove(@ctx[t].webbuff,resp_ico_ptr,ctx[t].rdsize)
+
+                if str.instr(@ctx[t].filepath,string(".PNG")) == (strsize(@ctx[t].filepath) - 4)
+                  ctx[t].rdsize :=  strsize(resp_png_ptr)
+                  bytemove(@ctx[t].webbuff,resp_png_ptr,ctx[t].rdsize)
+
+                if str.instr(@ctx[t].filepath,string(".CSS")) == (strsize(@ctx[t].filepath) - 4)
+                  ctx[t].rdsize :=  strsize(resp_css_ptr)
+                  bytemove(@ctx[t].webbuff,resp_css_ptr,ctx[t].rdsize)
+
+                if str.instr(@ctx[t].filepath,string(".CFG")) == (strsize(@ctx[t].filepath) - 4)
+                  ctx[t].webbuff[0] := 0
+                  str.append_str(@ctx[t].webbuff, string("HTTP/1.1 200 OK", $0D, $0A))
+                  str.append_str(@ctx[t].webbuff,resp_dl_ptr)
+                  str.append_str(@ctx[t].webbuff, string("Content-Disposition: attachment; filename=", $22))
+                  str.append_str(@ctx[t].webbuff, @HOSTNAME)
+                  str.append_str(@ctx[t].webbuff, string("-boot.cfg", $22, $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A))
+                  ctx[t].rdsize :=  strsize(@ctx[t].webbuff)
+
+                if str.instr(@ctx[t].filepath,string(".GIF")) == (strsize(@ctx[t].filepath) - 4)
+                  ctx[t].rdsize :=  strsize(resp_gif_ptr)
+                  bytemove(@ctx[t].webbuff,resp_gif_ptr,ctx[t].rdsize)
+
+                if str.instr(@ctx[t].filepath,string(".JS")) == (strsize(@ctx[t].filepath) - 3)
+                  ctx[t].rdsize :=  strsize(resp_js_ptr)
+                  bytemove(@ctx[t].webbuff,resp_js_ptr,ctx[t].rdsize)
+
+                ' Send header in chunks
+                i := 0
+                repeat until ctx[t].rdsize <= ctx[t].mss
+                  W6100.SendData(socket, @ctx[t].webbuff+i, ctx[t].mss)
+                  TASKNEXT()
+                  i := i + ctx[t].mss
+                  ctx[t].rdsize := ctx[t].rdsize - ctx[t].mss
+                if ctx[t].rdsize > 0
+                  W6100.SendData(socket, @ctx[t].webbuff+i, ctx[t].rdsize)
+                  TASKNEXT()
+
+                ' Stream file body from SD in MSS-sized chunks
+                Repeat until sd.tellHandle(ctx[t].fh) == sd.fileSizeHandle(ctx[t].fh) or W6100.isdisconnected(socket) == True
+                  if sd.fileSizeHandle(ctx[t].fh) - sd.tellHandle(ctx[t].fh) > ctx[t].mss
+                    sd.readHandle(ctx[t].fh, @ctx[t].webbuff, ctx[t].mss)
+                    W6100.SendData(socket, @ctx[t].webbuff, ctx[t].mss)
+                  else
+                    ctx[t].rdsize := sd.fileSizeHandle(ctx[t].fh) - sd.tellHandle(ctx[t].fh)
+                    sd.readHandle(ctx[t].fh, @ctx[t].webbuff, ctx[t].rdsize)
+                    W6100.SendData(socket, @ctx[t].webbuff, ctx[t].rdsize)
+                  TASKNEXT()
+                sd.closeFileHandle(ctx[t].fh)
+           else
+                if str.instr(@ctx[t].filepath,string(".JS")) <> -1
+                   bytemove(@ctx[t].webbuff,resp_404_ptr,strsize(resp_404_ptr))
+                   ctx[t].rdsize :=  strsize(resp_404_ptr)
+                   if str.instr(@ctx[t].filepath,string("COUNTERS.JS")) <> -1
+                      countersjs()
+                      'This is here as an easy way to trigger a DNS lookup when testing.
+                      'dnsresolver(@servername)
+                   if str.instr(@ctx[t].filepath,string("NET.JS")) <> -1
+                      netjs()
+                   if str.instr(@ctx[t].filepath,string("E131.JS")) <> -1
+                      e131js()
+                   if str.instr(@ctx[t].filepath,string("OUTPUT.JS")) <> -1
+                      outputjs()
+                   if str.instr(@ctx[t].filepath,string("CONFIG.JS")) <> -1
+                      configjs()
+                   if str.instr(@ctx[t].filepath,string("UPGRADE.JS")) <> -1
+                      upgradejs()
+                   if str.instr(@ctx[t].filepath,string("UPGRADERUN.JS")) <> -1
+                      upgraderun(socket)
+                   if str.instr(@ctx[t].filepath,string("REBOOT.JS")) <> -1
+                      rebootjs()
+                else
+                   if str.instr(@ctx[t].filepath,string("RUNNINGCONFIG.CFG")) <> -1
+                      downloadconfig()
+                   else
+
+                      bytemove(@ctx[t].webbuff,resp_404_ptr,strsize(resp_404_ptr))
+                      ctx[t].rdsize :=  strsize(resp_404_ptr)
+                ' Send dynamic/404 response in MSS chunks
+                ctx[t].webbuff[ctx[t].rdsize] := 0
+                i := 0
+                repeat until ctx[t].rdsize <= ctx[t].mss
+                   W6100.SendData(socket,@ctx[t].webbuff+i,ctx[t].mss)
+                   TASKNEXT()
+                   i := i + ctx[t].mss
+                   ctx[t].rdsize := ctx[t].rdsize - ctx[t].mss
+                if ctx[t].rdsize > 0
+                  W6100.SendData(socket,@ctx[t].webbuff+i,ctx[t].rdsize)
+
+           W6100.Disconnect(socket)
 
 
+pub netpost() | t
 
-
-
-'      W6100.SendDataTCP(socket,resp_ptr,strsize(resp_ptr))' Send the page
-'      W6100.SendDataTCP(socket,@RDATA,strsize(RDATA))' Send the page
-'         W6100.EndDataTCP(socket)
-'      if W6100.isdisconnected(socket) <> True
-       waitms(20)
-       W6100.Disconnect(socket)
-
-
-pub netpost()
-
+  t := TASKID()
         ' Get the output name
-     if str.instr(@READBUFFER,string("HOSTNAME=")) <> -1
-       strcopy(@tmpfilepath, @READBUFFER + str.instr(@READBUFFER,string("HOSTNAME="))+9, str.instr(@READBUFFER + str.instr(@READBUFFER,string("HOSTNAME="))+9,string("&")))
+     if str.instr(@ctx[t].readbuffer,string("HOSTNAME=")) <> -1
+       strcopy(@tmpfilepath, @ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("HOSTNAME="))+9, str.instr(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("HOSTNAME="))+9,string("&")))
        URLDecode(@tmpfilepath,@HOSTNAME)
        tmpfilepath[0] := 0 ' Zero out the tmp string. tmpfilepath is used because it is available.
      else
@@ -1004,33 +1050,33 @@ pub netpost()
        str.append_str(@HOSTNAME,str.hex(MACADDRESS[4],0))
        str.append_str(@HOSTNAME,str.hex(MACADDRESS[5],0))
      str.lcstr(@HOSTNAME)
-     if str.instr(@READBUFFER,string("DHCP=1")) <> -1
+     if str.instr(@ctx[t].readbuffer,string("DHCP=1")) <> -1
         DHCP := 1
      else
         DHCP := 0
 
-    IPADDRESS[0] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("IPADDRESS0="))+ 11, 3)
-    IPADDRESS[1] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("IPADDRESS1="))+ 11, 3)
-    IPADDRESS[2] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("IPADDRESS2="))+ 11, 3)
-    IPADDRESS[3] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("IPADDRESS3="))+ 11, 3)
+    IPADDRESS[0] := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("IPADDRESS0="))+ 11, 3)
+    IPADDRESS[1] := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("IPADDRESS1="))+ 11, 3)
+    IPADDRESS[2] := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("IPADDRESS2="))+ 11, 3)
+    IPADDRESS[3] := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("IPADDRESS3="))+ 11, 3)
 
-    SUBNETMASK[0] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("SUBNETMASK0="))+ 12, 3)
-    SUBNETMASK[1] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("SUBNETMASK1="))+ 12, 3)
-    SUBNETMASK[2] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("SUBNETMASK2="))+ 12, 3)
-    SUBNETMASK[3] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("SUBNETMASK3="))+ 12, 3)
+    SUBNETMASK[0] := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("SUBNETMASK0="))+ 12, 3)
+    SUBNETMASK[1] := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("SUBNETMASK1="))+ 12, 3)
+    SUBNETMASK[2] := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("SUBNETMASK2="))+ 12, 3)
+    SUBNETMASK[3] := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("SUBNETMASK3="))+ 12, 3)
 
-    GATEWAY[0] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("GATEWAY0="))+ 9, 3)
-    GATEWAY[1] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("GATEWAY1="))+ 9, 3)
-    GATEWAY[2] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("GATEWAY2="))+ 9, 3)
-    GATEWAY[3] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("GATEWAY3="))+ 9, 3)
+    GATEWAY[0] := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("GATEWAY0="))+ 9, 3)
+    GATEWAY[1] := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("GATEWAY1="))+ 9, 3)
+    GATEWAY[2] := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("GATEWAY2="))+ 9, 3)
+    GATEWAY[3] := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("GATEWAY3="))+ 9, 3)
 
-    DNS[0] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("DNS0="))+ 5, 3)
-    DNS[1] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("DNS1="))+ 5, 3)
-    DNS[2] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("DNS2="))+ 5, 3)
-    DNS[3] := str2dec(@READBUFFER + str.instr(@READBUFFER,string("DNS3="))+ 5, 3)
+    DNS[0] := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("DNS0="))+ 5, 3)
+    DNS[1] := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("DNS1="))+ 5, 3)
+    DNS[2] := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("DNS2="))+ 5, 3)
+    DNS[3] := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("DNS3="))+ 5, 3)
 
-    SPEEDDUPLEX := str2dec(@READBUFFER + str.instr(@READBUFFER,string("SD="))+ 3, 1)
-    SCREENTIMEOUT := str2dec(@READBUFFER + str.instr(@READBUFFER,string("DTO="))+ 4, 5)
+    SPEEDDUPLEX := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("SD="))+ 3, 1)
+    SCREENTIMEOUT := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("DTO="))+ 4, 5)
     writeconfig()
 
 pub writeconfig() | handle
@@ -1047,75 +1093,77 @@ pub writeconfig() | handle
 
       debug("Unable to write config. Aborting.", $0D, $0A)
       abort
-pub configspost(socket) | length, startpoint, datarxed, bpos, qc, cpysize
+pub configspost(socket) | t, length, startpoint, datarxed, bpos, qc, cpysize
+    t := TASKID()
     boundary[0] := 0
 
-    if str.instr(@READBUFFER,string("boundary=")) <> -1
-      str.mid(@boundary, @READBUFFER, str.instr(@READBUFFER,string("boundary="))+9, (str.instr(@READBUFFER + str.instr(@READBUFFER,string("boundary="))+9 ,string( $0D, $0A)))  )
+    if str.instr(@ctx[t].readbuffer,string("boundary=")) <> -1
+      str.mid(@boundary, @ctx[t].readbuffer, str.instr(@ctx[t].readbuffer,string("boundary="))+9, (str.instr(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("boundary="))+9 ,string( $0D, $0A)))  )
       debug("Boundary: ", zstr_(@boundary))
 
-      length := str2dec(@READBUFFER + str.instr(@READBUFFER,string("Content-Length: "))+ 16, 10)
+      length := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("Content-Length: "))+ 16, 10)
       debug("Content Length: ", udec_(length))
-      debug("Packet Size: ", udec_(psize))
+      debug("Packet Size: ", udec_(ctx[t].psize))
 
       qc := 0
       repeat until startpoint > 27 or qc > 4
         qc++
-        startpoint := inbin(@READBUFFER,string("Content-Type: application/octet-stream", $0D, $0A, $0D, $0A), psize) + 42
+        startpoint := inbin(@ctx[t].readbuffer,string("Content-Type: application/octet-stream", $0D, $0A, $0D, $0A), ctx[t].psize) + 42
         if  startpoint == 41
-          startpoint := inbin(@READBUFFER,string("Content-Type: image/jpeg", $0D, $0A, $0D, $0A), psize) + 28
+          startpoint := inbin(@ctx[t].readbuffer,string("Content-Type: image/jpeg", $0D, $0A, $0D, $0A), ctx[t].psize) + 28
         if startpoint == 27
-          psize := W6100.ReceiveProcess(socket,@READBUFFER)
+          ctx[t].psize := W6100.ReceiveProcess(socket,@ctx[t].readbuffer)
       debug("Data Startpoint: ", udec_(startpoint))
       debug()
       debug($0D, $0A)
-      datarxed := psize - startpoint
-      bpos := inbin(@READBUFFER + startpoint, @boundary,datarxed)
+      datarxed := ctx[t].psize - startpoint
+      bpos := inbin(@ctx[t].readbuffer + startpoint, @boundary,datarxed)
       If bpos <> -1
         debug("Found Boundry in Packet: ", udec_(bpos))
         debug($0D, $0A)
         datarxed :=  startpoint - bpos
-      bytemove(@PIXELCONFIG, @READBUFFER + startpoint, datarxed) ' Copy 1st packet of uploaded config into memory
+      bytemove(@PIXELCONFIG, @ctx[t].readbuffer + startpoint, datarxed) ' Copy 1st packet of uploaded config into memory
       debug("Data size: ", udec_(datarxed))
       debug($0D, $0A)
 '      waitms(3000)
 '      waitms(3000)
       repeat until W6100.ReceiveData(socket,500) == W6100.Sn_IR_TIMEOUT
              startpoint := datarxed ' Set the last offset where you wrote to last.
-             psize := W6100.ReceiveProcess(socket,@READBUFFER)
-             psize := psize
-             debug("Packet Size: ", udec_(psize))
+             ctx[t].psize := W6100.ReceiveProcess(socket,@ctx[t].readbuffer)
+             ctx[t].psize := ctx[t].psize
+             debug("Packet Size: ", udec_(ctx[t].psize))
              debug($0D, $0A)
-             bpos := inbin(@READBUFFER, @boundary, psize)
+             bpos := inbin(@ctx[t].readbuffer, @boundary, ctx[t].psize)
              If bpos <> -1
                 debug("Found Boundry in Subsequent Packet: ", udec_(bpos))
                  debug($0D, $0A)
                 datarxed :=  datarxed + bpos - 4 ' -4 to remove CR LF and --
                 cpysize := bpos - 4 ' -4 to remove CR LF and --
              else
-                datarxed :=  datarxed + psize
-                cpysize := psize
-             bytemove(@PIXELCONFIG + startpoint, @READBUFFER, cpysize)
+                datarxed :=  datarxed + ctx[t].psize
+                cpysize := ctx[t].psize
+             bytemove(@PIXELCONFIG + startpoint, @ctx[t].readbuffer, cpysize)
       debug("Total Bytes RXed: ", udec_(datarxed))
       debug($0D, $0A)
 '      waitms(3000)
 '      waitms(3000)
-pub e131post() | output, ei, eti, u , uascii
+pub e131post() | t, output, ei, eti, u , uascii
+    t := TASKID()
     longfill(@tE131CONFIG,0,432) ' Clean up the tmp space
     eutmp[0] := 0
     pcnt[0] := 0
     ' Get the output Pin this E1.31 config is associated with
-    output := str2dec(@READBUFFER + str.instr(@READBUFFER,string("output="))+ 7, 2)
-    debug(STRING("DMXENABLED:" ),udec_(str2dec(@READBUFFER + str.instr(@READBUFFER,string("dmxenabled="))+ 11, 2)))
+    output := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("output="))+ 7, 2)
+    debug(STRING("DMXENABLED:" ),udec_(str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("dmxenabled="))+ 11, 2)))
     if output == 25
-      if str2dec(@READBUFFER + str.instr(@READBUFFER,string("dmxenabled="))+ 11, 2) == 1
+      if str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("dmxenabled="))+ 11, 2) == 1
         DMXENABLED := 1
       else
         DMXENABLED := 0
 
     ' Get the output name
-    if str.instr(@READBUFFER,string("ON=")) <> -1
-      strcopy(@tmpfilepath, @READBUFFER + str.instr(@READBUFFER,string("ON="))+3, str.instr(@READBUFFER + str.instr(@READBUFFER,string("ON="))+3,string("&")))
+    if str.instr(@ctx[t].readbuffer,string("ON=")) <> -1
+      strcopy(@tmpfilepath, @ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("ON="))+3, str.instr(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("ON="))+3,string("&")))
       URLDecode(@tmpfilepath,@OUTPUTNAME[output-1].namefield)
       tmpfilepath[0] := 0 ' Zero out the tmp string. tmpfilepath is used because it is available.
 
@@ -1140,17 +1188,17 @@ pub e131post() | output, ei, eti, u , uascii
     str.append_str(@pcnt,string("="))
 
     'Look in the read buffer until the location of the current eutmp (ie "U1=", "U2=", etc) is found and repeat the code block. Stop if it cannot be found.
-    repeat until str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ 3, 6) == 0
+    repeat until str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,@eutmp)+ 3, 6) == 0
       ' Set the output pin in the current location (ei) of tE131CONFIG. This is a many to one relationship with the pin in the pixelbuffer.
       tE131CONFIG[ei] := output
 
       ' Set the value of the eutmp (ie "U1=", "U2=", etc) universe associated with this pin.
-      tE131CONFIG[ei+1] := str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ 3, 6)
+      tE131CONFIG[ei+1] := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,@eutmp)+ 3, 6)
       ' Set the value of the pcnt (pixelcount ie "P1=", "P2=", etc ) of this universe assocaited with this pin.
-      tE131CONFIG[ei+2] := str2dec(@READBUFFER + str.instr(@READBUFFER,@pcnt)+ 3, 3)
+      tE131CONFIG[ei+2] := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,@pcnt)+ 3, 3)
 
-      debug(udec(str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ 3, 6)))
-      debug(udec(str2dec(@READBUFFER + str.instr(@READBUFFER,@pcnt)+ 3, 3)))
+      debug(udec(str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,@eutmp)+ 3, 6)))
+      debug(udec(str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,@pcnt)+ 3, 3)))
 
       ' Increment the universe and pixelcount to the next that may have been posted to the page.
       u := u + 1
@@ -1189,22 +1237,23 @@ pub e131post() | output, ei, eti, u , uascii
     ' Stop and restart the pixel drivers
     StopPixels()
     StartPixels()
-    if blinkmode <> true
-      ' Restart the E1.31 ethernet driver
+    if blinkmode <> true and W6100.e131cognum() <> 0
+      ' Restart the E1.31 ethernet driver (only if it was running)
       W6100.stopfastrx()
       W6100.startfastrx(W6100.IDM_BSR_Socket3_Register,@pixelbuffer,@TXBUFFER,@E131CONFIG)
 
-pub e131js() | output, u, ei, type
+pub e131js() | t, output, u, ei, type
 
+  t := TASKID()
 ' Set output
-   output := str2dec(@READBUFFER + str.instr(@READBUFFER,string("output="))+ 7, 2)
-   type := str2dec(@READBUFFER + str.instr(@READBUFFER,string("type="))+ 5, 2)
+   output := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("output="))+ 7, 2)
+   type := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("type="))+ 5, 2)
 
 ' Zero out buffer
-   webbuff[0] := 0
+   ctx[t].webbuff[0] := 0
 
 ' send header
-   str.append_str(@webbuff,resp_ptr)
+   str.append_str(@ctx[t].webbuff,resp_js_ptr)
 
    u  := 1
    ei := 0
@@ -1212,38 +1261,38 @@ pub e131js() | output, u, ei, type
    if type <> 2
 
        tmpfilepath[0] := 0
-       str.append_str(@webbuff, string($0D, $0A, "document.getElementById('ON').value='"))
+       str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('ON').value='"))
        singlequoteescape(@OUTPUTNAME[output-1].namefield, @tmpfilepath)
-       str.append_str(@webbuff, @tmpfilepath)
-       str.append_str(@webbuff, string("';"))
+       str.append_str(@ctx[t].webbuff, @tmpfilepath)
+       str.append_str(@ctx[t].webbuff, string("';"))
        tmpfilepath[0] := 0
 
    repeat until E131CONFIG[ei] == 0
       if E131CONFIG[ei] == output
 
 
-               str.append_str(@webbuff, string($0D, $0A, "document.getElementById('U"))
-               str.append_str(@webbuff,str.dec(u,-1))
-               str.append_str(@webbuff, string("').value='"))
-               str.append_str(@webbuff,str.dec(E131CONFIG[ei+1],-1))
-               str.append_str(@webbuff, string("';"))
+               str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('U"))
+               str.append_str(@ctx[t].webbuff,str.dec(u,-1))
+               str.append_str(@ctx[t].webbuff, string("').value='"))
+               str.append_str(@ctx[t].webbuff,str.dec(E131CONFIG[ei+1],-1))
+               str.append_str(@ctx[t].webbuff, string("';"))
 
-               str.append_str(@webbuff, string($0D, $0A, "document.getElementById('P"))
-               str.append_str(@webbuff,str.dec(u,-1))
-               str.append_str(@webbuff, string("').value='"))
-               str.append_str(@webbuff,str.dec(E131CONFIG[ei+2],-1))
-               str.append_str(@webbuff, string("';"))
+               str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('P"))
+               str.append_str(@ctx[t].webbuff,str.dec(u,-1))
+               str.append_str(@ctx[t].webbuff, string("').value='"))
+               str.append_str(@ctx[t].webbuff,str.dec(E131CONFIG[ei+2],-1))
+               str.append_str(@ctx[t].webbuff, string("';"))
                if  ((E131CONFIG[ei+1] <> 0 and E131CONFIG[ei+2] <> 0) or (u == 1)) and type <> 2
-                    str.append_str(@webbuff, string($0D, $0A, "document.getElementById('R"))
-                    str.append_str(@webbuff,str.dec(u,-1))
-                    str.append_str(@webbuff, string("').style.display = '';"))
+                    str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('R"))
+                    str.append_str(@ctx[t].webbuff,str.dec(u,-1))
+                    str.append_str(@ctx[t].webbuff, string("').style.display = '';"))
                     if u > 2
-                      str.append_str(@webbuff, string($0D, $0A, "document.getElementById('A"))
-                      str.append_str(@webbuff,str.dec(u-1,-1))
-                      str.append_str(@webbuff, string("').style.display = 'None';"))
-                      str.append_str(@webbuff, string($0D, $0A, "document.getElementById('M"))
-                      str.append_str(@webbuff,str.dec(u-1,-1))
-                      str.append_str(@webbuff, string("').style.display = 'None';"))
+                      str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('A"))
+                      str.append_str(@ctx[t].webbuff,str.dec(u-1,-1))
+                      str.append_str(@ctx[t].webbuff, string("').style.display = 'None';"))
+                      str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('M"))
+                      str.append_str(@ctx[t].webbuff,str.dec(u-1,-1))
+                      str.append_str(@ctx[t].webbuff, string("').style.display = 'None';"))
                u := u + 1
 
       ei := ei + 4
@@ -1251,38 +1300,39 @@ pub e131js() | output, u, ei, type
 '  Populate the E131 set to ensure user does not add duplicate.
    ei := 1
 
-   str.append_str(@webbuff, string($0D, $0A, "const e131set = new Map(["))
+   str.append_str(@ctx[t].webbuff, string($0D, $0A, "const e131set = new Map(["))
    repeat until E131CONFIG[ei] == 0
     if E131CONFIG[ei-1] <> output
-      str.append_str(@webbuff, string("['"))
-      str.append_str(@webbuff,str.dec(E131CONFIG[ei],-1))
-      str.append_str(@webbuff, string("','"))
-      str.append_str(@webbuff,str.dec(E131CONFIG[ei-1],-1))
-      str.append_str(@webbuff, string("']"))
+      str.append_str(@ctx[t].webbuff, string("['"))
+      str.append_str(@ctx[t].webbuff,str.dec(E131CONFIG[ei],-1))
+      str.append_str(@ctx[t].webbuff, string("','"))
+      str.append_str(@ctx[t].webbuff,str.dec(E131CONFIG[ei-1],-1))
+      str.append_str(@ctx[t].webbuff, string("']"))
       ei := ei + 4
        if E131CONFIG[ei] <> 0
-         str.append_str(@webbuff, string(","))
+         str.append_str(@ctx[t].webbuff, string(","))
     else
       ei := ei + 4
 
-   str.append_str(@webbuff, string("]);"))
-   str.append_str(@webbuff, string($0D, $0A, "function checke131(tf){ if (e131set.has(tf.value)){ tf.style.background='LightPink'; } else { tf.style.background='White'; } }"))
+   str.append_str(@ctx[t].webbuff, string("]);"))
+   str.append_str(@ctx[t].webbuff, string($0D, $0A, "function checke131(tf){ if (e131set.has(tf.value)){ tf.style.background='LightPink'; } else { tf.style.background='White'; } }"))
 
    if type == 2 and DMXENABLED == 0
-      str.append_str(@webbuff, string($0D, $0A, "tableRowHide('R1');tableRowHide('R2');tableRowHide('R3');tableRowHide('R4');"))
+      str.append_str(@ctx[t].webbuff, string($0D, $0A, "tableRowHide('R1');tableRowHide('R2');tableRowHide('R3');tableRowHide('R4');"))
    if type == 2 and DMXENABLED == 1
-      str.append_str(@webbuff, String($0D, $0A, "document.getElementById('dmxenabled').checked = true;"))
+      str.append_str(@ctx[t].webbuff, String($0D, $0A, "document.getElementById('dmxenabled').checked = true;"))
    if type <> 2 and DMXENABLED == 0
-      str.append_str(@webbuff, string($0D, $0A, "tableRowDisplay('LR');"))
+      str.append_str(@ctx[t].webbuff, string($0D, $0A, "tableRowDisplay('LR');"))
    if type <> 2 and DMXENABLED == 1
-      str.append_str(@webbuff, String($0D, $0A, "tableRowHide('LR');"))
+      str.append_str(@ctx[t].webbuff, String($0D, $0A, "tableRowHide('LR');"))
 
-   str.append_str(@webbuff, string($0D, $0A, "document.getElementById('logo').innerHTML += '</DIV><DIV style=\'font-size: 15px; font-weight: bold;\'>"))
-   str.append_str(@webbuff, @HOSTNAME)
-   str.append_str(@webbuff, string(".local</DIV>';"))
+   str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('logo').innerHTML += '</DIV><DIV style=\'font-size: 15px; font-weight: bold;\'>"))
+   str.append_str(@ctx[t].webbuff, @HOSTNAME)
+   str.append_str(@ctx[t].webbuff, string(".local</DIV>';"))
 
-   rdsize := strsize(@webbuff)
-pub outputspost() | p, dis
+   ctx[t].rdsize := strsize(@ctx[t].webbuff)
+pub outputspost() | t, p, dis
+    t := TASKID()
     eutmp[0] := 0
     p := 0
     dis := false
@@ -1290,14 +1340,14 @@ pub outputspost() | p, dis
       str.append_str(@eutmp,string("O"))
       str.append_str(@eutmp,str.dec(p+1,1))
       str.append_str(@eutmp,string("="))
-      PIXELCONFIG[(p * 5) + 1] := str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ strsize(@eutmp), 3)
+      PIXELCONFIG[(p * 5) + 1] := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,@eutmp)+ strsize(@eutmp), 3)
       eutmp[0] := 0
 '      debug(udec(PIXELCONFIG[(p * 5) + 1] )
 '
       p++
     eutmp[0] := 0
     str.append_str(@eutmp,string("brt="))
-    Brightness := str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ strsize(@eutmp), 3)
+    Brightness := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,@eutmp)+ strsize(@eutmp), 3)
 
 
     eutmp[0] := 0
@@ -1306,7 +1356,7 @@ pub outputspost() | p, dis
       str.append_str(@eutmp,string("T"))
       str.append_str(@eutmp,str.dec(p+1,1))
       str.append_str(@eutmp,string("="))
-      testpixel[p] := str2dec(@READBUFFER + str.instr(@READBUFFER,@eutmp)+ strsize(@eutmp), 3)
+      testpixel[p] := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,@eutmp)+ strsize(@eutmp), 3)
       if testpixel[p] > 0
         W6100.stopfastrx()
         dis := true
@@ -1328,12 +1378,13 @@ pub outputspost() | p, dis
     startpixels()
 '    waitms(3000)
 
-pub outputjs() | p,idx
+pub outputjs() | t, p, idx
+    t := TASKID()
 ' Zero out buffer
-    webbuff[0] := 0
+    ctx[t].webbuff[0] := 0
 
 ' send header
-    str.append_str(@webbuff,resp_ptr)
+    str.append_str(@ctx[t].webbuff,resp_js_ptr)
 
     p := 0
     repeat 28
@@ -1344,18 +1395,18 @@ pub outputjs() | p,idx
         %%0213: idx:=3
         %%1203: idx:=4
         %%2103: idx:=5
-      str.append_str(@webbuff, string($0D, $0A, "document.getElementById('O"))
-      str.append_str(@webbuff,str.dec(p+1,-1))
-      str.append_str(@webbuff, string("').selectedIndex = '"))
-      str.append_str(@webbuff,str.dec(idx,-1))
-      str.append_str(@webbuff, string("'; "))
+      str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('O"))
+      str.append_str(@ctx[t].webbuff,str.dec(p+1,-1))
+      str.append_str(@ctx[t].webbuff, string("').selectedIndex = '"))
+      str.append_str(@ctx[t].webbuff,str.dec(idx,-1))
+      str.append_str(@ctx[t].webbuff, string("'; "))
       p++
-    str.append_str(@webbuff, string($0D, $0A, "document.getElementById('brt').value='"))
-    str.append_str(@webbuff,str.dec(Brightness,-1))
-    str.append_str(@webbuff, string("';"))
-    str.append_str(@webbuff, string($0D, $0A, "document.getElementById('sld').value='"))
-    str.append_str(@webbuff,str.dec(Brightness,-1))
-    str.append_str(@webbuff, string("';"))
+    str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('brt').value='"))
+    str.append_str(@ctx[t].webbuff,str.dec(Brightness,-1))
+    str.append_str(@ctx[t].webbuff, string("';"))
+    str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('sld').value='"))
+    str.append_str(@ctx[t].webbuff,str.dec(Brightness,-1))
+    str.append_str(@ctx[t].webbuff, string("';"))
 
     p := 0
     repeat 28
@@ -1366,11 +1417,11 @@ pub outputjs() | p,idx
         3: idx:=3
         4: idx:=4
 
-      str.append_str(@webbuff, string($0D, $0A, "document.getElementById('T"))
-      str.append_str(@webbuff,str.dec(p+1,-1))
-      str.append_str(@webbuff, string("').selectedIndex = '"))
-      str.append_str(@webbuff,str.dec(idx,-1))
-      str.append_str(@webbuff, string("'; "))
+      str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('T"))
+      str.append_str(@ctx[t].webbuff,str.dec(p+1,-1))
+      str.append_str(@ctx[t].webbuff, string("').selectedIndex = '"))
+      str.append_str(@ctx[t].webbuff,str.dec(idx,-1))
+      str.append_str(@ctx[t].webbuff, string("'; "))
       p++
 
     p := 1
@@ -1378,100 +1429,101 @@ pub outputjs() | p,idx
       Debug(udec(pinpixelcnt(p)))
       Debug(udec(p))
       if pinpixelcnt(p) == 0
-        str.append_str(@webbuff, string($0D, $0A, "document.getElementById('T"))
-        str.append_str(@webbuff,str.dec(p,-1))
-        str.append_str(@webbuff, string("').disabled = true ;"))
-        str.append_str(@webbuff, string($0D, $0A, "document.getElementById('O"))
-        str.append_str(@webbuff,str.dec(p,-1))
-        str.append_str(@webbuff, string("').disabled = true ;"))
+        str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('T"))
+        str.append_str(@ctx[t].webbuff,str.dec(p,-1))
+        str.append_str(@ctx[t].webbuff, string("').disabled = true ;"))
+        str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('O"))
+        str.append_str(@ctx[t].webbuff,str.dec(p,-1))
+        str.append_str(@ctx[t].webbuff, string("').disabled = true ;"))
       p++
 
     if  DMXENABLED == 0
-      str.append_str(@webbuff, string($0D, $0A, "document.getElementById('LR12').style.display = ''; document.getElementById('LR34').style.display = '';"))
+      str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('LR12').style.display = ''; document.getElementById('LR34').style.display = '';"))
     if  DMXENABLED == 1
-      str.append_str(@webbuff, String($0D, $0A, "document.getElementById('LR12').style.display = 'None'; document.getElementById('LR34').style.display = 'None';"))
+      str.append_str(@ctx[t].webbuff, String($0D, $0A, "document.getElementById('LR12').style.display = 'None'; document.getElementById('LR34').style.display = 'None';"))
 
-    str.append_str(@webbuff, string($0D, $0A, "document.getElementById('logo').innerHTML += '</DIV><DIV style=\'font-size: 15px; font-weight: bold;\'>"))
-    str.append_str(@webbuff, @HOSTNAME)
-    str.append_str(@webbuff, string(".local</DIV>';"))
+    str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('logo').innerHTML += '</DIV><DIV style=\'font-size: 15px; font-weight: bold;\'>"))
+    str.append_str(@ctx[t].webbuff, @HOSTNAME)
+    str.append_str(@ctx[t].webbuff, string(".local</DIV>';"))
 
-    rdsize := strsize(@webbuff)
-    debug(zstr(@webbuff))
-pub netjs() | idx
+    ctx[t].rdsize := strsize(@ctx[t].webbuff)
+    debug(zstr(@ctx[t].webbuff))
+pub netjs() | t, idx
 
+  t := TASKID()
 ' Zero out buffer
-  webbuff[0] := 0
+  ctx[t].webbuff[0] := 0
 
 ' send header
-  str.append_str(@webbuff,resp_ptr)
+  str.append_str(@ctx[t].webbuff,resp_js_ptr)
 
-  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('HOSTNAME').value='"))
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('HOSTNAME').value='"))
   singlequoteescape(@HOSTNAME, @tmpfilepath)
-  str.append_str(@webbuff, @tmpfilepath)
-  str.append_str(@webbuff, string("';"))
+  str.append_str(@ctx[t].webbuff, @tmpfilepath)
+  str.append_str(@ctx[t].webbuff, string("';"))
   tmpfilepath[0] := 0
 
 
 
 ' set checkbox if DHCP is enabled
   if DHCP == 1
-     str.append_str(@webbuff, dhcp_ptr)
+     str.append_str(@ctx[t].webbuff, dhcp_ptr)
 
 ' Set IP Address in form
-  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('IPADDRESS0').value='"))
-  str.append_str(@webbuff,str.dec(IPADDRESS[0],-1))
-  str.append_str(@webbuff, string("';"))
-  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('IPADDRESS1').value='"))
-  str.append_str(@webbuff,str.dec(IPADDRESS[1],-1))
-  str.append_str(@webbuff, string("';"))
-  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('IPADDRESS2').value='"))
-  str.append_str(@webbuff,str.dec(IPADDRESS[2],-1))
-  str.append_str(@webbuff, string("';"))
-  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('IPADDRESS3').value='"))
-  str.append_str(@webbuff,str.dec(IPADDRESS[3],-1))
-  str.append_str(@webbuff, string("';"))
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('IPADDRESS0').value='"))
+  str.append_str(@ctx[t].webbuff,str.dec(IPADDRESS[0],-1))
+  str.append_str(@ctx[t].webbuff, string("';"))
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('IPADDRESS1').value='"))
+  str.append_str(@ctx[t].webbuff,str.dec(IPADDRESS[1],-1))
+  str.append_str(@ctx[t].webbuff, string("';"))
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('IPADDRESS2').value='"))
+  str.append_str(@ctx[t].webbuff,str.dec(IPADDRESS[2],-1))
+  str.append_str(@ctx[t].webbuff, string("';"))
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('IPADDRESS3').value='"))
+  str.append_str(@ctx[t].webbuff,str.dec(IPADDRESS[3],-1))
+  str.append_str(@ctx[t].webbuff, string("';"))
 
 ' Set Subnet in form
-  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('SUBNETMASK0').value='"))
-  str.append_str(@webbuff,str.dec(SUBNETMASK[0],-1))
-  str.append_str(@webbuff, string("';"))
-  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('SUBNETMASK1').value='"))
-  str.append_str(@webbuff,str.dec(SUBNETMASK[1],-1))
-  str.append_str(@webbuff, string("';"))
-  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('SUBNETMASK2').value='"))
-  str.append_str(@webbuff,str.dec(SUBNETMASK[2],-1))
-  str.append_str(@webbuff, string("';"))
-  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('SUBNETMASK3').value='"))
-  str.append_str(@webbuff,str.dec(SUBNETMASK[3],-1))
-  str.append_str(@webbuff, string("';"))
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('SUBNETMASK0').value='"))
+  str.append_str(@ctx[t].webbuff,str.dec(SUBNETMASK[0],-1))
+  str.append_str(@ctx[t].webbuff, string("';"))
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('SUBNETMASK1').value='"))
+  str.append_str(@ctx[t].webbuff,str.dec(SUBNETMASK[1],-1))
+  str.append_str(@ctx[t].webbuff, string("';"))
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('SUBNETMASK2').value='"))
+  str.append_str(@ctx[t].webbuff,str.dec(SUBNETMASK[2],-1))
+  str.append_str(@ctx[t].webbuff, string("';"))
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('SUBNETMASK3').value='"))
+  str.append_str(@ctx[t].webbuff,str.dec(SUBNETMASK[3],-1))
+  str.append_str(@ctx[t].webbuff, string("';"))
 
 ' Set Gateway in form
-  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('GATEWAY0').value='"))
-  str.append_str(@webbuff,str.dec(GATEWAY[0],-1))
-  str.append_str(@webbuff, string("';"))
-  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('GATEWAY1').value='"))
-  str.append_str(@webbuff,str.dec(GATEWAY[1],-1))
-  str.append_str(@webbuff, string("';"))
-  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('GATEWAY2').value='"))
-  str.append_str(@webbuff,str.dec(GATEWAY[2],-1))
-  str.append_str(@webbuff, string("';"))
-  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('GATEWAY3').value='"))
-  str.append_str(@webbuff,str.dec(GATEWAY[3],-1))
-  str.append_str(@webbuff, string("';"))
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('GATEWAY0').value='"))
+  str.append_str(@ctx[t].webbuff,str.dec(GATEWAY[0],-1))
+  str.append_str(@ctx[t].webbuff, string("';"))
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('GATEWAY1').value='"))
+  str.append_str(@ctx[t].webbuff,str.dec(GATEWAY[1],-1))
+  str.append_str(@ctx[t].webbuff, string("';"))
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('GATEWAY2').value='"))
+  str.append_str(@ctx[t].webbuff,str.dec(GATEWAY[2],-1))
+  str.append_str(@ctx[t].webbuff, string("';"))
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('GATEWAY3').value='"))
+  str.append_str(@ctx[t].webbuff,str.dec(GATEWAY[3],-1))
+  str.append_str(@ctx[t].webbuff, string("';"))
 
 ' Set DNS in form
-  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('DNS0').value='"))
-  str.append_str(@webbuff,str.dec(DNS[0],-1))
-  str.append_str(@webbuff, string("';"))
-  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('DNS1').value='"))
-  str.append_str(@webbuff,str.dec(DNS[1],-1))
-  str.append_str(@webbuff, string("';"))
-  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('DNS2').value='"))
-  str.append_str(@webbuff,str.dec(DNS[2],-1))
-  str.append_str(@webbuff, string("';"))
-  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('DNS3').value='"))
-  str.append_str(@webbuff,str.dec(DNS[3],-1))
-  str.append_str(@webbuff, string("';"))
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('DNS0').value='"))
+  str.append_str(@ctx[t].webbuff,str.dec(DNS[0],-1))
+  str.append_str(@ctx[t].webbuff, string("';"))
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('DNS1').value='"))
+  str.append_str(@ctx[t].webbuff,str.dec(DNS[1],-1))
+  str.append_str(@ctx[t].webbuff, string("';"))
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('DNS2').value='"))
+  str.append_str(@ctx[t].webbuff,str.dec(DNS[2],-1))
+  str.append_str(@ctx[t].webbuff, string("';"))
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('DNS3').value='"))
+  str.append_str(@ctx[t].webbuff,str.dec(DNS[3],-1))
+  str.append_str(@ctx[t].webbuff, string("';"))
 
 ' Set Speed and Duplex
   CASE SPEEDDUPLEX
@@ -1481,73 +1533,75 @@ pub netjs() | idx
         6: idx:=3
         7: idx:=4
 
-  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('SD').selectedIndex = '"))
-  str.append_str(@webbuff,str.dec(idx,-1))
-  str.append_str(@webbuff, string("'; "))
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('SD').selectedIndex = '"))
+  str.append_str(@ctx[t].webbuff,str.dec(idx,-1))
+  str.append_str(@ctx[t].webbuff, string("'; "))
 
-  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('DTO').value = '"))
-  str.append_str(@webbuff,str.dec(SCREENTIMEOUT,-1))
-  str.append_str(@webbuff, string("'; "))
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('DTO').value = '"))
+  str.append_str(@ctx[t].webbuff,str.dec(SCREENTIMEOUT,-1))
+  str.append_str(@ctx[t].webbuff, string("'; "))
 
-  str.append_str(@webbuff, string($0D, $0A, "document.getElementById('logo').innerHTML += '</DIV><DIV style=\'font-size: 15px; font-weight: bold;\'>"))
-  str.append_str(@webbuff, @HOSTNAME)
-  str.append_str(@webbuff, string(".local</DIV>';"))
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('logo').innerHTML += '</DIV><DIV style=\'font-size: 15px; font-weight: bold;\'>"))
+  str.append_str(@ctx[t].webbuff, @HOSTNAME)
+  str.append_str(@ctx[t].webbuff, string(".local</DIV>';"))
 
-  rdsize := strsize(@webbuff)
+  ctx[t].rdsize := strsize(@ctx[t].webbuff)
 
-PUB countersjs()
+PUB countersjs() | t
+  t := TASKID()
 ' Zero out buffer
-   webbuff[0] := 0
+   ctx[t].webbuff[0] := 0
 
 ' send header
-   str.append_str(@webbuff,resp_ptr)
+   str.append_str(@ctx[t].webbuff,resp_js_ptr)
 
-   str.append_str(@webbuff, string($0D, $0A, "var myTable = document.getElementById('stats');"))
+   str.append_str(@ctx[t].webbuff, string($0D, $0A, "var myTable = document.getElementById('stats');"))
 
-   str.append_str(@webbuff, string($0D, $0A, "myTable.rows[0].cells[1].innerHTML = '"))
-   str.append_str(@webbuff,str.dec(wdpps,-1))
-   str.append_str(@webbuff, string(" pkt/sec';"))
-   str.append_str(@webbuff, string($0D, $0A, "myTable.rows[1].cells[1].innerHTML = '"))
-   str.append_str(@webbuff,str.dec(wddps,-1))
-   str.append_str(@webbuff, string(" drops/sec';"))
-   str.append_str(@webbuff, string($0D, $0A, "document.getElementById('logo').innerHTML += '</DIV><DIV style=\'font-size: 15px; font-weight: bold;\'>"))
-   str.append_str(@webbuff, @HOSTNAME)
-   str.append_str(@webbuff, string(".local</DIV>';"))
+   str.append_str(@ctx[t].webbuff, string($0D, $0A, "myTable.rows[0].cells[1].innerHTML = '"))
+   str.append_str(@ctx[t].webbuff,str.dec(wdpps,-1))
+   str.append_str(@ctx[t].webbuff, string(" pkt/sec';"))
+   str.append_str(@ctx[t].webbuff, string($0D, $0A, "myTable.rows[1].cells[1].innerHTML = '"))
+   str.append_str(@ctx[t].webbuff,str.dec(wddps,-1))
+   str.append_str(@ctx[t].webbuff, string(" drops/sec';"))
+   str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('logo').innerHTML += '</DIV><DIV style=\'font-size: 15px; font-weight: bold;\'>"))
+   str.append_str(@ctx[t].webbuff, @HOSTNAME)
+   str.append_str(@ctx[t].webbuff, string(".local</DIV>';"))
 
-   rdsize := strsize(@webbuff)
-PUB configjs() | dns_ptr
+   ctx[t].rdsize := strsize(@ctx[t].webbuff)
+PUB configjs() | dns_ptr, t
+    t := TASKID()
     ' Zero out buffers
-    webbuff[0] := 0
+    ctx[t].webbuff[0] := 0
     servername[0] := 0
     ' send header
-    str.append_str(@webbuff,resp_ptr)
-    str.append_str(@webbuff, string($0D, $0A, "function secondsToDhms(seconds) ", 123))
-    str.append_str(@webbuff, string($0D, $0A, "seconds = Number(seconds); "))
-    str.append_str(@webbuff, string($0D, $0A, "var d = Math.floor(seconds / (3600*24)); "))
-    str.append_str(@webbuff, string($0D, $0A, "var h = Math.floor(seconds % (3600*24) / 3600); "))
-    str.append_str(@webbuff, string($0D, $0A, "var m = Math.floor(seconds % 3600 / 60);"))
-    str.append_str(@webbuff, string($0D, $0A, "var s = Math.floor(seconds % 60); "))
-    str.append_str(@webbuff, string($0D, $0A, "var dDisplay = d > 0 ? d + (d == 1 ? 'D:' : 'D:') : ''; "))
-    str.append_str(@webbuff, string($0D, $0A, "var hDisplay = h > 0 ? h + (h == 1 ? 'H:' : 'H:') : ''; "))
-    str.append_str(@webbuff, string($0D, $0A, "var mDisplay = m > 0 ? m + (m == 1 ? 'M:' : 'M:') : ''; "))
-    str.append_str(@webbuff, string($0D, $0A, "var sDisplay = s > 0 ? s + (s == 1 ? 'S ': 'S') : ''; "))
-    str.append_str(@webbuff, string($0D, $0A, "return dDisplay + hDisplay + mDisplay + sDisplay;",125))
+    str.append_str(@ctx[t].webbuff,resp_js_ptr)
+    str.append_str(@ctx[t].webbuff, string($0D, $0A, "function secondsToDhms(seconds) ", 123))
+    str.append_str(@ctx[t].webbuff, string($0D, $0A, "seconds = Number(seconds); "))
+    str.append_str(@ctx[t].webbuff, string($0D, $0A, "var d = Math.floor(seconds / (3600*24)); "))
+    str.append_str(@ctx[t].webbuff, string($0D, $0A, "var h = Math.floor(seconds % (3600*24) / 3600); "))
+    str.append_str(@ctx[t].webbuff, string($0D, $0A, "var m = Math.floor(seconds % 3600 / 60);"))
+    str.append_str(@ctx[t].webbuff, string($0D, $0A, "var s = Math.floor(seconds % 60); "))
+    str.append_str(@ctx[t].webbuff, string($0D, $0A, "var dDisplay = d > 0 ? d + (d == 1 ? 'D:' : 'D:') : ''; "))
+    str.append_str(@ctx[t].webbuff, string($0D, $0A, "var hDisplay = h > 0 ? h + (h == 1 ? 'H:' : 'H:') : ''; "))
+    str.append_str(@ctx[t].webbuff, string($0D, $0A, "var mDisplay = m > 0 ? m + (m == 1 ? 'M:' : 'M:') : ''; "))
+    str.append_str(@ctx[t].webbuff, string($0D, $0A, "var sDisplay = s > 0 ? s + (s == 1 ? 'S ': 'S') : ''; "))
+    str.append_str(@ctx[t].webbuff, string($0D, $0A, "return dDisplay + hDisplay + mDisplay + sDisplay;",125))
 
-    str.append_str(@webbuff, string($0D, $0A, "var version = document.getElementById('version');"))
-    str.append_str(@webbuff, string("str = secondsToDhms("))
-    str.append_str(@webbuff,str.dec(getsec(),-1))
-    str.append_str(@webbuff, string(");"))
-    str.append_str(@webbuff, string($0D, $0A, "version.innerHTML = 'Version: "))
-    str.append_str(@webbuff,@buildver)
-    str.append_str(@webbuff, string("<br>Uptime: '"))
+    str.append_str(@ctx[t].webbuff, string($0D, $0A, "var version = document.getElementById('version');"))
+    str.append_str(@ctx[t].webbuff, string("str = secondsToDhms("))
+    str.append_str(@ctx[t].webbuff,str.dec(getsec(),-1))
+    str.append_str(@ctx[t].webbuff, string(");"))
+    str.append_str(@ctx[t].webbuff, string($0D, $0A, "version.innerHTML = 'Version: "))
+    str.append_str(@ctx[t].webbuff,@buildver)
+    str.append_str(@ctx[t].webbuff, string("<br>Uptime: '"))
 
-    str.append_str(@webbuff, string("+str;"))
+    str.append_str(@ctx[t].webbuff, string("+str;"))
 
-    str.append_str(@webbuff, string($0D, $0A, "var div = document.getElementById('upgrade');"))
+    str.append_str(@ctx[t].webbuff, string($0D, $0A, "var div = document.getElementById('upgrade');"))
 
-    str.append_str(@webbuff, string($0D, $0A, "document.getElementById('logo').innerHTML += '</DIV><DIV style=\'font-size: 15px; font-weight: bold;\'>"))
-    str.append_str(@webbuff, @HOSTNAME)
-    str.append_str(@webbuff, string(".local</DIV>';"))
+    str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('logo').innerHTML += '</DIV><DIV style=\'font-size: 15px; font-weight: bold;\'>"))
+    str.append_str(@ctx[t].webbuff, @HOSTNAME)
+    str.append_str(@ctx[t].webbuff, string(".local</DIV>';"))
 
 
 
@@ -1555,10 +1609,10 @@ PUB configjs() | dns_ptr
 
     dns_ptr := dnsresolver(@servername)
     if dns_ptr == -1
-        str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Cant resolve "))
-        str.append_str(@webbuff,@servername)
-        str.append_str(@webbuff, string("';"))
-        rdsize := strsize(@webbuff)
+        str.append_str(@ctx[t].webbuff, string($0D, $0A, "div.textContent = 'Cant resolve "))
+        str.append_str(@ctx[t].webbuff,@servername)
+        str.append_str(@ctx[t].webbuff, string("';"))
+        ctx[t].rdsize := strsize(@ctx[t].webbuff)
         return
     W6100.Open(80,W6100.PM_TCP4,W6100.IDM_BSR_Socket6_Register)
 
@@ -1577,17 +1631,17 @@ PUB configjs() | dns_ptr
 
 
     W6100.ConnectTCP(W6100.IDM_BSR_Socket6_Register)
-'    W6100.readreg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket6_Register,4,@READBUFFER)
-'    debug("Connection Established to ", udec_(READBUFFER[0]),".",udec_(READBUFFER[1]),".",udec_(READBUFFER[2]),".",udec_(READBUFFER[3]))
+'    W6100.readreg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket6_Register,4,@ctx[t].readbuffer)
+'    debug("Connection Established to ", udec_(ctx[t].readbuffer[0]),".",udec_(ctx[t].readbuffer[1]),".",udec_(ctx[t].readbuffer[2]),".",udec_(ctx[t].readbuffer[3]))
 
     if (W6100.EstablishTCP(W6100.IDM_BSR_Socket6_Register, 1000) <> W6100.Sn_IR_TIMEOUT)
-        W6100.readreg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket6_Register,4,@READBUFFER)
-        debug("Connection Established to ", udec_(READBUFFER[0]),".",udec_(READBUFFER[1]),".",udec_(READBUFFER[2]),".",udec_(READBUFFER[3]))
+        W6100.readreg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket6_Register,4,@ctx[t].readbuffer)
+        debug("Connection Established to ", udec_(ctx[t].readbuffer[0]),".",udec_(ctx[t].readbuffer[1]),".",udec_(ctx[t].readbuffer[2]),".",udec_(ctx[t].readbuffer[3]))
     else
-        str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Cant connect to "))
-        str.append_str(@webbuff,@servername)
-        str.append_str(@webbuff, string("';"))
-        rdsize := strsize(@webbuff)
+        str.append_str(@ctx[t].webbuff, string($0D, $0A, "div.textContent = 'Cant connect to "))
+        str.append_str(@ctx[t].webbuff,@servername)
+        str.append_str(@ctx[t].webbuff, string("';"))
+        ctx[t].rdsize := strsize(@ctx[t].webbuff)
         W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
         return
 
@@ -1597,9 +1651,9 @@ PUB configjs() | dns_ptr
 
     If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,100) <> W6100.Sn_IR_TIMEOUT)
  '     W6100.ReceiveData(socket,100000)
-        psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket6_Register,@READBUFFER)
-        READBUFFER[psize] := 0
-        debug("Received: ",zstr_(@READBUFFER))
+        ctx[t].psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket6_Register,@ctx[t].readbuffer)
+        ctx[t].readbuffer[ctx[t].psize] := 0
+        debug("Received: ",zstr_(@ctx[t].readbuffer))
 
 
     WRITEBUFFER[0] := 0
@@ -1610,41 +1664,42 @@ PUB configjs() | dns_ptr
 
     If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,300) <> W6100.Sn_IR_TIMEOUT)
  '     W6100.ReceiveData(socket,100000)
-        psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket6_Register,@READBUFFER)
-        READBUFFER[psize] := 0
-        debug("Received: ",zstr_(@READBUFFER))
+        ctx[t].psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket6_Register,@ctx[t].readbuffer)
+        ctx[t].readbuffer[ctx[t].psize] := 0
+        debug("Received: ",zstr_(@ctx[t].readbuffer))
 
-    if str.instr(@READBUFFER,string("HTTP/1.1 200")) == -1
-        str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Response Code "))
-        str.mid(@webbuff+strsize(@webbuff), @READBUFFER, str.instr(@READBUFFER,string("HTTP/1.1"))+8, (str.instr(@READBUFFER,string("HTTP/1.1"))) + 4 )
-        str.append_str(@webbuff,string("';"))
+    if str.instr(@ctx[t].readbuffer,string("HTTP/1.1 200")) == -1
+        str.append_str(@ctx[t].webbuff, string($0D, $0A, "div.textContent = 'Response Code "))
+        str.mid(@ctx[t].webbuff+strsize(@ctx[t].webbuff), @ctx[t].readbuffer, str.instr(@ctx[t].readbuffer,string("HTTP/1.1"))+8, (str.instr(@ctx[t].readbuffer,string("HTTP/1.1"))) + 4 )
+        str.append_str(@ctx[t].webbuff,string("';"))
     else
-        if str.instr(@READBUFFER + str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)) + 4,@buildver) == -1
-          str.append_str(@webbuff, string($0D, $0A, "div.innerHTML = '<A HREF=/upgrade.htm>Upgrade Available</A> <br> <font size=2>"))
-          str.mid(@webbuff+strsize(@webbuff),@READBUFFER, str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)) + 4,str.instr(@READBUFFER+str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)) + 4,String($0D, $0A)))
-          str.append_str(@webbuff, string("</font>';"))
+        if str.instr(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string($0D, $0A, $0D, $0A)) + 4,@buildver) == -1
+          str.append_str(@ctx[t].webbuff, string($0D, $0A, "div.innerHTML = '<A HREF=/upgrade.htm>Upgrade Available</A> <br> <font size=2>"))
+          str.mid(@ctx[t].webbuff+strsize(@ctx[t].webbuff),@ctx[t].readbuffer, str.instr(@ctx[t].readbuffer,string($0D, $0A, $0D, $0A)) + 4,str.instr(@ctx[t].readbuffer+str.instr(@ctx[t].readbuffer,string($0D, $0A, $0D, $0A)) + 4,String($0D, $0A)))
+          str.append_str(@ctx[t].webbuff, string("</font>';"))
         else
-          str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Firmware up to date.';"))
+          str.append_str(@ctx[t].webbuff, string($0D, $0A, "div.textContent = 'Firmware up to date.';"))
 
 
 
-    rdsize := strsize(@webbuff)
+    ctx[t].rdsize := strsize(@ctx[t].webbuff)
     W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
-pub downloadconfig()
+pub downloadconfig() | t
+  t := TASKID()
 ' Zero out buffer
-  webbuff[0] := 0
+  ctx[t].webbuff[0] := 0
 
 ' send header
-  str.append_str(@webbuff, string("HTTP/1.1 200 OK", $0D, $0A))
-  str.append_str(@webbuff,resp_dl_ptr)
-  str.append_str(@webbuff, string("Content-Disposition: attachment; filename=", $22))
-  str.append_str(@webbuff, @HOSTNAME)
-  str.append_str(@webbuff, string("-runnning.cfg", $22, $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A))
+  str.append_str(@ctx[t].webbuff, string("HTTP/1.1 200 OK", $0D, $0A))
+  str.append_str(@ctx[t].webbuff,resp_dl_ptr)
+  str.append_str(@ctx[t].webbuff, string("Content-Disposition: attachment; filename=", $22))
+  str.append_str(@ctx[t].webbuff, @HOSTNAME)
+  str.append_str(@ctx[t].webbuff, string("-runnning.cfg", $22, $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A))
 
-  rdsize := strsize(@webbuff)
+  ctx[t].rdsize := strsize(@ctx[t].webbuff)
 ' Copy running config into web buffer
-  bytemove(@webbuff + rdsize, @PIXELCONFIG, (@ENDOFCONFIG + 3) - @PIXELCONFIG + 1)
-  rdsize := rdsize + ((@ENDOFCONFIG + 3) - @PIXELCONFIG) + 1
+  bytemove(@ctx[t].webbuff + ctx[t].rdsize, @PIXELCONFIG, (@ENDOFCONFIG + 3) - @PIXELCONFIG + 1)
+  ctx[t].rdsize := ctx[t].rdsize + ((@ENDOFCONFIG + 3) - @PIXELCONFIG) + 1
 
 
 pub dhcpclient() | i
@@ -2018,18 +2073,18 @@ pub dmxbufferaddr() : dmxbuffer | ei
    return -1
 pub dnsresolver(hostname) : rv | i, l
   debug("Configuring Protocol Mode UDP on Socket 0", $0D, $0A)
-  W6100.Open(53,W6100.PM_UDP4,W6100.IDM_BSR_Socket2_Register)
+  W6100.Open(53,W6100.PM_UDP4,W6100.IDM_BSR_Socket0_Register)
   ' Set Destination IP
   WRITEBUFFER[0] := DNS[0]
   WRITEBUFFER[1] := DNS[1]
   WRITEBUFFER[2] := DNS[2]
   WRITEBUFFER[3] := DNS[3]
-  W6100.writereg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket2_Register,4,@WRITEBUFFER)
+  W6100.writereg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket0_Register,4,@WRITEBUFFER)
 
   ' Set Destination port
   WRITEBUFFER[0] := 00
   WRITEBUFFER[1] := 53
-  W6100.writereg(W6100.REG_Sn_DPORTR,W6100.IDM_BSR_Socket2_Register,2,@WRITEBUFFER)
+  W6100.writereg(W6100.REG_Sn_DPORTR,W6100.IDM_BSR_Socket0_Register,2,@WRITEBUFFER)
 
   ' Transaction ID
   RequestID[0] := prng.xrandomize($00,$FF)
@@ -2077,23 +2132,23 @@ pub dnsresolver(hostname) : rv | i, l
   WRITEBUFFER[i+3] := 1   ' $0001 is IN for Internet
 
   'Send Query
-  W6100.SendData(W6100.IDM_BSR_Socket2_Register,@WRITEBUFFER,i+4)
+  W6100.SendData(W6100.IDM_BSR_Socket0_Register,@WRITEBUFFER,i+4)
 
   'clearing readbuffer
   BYTEFILL(@READBUFFER,$00,1024)
 
-  W6100.readreg(W6100.REG_Sn_IR,W6100.IDM_BSR_Socket2_Register,1,@READBUFFER)
+  W6100.readreg(W6100.REG_Sn_IR,W6100.IDM_BSR_Socket0_Register,1,@READBUFFER)
   debug("Checking Sn_IR Socket Status: ", uhex_(READBUFFER[0]))
 
   repeat until READBUFFER[8] == RequestID[0] && READBUFFER[9] == RequestID[1]
      ' Set timeout to 5 seconds
      l := GETSEC() + 5
-     repeat until W6100.ReceiveData(W6100.IDM_BSR_Socket2_Register,1) == 0
+     repeat until W6100.ReceiveData(W6100.IDM_BSR_Socket0_Register,1) == 0
       if GETSEC() >= l
          debug("DNS Server timed out.")
          return -1
 
-     psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket2_Register,@READBUFFER)
+     psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket0_Register,@READBUFFER)
 
      debug("Received XID is: ", uhex_(READBUFFER[8]),":",uhex_(READBUFFER[9]))
   if READBUFFER[10] == $81 && READBUFFER[11] == $80
@@ -2114,106 +2169,110 @@ pub dnsresolver(hostname) : rv | i, l
   else
      debug("Name did not resolve")
      return -1
-pri upgradejs()| dns_ptr, gur
+pri upgradejs()| dns_ptr, gur, t
+    t := TASKID()
     ' Zero out buffers
-    webbuff[0] := 0
+    ctx[t].webbuff[0] := 0
 
 
-    if str.instr(@READBUFFER,string("/upgrade.htm?Save=Upgrade+My+Controller")) == -1
+    if str.instr(@ctx[t].readbuffer,string("/upgrade.htm?Save=Upgrade+My+Controller")) == -1
       ' send header
-        str.append_str(@webbuff,resp_ptr)
-        str.append_str(@webbuff, string($0D, $0A, "var div = document.getElementById('main');"))
+        str.append_str(@ctx[t].webbuff,resp_ptr)
+        str.append_str(@ctx[t].webbuff, string($0D, $0A, "var div = document.getElementById('main');"))
 
         manifest[0] := 0
-        if str.instr(@READBUFFER,string("dev=Y")) == -1
+        if str.instr(@ctx[t].readbuffer,string("dev=Y")) == -1
             gur := getURL(string("/firmware/Blitzen24/Manifest.txt"),upgradeserver_ptr,0)
         else
             gur := getURL(string("/devfirmware/Blitzen24/Manifest.txt"),upgradeserver_ptr,0)
 
         if gur == -2
-          str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Cant resolve "))
-          str.append_str(@webbuff,@servername)
-          str.append_str(@webbuff, string("';"))
-          rdsize := strsize(@webbuff)
+          str.append_str(@ctx[t].webbuff, string($0D, $0A, "div.textContent = 'Cant resolve "))
+          str.append_str(@ctx[t].webbuff,@servername)
+          str.append_str(@ctx[t].webbuff, string("';"))
+          ctx[t].rdsize := strsize(@ctx[t].webbuff)
           return
 
         if gur == -1
-          str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Cant connect to "))
-          str.append_str(@webbuff,@servername)
-          str.append_str(@webbuff, string("';"))
-          rdsize := strsize(@webbuff)
+          str.append_str(@ctx[t].webbuff, string($0D, $0A, "div.textContent = 'Cant connect to "))
+          str.append_str(@ctx[t].webbuff,@servername)
+          str.append_str(@ctx[t].webbuff, string("';"))
+          ctx[t].rdsize := strsize(@ctx[t].webbuff)
           return
 
         if gur == -3
-          str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Connection timed out to  "))
-          str.append_str(@webbuff,@servername)
-          str.append_str(@webbuff, string("';"))
-          rdsize := strsize(@webbuff)
+          str.append_str(@ctx[t].webbuff, string($0D, $0A, "div.textContent = 'Connection timed out to  "))
+          str.append_str(@ctx[t].webbuff,@servername)
+          str.append_str(@ctx[t].webbuff, string("';"))
+          ctx[t].rdsize := strsize(@ctx[t].webbuff)
           return
 
         if gur == -4
-          str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Unexpected response from  "))
-          str.append_str(@webbuff,@servername)
-          str.append_str(@webbuff, string("';"))
-          rdsize := strsize(@webbuff)
+          str.append_str(@ctx[t].webbuff, string($0D, $0A, "div.textContent = 'Unexpected response from  "))
+          str.append_str(@ctx[t].webbuff,@servername)
+          str.append_str(@ctx[t].webbuff, string("';"))
+          ctx[t].rdsize := strsize(@ctx[t].webbuff)
           return
 
         if gur == -5
-          str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'Not an HTTP response from  "))
-          str.append_str(@webbuff,@servername)
-          str.append_str(@webbuff, string("';"))
-          rdsize := strsize(@webbuff)
+          str.append_str(@ctx[t].webbuff, string($0D, $0A, "div.textContent = 'Not an HTTP response from  "))
+          str.append_str(@ctx[t].webbuff,@servername)
+          str.append_str(@ctx[t].webbuff, string("';"))
+          ctx[t].rdsize := strsize(@ctx[t].webbuff)
           return
 
         if gur <> 200
-          str.append_str(@webbuff, string($0D, $0A, "div.textContent = 'HTTP response code "))
-          str.dec(gur, @webbuff + strsize(@webbuff))
-          str.append_str(@webbuff, string(" from "))
-          str.append_str(@webbuff,@servername)
-          str.append_str(@webbuff, string("';"))
-          rdsize := strsize(@webbuff)
+          str.append_str(@ctx[t].webbuff, string($0D, $0A, "div.textContent = 'HTTP response code "))
+          str.dec(gur, @ctx[t].webbuff + strsize(@ctx[t].webbuff))
+          str.append_str(@ctx[t].webbuff, string(" from "))
+          str.append_str(@ctx[t].webbuff,@servername)
+          str.append_str(@ctx[t].webbuff, string("';"))
+          ctx[t].rdsize := strsize(@ctx[t].webbuff)
           return
 
         str.append_str(@manifest,@READBUFFER + 4 + str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)))
 
-        str.append_str(@webbuff, string("str = `<font size=+1>Manifest file contents</font><br><br><pre>"))
-        str.append_str(@webbuff,@READBUFFER + 4 + str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)))
-        str.append_str(@webbuff, string("</pre><BR><BR><FORM METHOD='GET'><INPUT TYPE='SUBMIT' Name='Save' Value='Upgrade My Controller' OnClick=''>"))
-        if str.instr(@READBUFFER,string("dev=Y")) <> -1
-            str.append_str(@webbuff, string("<INPUT TYPE='hidden' ID='dev' NAME='OUTPUT' Value='Y'>"))
-        str.append_str(@webbuff, string("</FORM><BR><BR><BR><BR>`;"))
-        str.append_str(@webbuff, string($0D, $0A, "div.insertAdjacentHTML('afterbegin', str);"))
+        str.append_str(@ctx[t].webbuff, string("str = `<font size=+1>Manifest file contents</font><br><br><pre>"))
+        str.append_str(@ctx[t].webbuff,@READBUFFER + 4 + str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)))
+        str.append_str(@ctx[t].webbuff, string("</pre><BR><BR><FORM METHOD='GET'><INPUT TYPE='SUBMIT' Name='Save' Value='Upgrade My Controller' OnClick=''>"))
+        if str.instr(@ctx[t].readbuffer,string("dev=Y")) <> -1
+            str.append_str(@ctx[t].webbuff, string("<INPUT TYPE='hidden' ID='dev' NAME='OUTPUT' Value='Y'>"))
+        str.append_str(@ctx[t].webbuff, string("</FORM><BR><BR><BR><BR>`;"))
+        str.append_str(@ctx[t].webbuff, string($0D, $0A, "div.insertAdjacentHTML('afterbegin', str);"))
 
 
     else
       upgradepost()
 
 
-    rdsize := strsize(@webbuff)
-pub upgradepost()
-    str.append_str(@webbuff,resp_ptr)
-    str.append_str(@webbuff, string("var source = new EventSource('upgraderun.js'); ", $0D, $0A))
-    str.append_str(@webbuff, string("source.onmessage = function(event) {", $0D, $0A))
-    str.append_str(@webbuff, string("  document.getElementById('main').insertAdjacentHTML('beforeend', event.data + '<br>');", $0D, $0A))
-    str.append_str(@webbuff, string("window.scrollBy(0, 500);", $0D, $0A))
-    str.append_str(@webbuff, string("};", $0D, $0A))
-    str.append_str(@webbuff, string("source.onerror = (err) => { ", $0D, $0A))
-    str.append_str(@webbuff, string("source.close();", $0D, $0A))
-    str.append_str(@webbuff, string("console.error('EventSource failed:', err);", $0D, $0A))
-    str.append_str(@webbuff, string("};", $0D, $0A))
+    ctx[t].rdsize := strsize(@ctx[t].webbuff)
+pub upgradepost() | t
+    t := TASKID()
+    str.append_str(@ctx[t].webbuff,resp_ptr)
+    str.append_str(@ctx[t].webbuff, string("var source = new EventSource('upgraderun.js'); ", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("source.onmessage = function(event) {", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("  document.getElementById('main').insertAdjacentHTML('beforeend', event.data + '<br>');", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("window.scrollBy(0, 500);", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("};", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("source.onerror = (err) => { ", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("source.close();", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("console.error('EventSource failed:', err);", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("};", $0D, $0A))
     return
-pub httpflush(bufferptr) | i
-    rdsize := strsize(@webbuff)
-    if rdsize > 0
-      webbuff[rdsize] := 0
+pub httpflush(socket) | i, t
+    t := TASKID()
+    ctx[t].rdsize := strsize(@ctx[t].webbuff)
+    if ctx[t].rdsize > 0
+      ctx[t].webbuff[ctx[t].rdsize] := 0
       i := 0
-      repeat until rdsize <= 1000
-         W6100.SendData(W6100.IDM_BSR_Socket1_Register,@webbuff+i,1000)
-         i := i + 1000
-         rdsize := rdsize - 1000
-      W6100.SendData(W6100.IDM_BSR_Socket1_Register,@webbuff+i,rdsize)
-      rdsize := 0
-      webbuff[0] := 0
+      repeat until ctx[t].rdsize <= ctx[t].mss
+         W6100.SendData(socket,@ctx[t].webbuff+i,ctx[t].mss)
+         TASKNEXT()
+         i := i + ctx[t].mss
+         ctx[t].rdsize := ctx[t].rdsize - ctx[t].mss
+      W6100.SendData(socket,@ctx[t].webbuff+i,ctx[t].rdsize)
+      ctx[t].rdsize := 0
+      ctx[t].webbuff[0] := 0
 pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc, i, bc, tfs, handle
 '' Gets a file via http
 '' path: pointer to string of the path to the file on the webserver
@@ -2387,36 +2446,37 @@ pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc,
 '    W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
     return(rcode)
 
-pub upgraderun() | gur, fn, i, e, r
+pub upgraderun(socket) | gur, fn, i, e, r, t
+   t := TASKID()
    stoppixels()
    W6100.stopfastrx()
 
     ' Zero out buffers
-    webbuff[0] := 0
+    ctx[t].webbuff[0] := 0
 
    i := 1
    e := 0
    tmpfilepath[0] := 0
-   str.append_str(@webbuff,resp_evt_ptr)
-'   str.append_str(@webbuff, string($0D, $0A, "var div = document.getElementById('main');"))
+   str.append_str(@ctx[t].webbuff,resp_evt_ptr)
+'   str.append_str(@ctx[t].webbuff, string($0D, $0A, "var div = document.getElementById('main');"))
 
 
 '   gur := getURL(string("/firmware/Blitzen24/Manifest.txt"),upgradeserver_ptr,0)
-'   str.append_str(@webbuff, string($0D, $0A, "var div = document.getElementById('main');"))
-   str.append_str(@webbuff, string("data: <font size=+1>Upgrade log</font>", $0A, $0A))
-   httpflush(@webbuff)
-'   str.append_str(@webbuff, @manifest)
+'   str.append_str(@ctx[t].webbuff, string($0D, $0A, "var div = document.getElementById('main');"))
+   str.append_str(@ctx[t].webbuff, string("data: <font size=+1>Upgrade log</font>", $0A, $0A))
+   httpflush(socket)
+'   str.append_str(@ctx[t].webbuff, @manifest)
 
    if sd.newDirectory(string("Download")) == sd.SUCCESS
      debug("Create /Download directory.")
-     str.append_str(@webbuff,String("data: Create /Download directory.",$0A, $0A))
-     httpflush(@webbuff)
+     str.append_str(@ctx[t].webbuff,String("data: Create /Download directory.",$0A, $0A))
+     httpflush(socket)
    else
-     str.append_str(@webbuff,String("data: /Download directory exists. Deleting files.",$0A, $0A))
+     str.append_str(@ctx[t].webbuff,String("data: /Download directory exists. Deleting files.",$0A, $0A))
      debug("/Download directory exists. Deleting files.")
      debug("Changing to /Download Directory.")
-     httpflush(@webbuff)
-     cleandirectory(string("/Download"))
+     httpflush(socket)
+     cleandirectory(string("/Download"), socket)
 
 
 
@@ -2424,80 +2484,80 @@ pub upgraderun() | gur, fn, i, e, r
    tmpfilepath[0] := 0
 
    if sd.newDirectory(string("/Backup")) == sd.SUCCESS
-     str.append_str(@webbuff,String("data: Create /Backup directory.",$0A, $0A))
-     httpflush(@webbuff)
+     str.append_str(@ctx[t].webbuff,String("data: Create /Backup directory.",$0A, $0A))
+     httpflush(socket)
    else
-     str.append_str(@webbuff,String("data: /Backup directory exists. Deleting files.",$0A, $0A))
+     str.append_str(@ctx[t].webbuff,String("data: /Backup directory exists. Deleting files.",$0A, $0A))
      debug("/Backup directory exists. Deleting files.")
      debug("Changing to /Backup Directory.")
-     httpflush(@webbuff)
-     cleandirectory(string("/Backup"))
+     httpflush(socket)
+     cleandirectory(string("/Backup"), socket)
 
 
    fn := str.fields(@manifest, $0A)
-   str.append_str(@webbuff,String("data: "))
-   str.dec(fn,@webbuff + strsize(@webbuff))
-   str.append_str(@webbuff,String(" lines in the manifest file.",$0A, $0A))
-   httpflush(@webbuff)
+   str.append_str(@ctx[t].webbuff,String("data: "))
+   str.dec(fn,@ctx[t].webbuff + strsize(@ctx[t].webbuff))
+   str.append_str(@ctx[t].webbuff,String(" lines in the manifest file.",$0A, $0A))
+   httpflush(socket)
 
    sd.changeDirectory(string("/"))
    repeat fn - 1
       tmpfilepath[0] := 0
       str.copy_field(@tmpfilepath, str.field_pntr(@manifest, i, $0A), $0A, 256)
       str.trim(@tmpfilepath)
-      str.append_str(@webbuff,String("data: "))
-      str.append_str(@webbuff, String("Downloading "))
-      str.append_str(@webbuff, @tmpfilepath)
-      str.append_str(@webbuff, String($0A, $0A))
-      httpflush(@webbuff)
+      str.append_str(@ctx[t].webbuff,String("data: "))
+      str.append_str(@ctx[t].webbuff, String("Downloading "))
+      str.append_str(@ctx[t].webbuff, @tmpfilepath)
+      str.append_str(@ctx[t].webbuff, String($0A, $0A))
+      httpflush(socket)
       gur := getURL(@tmpfilepath,upgradeserver_ptr,1)
       r := 0
 {
       if gur <> 200
-          str.append_str(@webbuff,String("data:  Error: "))
+          str.append_str(@ctx[t].webbuff,String("data:  Error: "))
           case gur
-            -1: str.append_str(@webbuff,String("Can't connect"))
-           -2: str.append_str(@webbuff,String("Does not resolve"))
-           -3: str.append_str(@webbuff,String("Timed Out"))
-           -4: str.append_str(@webbuff,String("Unexpected response upon connect"))
-           -5: str.append_str(@webbuff,String("Not an HTTP reponse"))
-           -6: str.append_str(@webbuff,String("MD5 does not match"))
-           OTHER: str.append_str(@webbuff,String("HTTP Response "))
-                  str.append_str(@webbuff,str.dec(gur,-1))
-         str.append_str(@webbuff, String($0A, $0A))
-         httpflush(@webbuff)
+            -1: str.append_str(@ctx[t].webbuff,String("Can't connect"))
+           -2: str.append_str(@ctx[t].webbuff,String("Does not resolve"))
+           -3: str.append_str(@ctx[t].webbuff,String("Timed Out"))
+           -4: str.append_str(@ctx[t].webbuff,String("Unexpected response upon connect"))
+           -5: str.append_str(@ctx[t].webbuff,String("Not an HTTP reponse"))
+           -6: str.append_str(@ctx[t].webbuff,String("MD5 does not match"))
+           OTHER: str.append_str(@ctx[t].webbuff,String("HTTP Response "))
+                  str.append_str(@ctx[t].webbuff,str.dec(gur,-1))
+         str.append_str(@ctx[t].webbuff, String($0A, $0A))
+         httpflush(socket)
  }
       repeat until gur == 200 or r == 4
         if gur <> 200
           if gur == -6
              sd.deleteFile(@tmp2filepath)
-                str.append_str(@webbuff,String("data: "))
-          str.append_str(@webbuff, String("Deleting and retrying  "))
-          str.append_str(@webbuff, @tmpfilepath)
-          str.append_str(@webbuff, String($0A, $0A))
-          httpflush(@webbuff)
+                str.append_str(@ctx[t].webbuff,String("data: "))
+          str.append_str(@ctx[t].webbuff, String("Deleting and retrying  "))
+          str.append_str(@ctx[t].webbuff, @tmpfilepath)
+          str.append_str(@ctx[t].webbuff, String($0A, $0A))
+          httpflush(socket)
 
           gur := getURL(@tmpfilepath,upgradeserver_ptr,1)
           if gur <> 200
-            str.append_str(@webbuff,String("data:  Error: "))
+            str.append_str(@ctx[t].webbuff,String("data:  Error: "))
             case gur
-              -1: str.append_str(@webbuff,String("Can't connect"))
-             -2: str.append_str(@webbuff,String("Does not resolve"))
-             -3: str.append_str(@webbuff,String("Timed Out"))
-             -4: str.append_str(@webbuff,String("Unexpected response upon connect"))
-             -5: str.append_str(@webbuff,String("Not an HTTP reponse"))
-             -6: str.append_str(@webbuff,String("MD5 does not match"))
-             OTHER: str.append_str(@webbuff,String("HTTP Response "))
-                    str.append_str(@webbuff,str.dec(gur,-1))
-           str.append_str(@webbuff, String($0A, $0A))
-           httpflush(@webbuff)
+              -1: str.append_str(@ctx[t].webbuff,String("Can't connect"))
+             -2: str.append_str(@ctx[t].webbuff,String("Does not resolve"))
+             -3: str.append_str(@ctx[t].webbuff,String("Timed Out"))
+             -4: str.append_str(@ctx[t].webbuff,String("Unexpected response upon connect"))
+             -5: str.append_str(@ctx[t].webbuff,String("Not an HTTP reponse"))
+             -6: str.append_str(@ctx[t].webbuff,String("MD5 does not match"))
+             OTHER: str.append_str(@ctx[t].webbuff,String("HTTP Response "))
+                    str.append_str(@ctx[t].webbuff,str.dec(gur,-1))
+           str.append_str(@ctx[t].webbuff, String($0A, $0A))
+           httpflush(socket)
            r++
 
           else
-           str.append_str(@webbuff,String("data: "))
-           str.append_str(@webbuff, String("Retry sucessful"))
-           str.append_str(@webbuff, String($0A, $0A))
-         httpflush(@webbuff)
+           str.append_str(@ctx[t].webbuff,String("data: "))
+           str.append_str(@ctx[t].webbuff, String("Retry sucessful"))
+           str.append_str(@ctx[t].webbuff, String($0A, $0A))
+         httpflush(socket)
 
       if r == 3
          e := 1
@@ -2512,38 +2572,39 @@ pub upgraderun() | gur, fn, i, e, r
 }
    If e == 0
 
-     str.append_str(@webbuff, String("data: Moving files to Backup"))
-     str.append_str(@webbuff, String($0A, $0A))
-     httpflush(@webbuff)
-     movedirectory(String("/"),String("/Backup"))
+     str.append_str(@ctx[t].webbuff, String("data: Moving files to Backup"))
+     str.append_str(@ctx[t].webbuff, String($0A, $0A))
+     httpflush(socket)
+     movedirectory(String("/"),String("/Backup"), socket)
 
-     str.append_str(@webbuff, String("data: Moving new files to /"))
-     str.append_str(@webbuff, String($0A, $0A))
-     httpflush(@webbuff)
-     movedirectory(String("/Download"),String("/"))
+     str.append_str(@ctx[t].webbuff, String("data: Moving new files to /"))
+     str.append_str(@ctx[t].webbuff, String($0A, $0A))
+     httpflush(socket)
+     movedirectory(String("/Download"),String("/"), socket)
 
 
-     str.append_str(@webbuff, String("data: Moving BLITZEN.CFG back to /"))
-     str.append_str(@webbuff, String($0A, $0A))
+     str.append_str(@ctx[t].webbuff, String("data: Moving BLITZEN.CFG back to /"))
+     str.append_str(@ctx[t].webbuff, String($0A, $0A))
   '  No need to flush the last output.
-     httpflush(@webbuff)
+     httpflush(socket)
 
      sd.moveFile(string("/Backup/BLITZEN.CFG"), string("/"))
 
-     str.append_str(@webbuff, String("data: Done.<BR><H2> <A HREF='reboot.htm'>Click here to reboot.</A></H2>"))
-     str.append_str(@webbuff, String($0A, $0A))
+     str.append_str(@ctx[t].webbuff, String("data: Done.<BR><H2> <A HREF='reboot.htm'>Click here to reboot.</A></H2>"))
+     str.append_str(@ctx[t].webbuff, String($0A, $0A))
 
    else
-     str.append_str(@webbuff, String("data: <h2>Errors detected. Aborting</h2>"))
-     str.append_str(@webbuff, String($0A, $0A))
+     str.append_str(@ctx[t].webbuff, String("data: <h2>Errors detected. Aborting</h2>"))
+     str.append_str(@ctx[t].webbuff, String($0A, $0A))
 
    sd.changeDirectory(string("/"))
 
-   rdsize := strsize(@webbuff)
+   ctx[t].rdsize := strsize(@ctx[t].webbuff)
    startpixels()
    W6100.startfastrx(W6100.IDM_BSR_Socket3_Register,@pixelbuffer,@TXBUFFER,@E131CONFIG)
 
-pub cleandirectory(deldir) | dirhandle, attrs
+pub cleandirectory(deldir, socket) | dirhandle, attrs, t
+     t := TASKID()
      sd.changeDirectory(deldir)
      dirhandle := sd.openDirectory(string("."))
      if dirhandle < 0
@@ -2559,25 +2620,26 @@ pub cleandirectory(deldir) | dirhandle, attrs
 
                 if sd.deleteFile(@tmpfilepath) == sd.SUCCESS
                    debug("Deleting file ->",zstr_(@tmpfilepath), "<-")
-                   str.append_str(@webbuff,String("data: Deleted file "))
-                   str.append_str(@webbuff, deldir)
-                   str.append_str(@webbuff,String("/"))
-                   str.append_str(@webbuff, @tmpfilepath)
+                   str.append_str(@ctx[t].webbuff,String("data: Deleted file "))
+                   str.append_str(@ctx[t].webbuff, deldir)
+                   str.append_str(@ctx[t].webbuff,String("/"))
+                   str.append_str(@ctx[t].webbuff, @tmpfilepath)
                 else
-                   str.append_str(@webbuff, String(" failed"))
+                   str.append_str(@ctx[t].webbuff, String(" failed"))
                    debug("Failed delete ->",zstr_(@tmpfilepath), "<-")
-                str.append_str(@webbuff, String($0A, $0A))
+                str.append_str(@ctx[t].webbuff, String($0A, $0A))
 
               else
                 debug("Skipped system/directory/readonly file ",zstr_(@tmpfilepath))
-                str.append_str(@webbuff,String("data: Skipped system/directory/readonly file "))
-                str.append_str(@webbuff, deldir)
-                str.append_str(@webbuff,String("/"))
-                str.append_str(@webbuff, @tmpfilepath)
-                str.append_str(@webbuff, String($0A, $0A))
-              httpflush(@webbuff)
+                str.append_str(@ctx[t].webbuff,String("data: Skipped system/directory/readonly file "))
+                str.append_str(@ctx[t].webbuff, deldir)
+                str.append_str(@ctx[t].webbuff,String("/"))
+                str.append_str(@ctx[t].webbuff, @tmpfilepath)
+                str.append_str(@ctx[t].webbuff, String($0A, $0A))
+              httpflush(socket)
      sd.closeDirectoryHandle(dirhandle)
-pub movedirectory(sourcedir,destdir) | dirhandle, attrs
+pub movedirectory(sourcedir,destdir, socket) | dirhandle, attrs, t
+     t := TASKID()
 
      sd.changeDirectory(sourcedir)
 
@@ -2606,23 +2668,23 @@ pub movedirectory(sourcedir,destdir) | dirhandle, attrs
                 str.append_str(@tmp2filepath,String("/"))
                 str.append_str(@tmp2filepath,str.rtrim(sd.fileName()))
                 debug("Move ",zstr_(@tmpfilepath), " to ", zstr_(@tmp2filepath))
-                str.append_str(@webbuff,String("data: Move file "))
-                str.append_str(@webbuff, @tmpfilepath)
-                str.append_str(@webbuff,String(" to "))
-                str.append_str(@webbuff, @tmp2filepath)
+                str.append_str(@ctx[t].webbuff,String("data: Move file "))
+                str.append_str(@ctx[t].webbuff, @tmpfilepath)
+                str.append_str(@ctx[t].webbuff,String(" to "))
+                str.append_str(@ctx[t].webbuff, @tmp2filepath)
 
 
                 if sd.moveFile(@tmpfilepath, destdir) <> sd.SUCCESS
 
                    debug("Move ",zstr_(@tmpfilepath), " to ", zstr_(@tmp2filepath), " failed")
-                   str.append_str(@webbuff, String(" failed"))
-              str.append_str(@webbuff, String($0A, $0A))
+                   str.append_str(@ctx[t].webbuff, String(" failed"))
+              str.append_str(@ctx[t].webbuff, String($0A, $0A))
           else
                 debug("Skipped system/directory/readonly file ",zstr_(@tmpfilepath))
-                str.append_str(@webbuff,String("data: Skipped system/directory/readonly file "))
-                'str.append_str(@webbuff, @tmpfilepath)
-                str.append_str(@webbuff, String($0A, $0A))
-          httpflush(@webbuff)
+                str.append_str(@ctx[t].webbuff,String("data: Skipped system/directory/readonly file "))
+                'str.append_str(@ctx[t].webbuff, @tmpfilepath)
+                str.append_str(@ctx[t].webbuff, String($0A, $0A))
+          httpflush(socket)
      sd.closeDirectoryHandle(dirhandle)
 pub rebootjs()
     waitms(1000)
@@ -2874,26 +2936,26 @@ PUB MDNSopen() | temp
  MDNSGRP[5] := 251
  MDNSGRP[6] := $14
  MDNSGRP[7] := $E9
- W6100.writereg(W6100.REG_Sn_DHAR,W6100.IDM_BSR_Socket4_Register,6,@MDNSGRP)
+ W6100.writereg(W6100.REG_Sn_DHAR,W6100.IDM_BSR_Socket7_Register,6,@MDNSGRP)
  MDNSGRP[2] := 224
- W6100.writereg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket4_Register,4,@MDNSGRP+2)
- W6100.writereg(W6100.REG_Sn_DPORTR,W6100.IDM_BSR_Socket4_Register,2,@MDNSGRP+6)
+ W6100.writereg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket7_Register,4,@MDNSGRP+2)
+ W6100.writereg(W6100.REG_Sn_DPORTR,W6100.IDM_BSR_Socket7_Register,2,@MDNSGRP+6)
  'temp := W6100.PM_M_UDP4
- 'W6100.writereg(W6100.REG_Sn_Mr,W6100.IDM_BSR_Socket4_Register,1,@temp)
- W6100.Open(5353,W6100.PM_M_UDP4,W6100.IDM_BSR_Socket4_Register)
+ 'W6100.writereg(W6100.REG_Sn_Mr,W6100.IDM_BSR_Socket7_Register,1,@temp)
+ W6100.Open(5353,W6100.PM_M_UDP4,W6100.IDM_BSR_Socket7_Register)
 
 PUB MDNScheck() | flags, SrcPort, SrcIP
   BYTEFILL(@MDNSBUFFER,0,1536)
-  W6100.readreg(W6100.REG_Sn_IR,W6100.IDM_BSR_Socket4_Register,1,@MDNSBUFFER)
+  W6100.readreg(W6100.REG_Sn_IR,W6100.IDM_BSR_Socket7_Register,1,@MDNSBUFFER)
 
 '  debug("Checking Sn_IR Socket Status: ", uhex_(MDNSBUFFER[0]))
-  if  W6100.ReceiveData(W6100.IDM_BSR_Socket4_Register,1) <> W6100.Sn_IR_TIMEOUT
-'    W6100.readreg(W6100.REG_Sn_DPORTR,W6100.IDM_BSR_Socket4_Register,2,@SrcPort)
+  if  W6100.ReceiveData(W6100.IDM_BSR_Socket7_Register,1) <> W6100.Sn_IR_TIMEOUT
+'    W6100.readreg(W6100.REG_Sn_DPORTR,W6100.IDM_BSR_Socket7_Register,2,@SrcPort)
 '    byteswap(@SrcPort,@SrcPort+1,1)
 
-'    W6100.readreg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket4_Register,4,@SrcIP)
+'    W6100.readreg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket7_Register,4,@SrcIP)
 
-    psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket4_Register,@MDNSBUFFER)
+    psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket7_Register,@MDNSBUFFER)
     flags := (MDNSBUFFER[10] << 8) | MDNSBUFFER[11]
     if flags < $8000 and MDNSBUFFER[21+MDNSBUFFER[20]+8] == 1 and MDNSBUFFER[20] == strsize(@hostname)' QR bit = 0, it's a query and Is it an A record?
        MDNSBUFFER[21 + MDNSBUFFER[20]] := 0 ' Terminate requested hostname with 0
@@ -2916,60 +2978,60 @@ PUB MDNScheck() | flags, SrcPort, SrcIP
                 MDNSbeaconNOANSWER(MDNSBUFFER[8],MDNSBUFFER[9],SrcPort,SrcIP)
 PUB MDNSbeaconNOANSWER(id1,id2,SrcPort,SrcIP) | temp
     if SrcPort == 5353
-        W6100.SendData(W6100.IDM_BSR_Socket4_Register,@MDNSBUFFER,build_mdns_negative_aaaa_response(id1,id2))
+        W6100.SendData(W6100.IDM_BSR_Socket7_Register,@MDNSBUFFER,build_mdns_negative_aaaa_response(id1,id2))
     else
         temp := W6100.PM_UDP4
-        W6100.writereg(W6100.REG_Sn_Mr,W6100.IDM_BSR_Socket4_Register,1,@temp)
+        W6100.writereg(W6100.REG_Sn_Mr,W6100.IDM_BSR_Socket7_Register,1,@temp)
         waitms(10)
         temp := W6100.CR_CLOSE
-        W6100.writereg(W6100.REG_Sn_CR,W6100.IDM_BSR_Socket4_Register,1,@temp)
-        REPEAT until W6100.readreg(W6100.REG_Sn_SR,W6100.IDM_BSR_Socket4_Register,1,@temp) == W6100.SOCK_CLOSED
+        W6100.writereg(W6100.REG_Sn_CR,W6100.IDM_BSR_Socket7_Register,1,@temp)
+        REPEAT until W6100.readreg(W6100.REG_Sn_SR,W6100.IDM_BSR_Socket7_Register,1,@temp) == W6100.SOCK_CLOSED
 
-        W6100.Open(5353,W6100.PM_UDP4,W6100.IDM_BSR_Socket4_Register)
-        W6100.writereg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket4_Register,4,@SrcIP)
+        W6100.Open(5353,W6100.PM_UDP4,W6100.IDM_BSR_Socket7_Register)
+        W6100.writereg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket7_Register,4,@SrcIP)
         byteswap(@SrcPort,@SrcPort+1,1)
-        W6100.writereg(W6100.REG_Sn_DPORTR,W6100.IDM_BSR_Socket4_Register,2,@SrcPort)
-'        debug(ubin(w6100.readreg(W6100.REG_Sn_Mr,W6100.IDM_BSR_Socket4_Register,1,@temp)))
-        W6100.SendData(W6100.IDM_BSR_Socket4_Register,@MDNSBUFFER,build_mdns_negative_aaaa_response(id1,id2))
+        W6100.writereg(W6100.REG_Sn_DPORTR,W6100.IDM_BSR_Socket7_Register,2,@SrcPort)
+'        debug(ubin(w6100.readreg(W6100.REG_Sn_Mr,W6100.IDM_BSR_Socket7_Register,1,@temp)))
+        W6100.SendData(W6100.IDM_BSR_Socket7_Register,@MDNSBUFFER,build_mdns_negative_aaaa_response(id1,id2))
         waitms(20)
         temp := W6100.CR_CLOSE
-        W6100.writereg(W6100.REG_Sn_CR,W6100.IDM_BSR_Socket4_Register,1,@temp)
-        REPEAT until W6100.readreg(W6100.REG_Sn_SR,W6100.IDM_BSR_Socket4_Register,1,@temp) == W6100.SOCK_CLOSED
+        W6100.writereg(W6100.REG_Sn_CR,W6100.IDM_BSR_Socket7_Register,1,@temp)
+        REPEAT until W6100.readreg(W6100.REG_Sn_SR,W6100.IDM_BSR_Socket7_Register,1,@temp) == W6100.SOCK_CLOSED
         MDNSopen()
 
 PUB MDNSbeacon(id1,id2,SrcPort,SrcIP) | temp
 
   if SrcPort == 5353
-        W6100.SendData(W6100.IDM_BSR_Socket4_Register,@MDNSBUFFER,build_mdns_response(id1,id2))
+        W6100.SendData(W6100.IDM_BSR_Socket7_Register,@MDNSBUFFER,build_mdns_response(id1,id2))
 
-        W6100.SendData(W6100.IDM_BSR_Socket4_Register,@MDNSBUFFER,build_mdns_announcement(0,0))
+        W6100.SendData(W6100.IDM_BSR_Socket7_Register,@MDNSBUFFER,build_mdns_announcement(0,0))
 
   else
 
         debug("Unicast Received")
         debug("UDP Source IP: ",udec_(byte[@SrcIP]),".",udec_(byte[@SrcIP+1]),".",udec_(byte[@SrcIP+2]),".",udec_(byte[@SrcIP+3]))
         debug("UDP Port Number: ", udec_(SrcPort))
-        W6100.Disconnect(W6100.IDM_BSR_Socket4_Register)
+        W6100.Disconnect(W6100.IDM_BSR_Socket7_Register)
         temp := W6100.PM_UDP4
-        W6100.writereg(W6100.REG_Sn_Mr,W6100.IDM_BSR_Socket4_Register,1,@temp)
+        W6100.writereg(W6100.REG_Sn_Mr,W6100.IDM_BSR_Socket7_Register,1,@temp)
 
         temp := W6100.CR_CLOSE
-        W6100.writereg(W6100.REG_Sn_CR,W6100.IDM_BSR_Socket4_Register,1,@temp)
-        REPEAT until W6100.readreg(W6100.REG_Sn_SR,W6100.IDM_BSR_Socket4_Register,1,@temp) == W6100.SOCK_CLOSED
+        W6100.writereg(W6100.REG_Sn_CR,W6100.IDM_BSR_Socket7_Register,1,@temp)
+        REPEAT until W6100.readreg(W6100.REG_Sn_SR,W6100.IDM_BSR_Socket7_Register,1,@temp) == W6100.SOCK_CLOSED
 
-        W6100.Open(5353,W6100.PM_UDP4,W6100.IDM_BSR_Socket4_Register)
-        W6100.writereg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket4_Register,4,@SrcIP)
+        W6100.Open(5353,W6100.PM_UDP4,W6100.IDM_BSR_Socket7_Register)
+        W6100.writereg(W6100.REG_Sn_DIPR,W6100.IDM_BSR_Socket7_Register,4,@SrcIP)
         byteswap(@SrcPort,@SrcPort+1,1)
-        W6100.writereg(W6100.REG_Sn_DPORTR,W6100.IDM_BSR_Socket4_Register,2,@SrcPort)
-'        debug(ubin(w6100.readreg(W6100.REG_Sn_Mr,W6100.IDM_BSR_Socket4_Register,1,@temp)))
-        W6100.SendData(W6100.IDM_BSR_Socket4_Register,@MDNSBUFFER,build_mdns_response(id1,id2))
+        W6100.writereg(W6100.REG_Sn_DPORTR,W6100.IDM_BSR_Socket7_Register,2,@SrcPort)
+'        debug(ubin(w6100.readreg(W6100.REG_Sn_Mr,W6100.IDM_BSR_Socket7_Register,1,@temp)))
+        W6100.SendData(W6100.IDM_BSR_Socket7_Register,@MDNSBUFFER,build_mdns_response(id1,id2))
         waitms(20)
 
-'        REPEAT until W6100.readreg(W6100.REG_Sn_IR,W6100.IDM_BSR_Socket4_Register, 1, @temp) == W6100.Sn_IR_SENDOK
+'        REPEAT until W6100.readreg(W6100.REG_Sn_IR,W6100.IDM_BSR_Socket7_Register, 1, @temp) == W6100.Sn_IR_SENDOK
 
         temp := W6100.CR_CLOSE
-        W6100.writereg(W6100.REG_Sn_CR,W6100.IDM_BSR_Socket4_Register,1,@temp)
-        REPEAT until W6100.readreg(W6100.REG_Sn_SR,W6100.IDM_BSR_Socket4_Register,1,@temp) == W6100.SOCK_CLOSED
+        W6100.writereg(W6100.REG_Sn_CR,W6100.IDM_BSR_Socket7_Register,1,@temp)
+        REPEAT until W6100.readreg(W6100.REG_Sn_SR,W6100.IDM_BSR_Socket7_Register,1,@temp) == W6100.SOCK_CLOSED
         MDNSopen()
 
 PUB build_mdns_announcement(id1,id2) : packet_length | ptr, len, i
@@ -3219,7 +3281,3 @@ PUB build_mdns_negative_aaaa_response(id1,id2) : packet_length | ptr, len, i
   packet_length := ptr - @MDNSBUFFER
 
 
-PUB mssset(socket)
-    mss := 0
-    W6100.readreg(W6100.REG_Sn_MSSR,socket,2,@MSS)
-    BYTESWAP(@MSS,@MSS+1,1)                          

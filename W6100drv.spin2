@@ -127,6 +127,8 @@ CON
   REG_Sn_RX_RSR = $0224
   REG_Sn_RX_RD  = $0228
   REG_Sn_IMR    = $0024
+  REG_IR        = $2100
+  REG_SIR       = $2101
   REG_SIMR      = $2114
 
 
@@ -603,6 +605,21 @@ pub ListenTCP(socket) : rtv
   readreg(REG_Sn_SR,socket,1,@REGBUFFER+((socket >> 5)*2))
   rtv := REGBUFFER[(socket >> 5)*2]
 
+pub ReopenTCP(socket) : rtv
+'' Reopens a previously configured TCP socket and returns to LISTEN state.
+'' Skips MR/PORTR writes — assumes Open() was already called once.
+'' Use after Disconnect() to minimize bus transactions.
+  REGBUFFER[(socket >> 5)*2] := CR_Open
+  writereg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2))
+  repeat until REGBUFFER[(socket >> 5)*2] == 0
+    readreg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2))
+  REGBUFFER[(socket >> 5)*2] := CR_LISTEN
+  writereg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2))
+  repeat until REGBUFFER[(socket >> 5)*2] == 0
+    readreg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2))
+  readreg(REG_Sn_SR,socket,1,@REGBUFFER+((socket >> 5)*2))
+  rtv := REGBUFFER[(socket >> 5)*2]
+
 pub ConnectTCP(socket) : rtv
 '' Creates connection on socket
 '' Expects socket: Socket Register from Block Selection. See Con Section. Example: IDM_BSR_Socket6_Register
@@ -631,6 +648,13 @@ pub EstablishTCP(socket,tot) : rtv | ctimeout
       return(rtv)
   REGBUFFER[(socket >> 5)*2] := Sn_IR_CON
   writereg(REG_Sn_IRCLR,socket,1,@REGBUFFER+((socket >> 5)*2))
+
+pub ReadSIR() : r
+'' Reads the Socket Interrupt Register (SIR) — one byte from the common register block.
+'' Each bit corresponds to a socket (bit 0 = Socket 0, bit 7 = Socket 7).
+'' A set bit indicates that socket has a pending interrupt.
+  readreg(REG_SIR, IDM_BSR_Common_Register, 1, @REGBUFFER)
+  r := REGBUFFER[0]
 
 pub ReceiveData(socket,tmov) : rtv | tmo
 '' Receives Data from socket.
@@ -1092,7 +1116,7 @@ pub SendData(socket,sendptr,ptrlen) : rtv | i
 '       debug(udec(REGBUFFER[1+((socket >> 5)*2)]))
 
     repeat while (REGBUFFER[(socket >> 5)*2] & $18) == $00
-       readreg(REG_Sn_IMR,socket,1,@REGBUFFER+((socket >> 5)*2))
+       readreg(REG_Sn_IR,socket,1,@REGBUFFER+((socket >> 5)*2))
 
 'Not sure we need this
 
@@ -1139,7 +1163,7 @@ pub EndDataTCP(socket) : rtv | i
     repeat until REGBUFFER[(socket >> 5)*2] == 0
        readreg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2))
     repeat while (REGBUFFER[(socket >> 5)*2] & $18) == $00
-       readreg(REG_Sn_IMR,socket,1,@REGBUFFER+((socket >> 5)*2))
+       readreg(REG_Sn_IR,socket,1,@REGBUFFER+((socket >> 5)*2))
 
     if (REGBUFFER[(socket >> 5)*2] & $18) == $10
          REGBUFFER[(socket >> 5)*2] := $10
@@ -1251,6 +1275,7 @@ lstart mov lREGISTER, ##REG_Sn_RX_RSR
 'stop  nop
 '      jmp #stop
       cmp lr, #0 wz  ' lr is what is returned from rx. rx returns the last two bytes as a word.
+if_z  waitx ##2700 ' ~10us delay to allow Spin2 cogs to acquire the ethernet lock
 if_z  jmp #lstart ' If r is empty, go fish.
       mov ll_RX_RSR, lr
 
