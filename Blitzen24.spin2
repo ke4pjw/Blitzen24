@@ -165,7 +165,7 @@ OBJ
         qe: "jm_quadraturesmartpin"
 
 PUB main() | i, j, handle, fsize, merr
-  str.append_str(@buildver, String("Blitzen 24 Edge 2.4.1 (Rocklin)"))
+  str.append_str(@buildver, String("Blitzen 24 Edge 2.4.2 (Rocklin)"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -2603,7 +2603,7 @@ pub upgraderun(socket) | gur, fn, i, e, r, t
      str.append_str(@ctx[t].webbuff, String($0A, $0A))
 
      httpflush(socket)
-{
+
      if not sd.isFileContiguous(@"/_BOOT_P2.BIX")
 
         str.append_str(@ctx[t].webbuff, String("data: Boot file is fragmented!"))
@@ -2621,7 +2621,7 @@ pub upgraderun(socket) | gur, fn, i, e, r, t
         str.append_str(@ctx[t].webbuff, String("data: Boot file is not fragmented. Good to go!"))
         str.append_str(@ctx[t].webbuff, String($0A, $0A))
         httpflush(socket)
-}
+
   '  No need to flush the last output.
 
      str.append_str(@ctx[t].webbuff, String("data: Done.<BR><H2> <A HREF='reboot.htm'>Click here to reboot.</A></H2>"))
