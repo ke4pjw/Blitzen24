@@ -1,3 +1,4 @@
+{Spin2_v45}
 {
 ***************************************************
 * Blitzen 24 Edge Ver 2.4.0 (Rockland)  3/20/2026 *
@@ -25,6 +26,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 }
+#pragma exportdef SD_INCLUDE_DEFRAG
+'#pragma exportdef SD_INCLUDE_REGISTERS
 CON
     _xtlfreq = 20_000_000
     _clkfreq = 270_000_000
@@ -33,6 +36,7 @@ CON
   PGM_TX   = 62  { O }
 
   ' SD card SPI pins (directly wired to microSD slot)
+
   SD_MISO = 58   ' was DOPin  — Master In, Slave Out (data FROM card)
   SD_SCK  = 61   ' was CLKPin — Serial Clock
   SD_MOSI = 59   ' was DIPin  — Master Out, Slave In (data TO card)
@@ -144,7 +148,7 @@ VAR
         long watchdogstack[1023] ' Keep this on bottom
 
 OBJ
-        sd: "micro_sd_fat32_fs"
+        sd: "micro_sd_fat32_fs_defrag"
         W6100: "W6100drv"
         prng: "jm_prng"
         WS2811: "tt_rgbx_pixel"
@@ -160,8 +164,8 @@ OBJ
         qr:     "p2qr"        'Object that creates the QR code.
         qe: "jm_quadraturesmartpin"
 
-PUB main() | i, j, handle, fsize
-  str.append_str(@buildver, String("Blitzen 24 Edge 2.4.0 (Rocklin) Dev"))
+PUB main() | i, j, handle, fsize, merr
+  str.append_str(@buildver, String("Blitzen 24 Edge 2.4.1 (Rocklin)"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -191,8 +195,13 @@ PUB main() | i, j, handle, fsize
 
   debug("Starting SD driver and mounting filesystem")
 
-  if sd.mount(SD_CS, SD_MOSI, SD_MISO, SD_SCK) < 0
+  merr := sd.mount(SD_CS, SD_MOSI, SD_MISO, SD_SCK)
+  if merr <> 0
      OLED.TERMSEND(STRING("Missing SD Card?", OLED.CR, OLED.LF))
+     OLED.TERMSEND(STRING("Mount Error: "))
+     OLED.TERMSEND(str.dec(merr,0))
+     OLED.TERMSEND(STRING(OLED.CR, OLED.LF))
+     Debug("Mount Error: ", udec_(merr))
      repeat
   debug("Config memory Size: ", udec_((@ENDOFCONFIG + 3) - @PIXELCONFIG) )
   debug("Opening config file: ")
@@ -2585,10 +2594,35 @@ pub upgraderun(socket) | gur, fn, i, e, r, t
 
      str.append_str(@ctx[t].webbuff, String("data: Moving BLITZEN.CFG back to /"))
      str.append_str(@ctx[t].webbuff, String($0A, $0A))
-  '  No need to flush the last output.
+
      httpflush(socket)
 
      sd.moveFile(string("/Backup/BLITZEN.CFG"), string("/"))
+
+     str.append_str(@ctx[t].webbuff, String("data: Checking if boot file is fragmented"))
+     str.append_str(@ctx[t].webbuff, String($0A, $0A))
+
+     httpflush(socket)
+{
+     if not sd.isFileContiguous(@"/_BOOT_P2.BIX")
+
+        str.append_str(@ctx[t].webbuff, String("data: Boot file is fragmented!"))
+        str.append_str(@ctx[t].webbuff, String($0A, $0A))
+        httpflush(socket)
+        if sd.compactFile(@"_BOOT_P2.BIX") == 0
+            str.append_str(@ctx[t].webbuff, String("data: Boot file compacted successfully"))
+            str.append_str(@ctx[t].webbuff, String($0A, $0A))
+        else
+            str.append_str(@ctx[t].webbuff, String("data: Boot file NOT compacted successfully. Remove SD card and peform manual defrag."))
+            str.append_str(@ctx[t].webbuff, String($0A, $0A))
+
+        httpflush(socket)
+     else
+        str.append_str(@ctx[t].webbuff, String("data: Boot file is not fragmented. Good to go!"))
+        str.append_str(@ctx[t].webbuff, String($0A, $0A))
+        httpflush(socket)
+}
+  '  No need to flush the last output.
 
      str.append_str(@ctx[t].webbuff, String("data: Done.<BR><H2> <A HREF='reboot.htm'>Click here to reboot.</A></H2>"))
      str.append_str(@ctx[t].webbuff, String($0A, $0A))
