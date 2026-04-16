@@ -1,0 +1,14 @@
+(kicad_sch (version 20211123) (generator eeschema)
+
+  (uuid 2e969cd8-a6e1-43ed-a001-944a5705b0a7)
+
+  (paper "A4")
+
+  (title_block
+    (title "Blitzen 24 Edge V2")
+  )
+
+  (lib_symbols
+  )
+
+)
