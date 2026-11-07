@@ -1,7 +1,7 @@
 {Spin2_v45}
 {
 ***************************************************
-* Blitzen 24 Edge Ver 2.4.0 (Rockland)  3/20/2026 *
+* Blitzen 24 Edge Ver 2.5.0 (Rockland)  11/6/2026 *
 ***************************************************
 
 LICENSE TERMS
@@ -165,7 +165,7 @@ OBJ
         qe: "jm_quadraturesmartpin"
 
 PUB main() | i, j, handle, fsize, merr
-  str.append_str(@buildver, String("Blitzen 24 Edge 2.4.2 (Rocklin)"))
+  str.append_str(@buildver, String("Blitzen 24 Edge 2.5.0 (Rocklin) Dev"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -292,6 +292,8 @@ PUB main() | i, j, handle, fsize, merr
       OLED.TERMSEND(STRING("Missing SD Card?", OLED.CR, OLED.LF))
       repeat
 
+
+  str.lcstr(@HOSTNAME)                 ' mDNS compares lowercase; stored name may be uppercase
 
   ' Init Ethernet
   elock := W6100.initparallel()
@@ -1989,6 +1991,8 @@ pub dhcpclient() | i
                i := i + READBUFFER[i]
                i++
 
+  ' Close Socket 0 so it doesn't stay bound to port 68 collecting DHCP broadcasts
+  W6100.Close(W6100.IDM_BSR_Socket0_Register)
 
   if DHCPMESSAGETYPE <> 5
     debug("DHCP Messagetype: ", udec_(DHCPMESSAGETYPE))
@@ -2082,6 +2086,8 @@ pub dmxbufferaddr() : dmxbuffer | ei
    return -1
 pub dnsresolver(hostname) : rv | i, l
   debug("Configuring Protocol Mode UDP on Socket 0", $0D, $0A)
+  ' Close first so Open() rebinds to port 53 with an empty RX buffer
+  W6100.Close(W6100.IDM_BSR_Socket0_Register)
   W6100.Open(53,W6100.PM_UDP4,W6100.IDM_BSR_Socket0_Register)
   ' Set Destination IP
   WRITEBUFFER[0] := DNS[0]
@@ -2155,6 +2161,7 @@ pub dnsresolver(hostname) : rv | i, l
      repeat until W6100.ReceiveData(W6100.IDM_BSR_Socket0_Register,1) == 0
       if GETSEC() >= l
          debug("DNS Server timed out.")
+         W6100.Close(W6100.IDM_BSR_Socket0_Register)
          return -1
 
      psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket0_Register,@READBUFFER)
@@ -2174,9 +2181,11 @@ pub dnsresolver(hostname) : rv | i, l
      SERVERIP[1] := READBUFFER[psize-3]
      SERVERIP[2] := READBUFFER[psize-2]
      SERVERIP[3] := READBUFFER[psize-1]
+     W6100.Close(W6100.IDM_BSR_Socket0_Register)
      return @SERVERIP
   else
      debug("Name did not resolve")
+     W6100.Close(W6100.IDM_BSR_Socket0_Register)
      return -1
 pri upgradejs()| dns_ptr, gur, t
     t := TASKID()

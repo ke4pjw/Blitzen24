@@ -1,6 +1,6 @@
 {
 **************************************************
-*  Wiznet 6100 Driver Ver 1.5    2/26/2026        *
+*  Wiznet 6100 Driver Ver 1.6    11/6/2026        *
 **************************************************
 
 LICENSE TERMS
@@ -561,6 +561,25 @@ Pub Disconnect(socket)
     'vid.nl()
     ' Gonna try this bullshit right here because I am sure I didn't clear all of the interrupts
     REGBUFFER[(socket >> 5)*2] := $1F
+    writereg(REG_Sn_IRCLR,socket,1,@REGBUFFER+((socket >> 5)*2))
+
+pub Close(socket)
+'' Closes the socket (TCP or UDP) and returns it to SOCK_CLOSED.
+'' Expects socket: Socket Register from Block Selection. See Con Section. Example: IDM_BSR_Socket0_Register
+'' Returns nothing.
+    ' Issue the CLOSE command and wait for the W6100 to accept it (Sn_CR returns to 0)
+    REGBUFFER[(socket >> 5)*2] := CR_CLOSE
+    writereg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2))
+    repeat until REGBUFFER[(socket >> 5)*2] == 0
+        readreg(REG_Sn_CR,socket,1,@REGBUFFER+((socket >> 5)*2))
+
+    ' Wait until the socket status reads SOCK_CLOSED
+    readreg(REG_Sn_SR,socket,1,@REGBUFFER+((socket >> 5)*2))
+    repeat until REGBUFFER[(socket >> 5)*2] == SOCK_CLOSED
+        readreg(REG_Sn_SR,socket,1,@REGBUFFER+((socket >> 5)*2))
+
+    ' Clear any leftover interrupt flags on this socket
+    REGBUFFER[(socket >> 5)*2] := $FF
     writereg(REG_Sn_IRCLR,socket,1,@REGBUFFER+((socket >> 5)*2))
 
 
