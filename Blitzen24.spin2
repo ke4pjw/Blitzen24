@@ -148,7 +148,7 @@ VAR
         long watchdogstack[1023] ' Keep this on bottom
 
 OBJ
-        sd: "micro_sd_fat32_fs_defrag"
+        sd: "micro_sd_fat32_fs_v180"
         W6100: "W6100drv"
         prng: "jm_prng"
         WS2811: "tt_rgbx_pixel"
@@ -2464,7 +2464,7 @@ pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc,
 '    W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
     return(rcode)
 
-pub upgraderun(socket) | gur, fn, i, e, r, t
+pub upgraderun(socket) | gur, fn, i, e, r, t, frags
    t := TASKID()
    stoppixels()
    W6100.stopfastrx()
@@ -2613,12 +2613,22 @@ pub upgraderun(socket) | gur, fn, i, e, r, t
 
      httpflush(socket)
 
-     if not sd.isFileContiguous(@"/_BOOT_P2.BIX")
+     ' fileFragments(): 1 = contiguous, >1 = fragmented, 0 = empty, <0 = check failed
+     frags := sd.fileFragments(@"/_BOOT_P2.BIX")
+     debug("Boot file fragments: ", sdec_(frags))
+
+     if frags > 1
 
         str.append_str(@ctx[t].webbuff, String("data: Boot file is fragmented!"))
         str.append_str(@ctx[t].webbuff, String($0A, $0A))
         httpflush(socket)
-        if sd.compactFile(@"_BOOT_P2.BIX") == 0
+        r := sd.compactFile(@"/_BOOT_P2.BIX")
+        debug("compactFile: ", sdec_(r))
+        if r == sd.SUCCESS
+          frags := sd.fileFragments(@"/_BOOT_P2.BIX")
+          debug("Boot file fragments after compact: ", sdec_(frags))
+
+        if r == sd.SUCCESS and frags == 1
             str.append_str(@ctx[t].webbuff, String("data: Boot file compacted successfully"))
             str.append_str(@ctx[t].webbuff, String($0A, $0A))
         else
@@ -2626,8 +2636,12 @@ pub upgraderun(socket) | gur, fn, i, e, r, t
             str.append_str(@ctx[t].webbuff, String($0A, $0A))
 
         httpflush(socket)
-     else
+     elseif frags == 1
         str.append_str(@ctx[t].webbuff, String("data: Boot file is not fragmented. Good to go!"))
+        str.append_str(@ctx[t].webbuff, String($0A, $0A))
+        httpflush(socket)
+     else
+        str.append_str(@ctx[t].webbuff, String("data: Could not check the boot file (missing, empty or SD error). Do not reboot until it is checked."))
         str.append_str(@ctx[t].webbuff, String($0A, $0A))
         httpflush(socket)
 
