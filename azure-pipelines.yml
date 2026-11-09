@@ -14,7 +14,7 @@
 trigger:
   branches:
     include:
-      - main          # adjust to your default branch (master, develop, etc.)
+      - '*'           # run on a push to any branch, so new branches are mirrored right away
 
 pool:
   vmImage: 'ubuntu-latest'
