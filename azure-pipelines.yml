@@ -41,7 +41,7 @@ steps:
 
       # ---- push all branches and tags to GitHub ----
       # drop origin/HEAD first, or it would be pushed as a branch named HEAD
-      git update-ref -d refs/remotes/origin/HEAD || true
+      git update-ref --no-deref -d refs/remotes/origin/HEAD || true
       git push github 'refs/remotes/origin/*:refs/heads/*' --force
       git push github --tags  --force
 
