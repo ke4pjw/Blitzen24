@@ -40,8 +40,9 @@ steps:
       git fetch origin '+refs/heads/*:refs/remotes/origin/*'
 
       # ---- push all branches and tags to GitHub ----
-      # (skip origin/HEAD, which would otherwise become a branch named HEAD)
-      git push github 'refs/remotes/origin/*:refs/heads/*' '^refs/remotes/origin/HEAD' --force
+      # drop origin/HEAD first, or it would be pushed as a branch named HEAD
+      git update-ref -d refs/remotes/origin/HEAD || true
+      git push github 'refs/remotes/origin/*:refs/heads/*' --force
       git push github --tags  --force
 
       echo "✅ Successfully mirrored to GitHub."
