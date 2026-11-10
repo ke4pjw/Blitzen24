@@ -1,6 +1,6 @@
 {
 **************************************************
-*  Wiznet 6100 Driver Ver 1.6    11/6/2026        *
+*  Wiznet 6100 Driver Ver 1.7    11/8/2026        *
 **************************************************
 
 LICENSE TERMS
@@ -42,6 +42,20 @@ CON
   DPINS = 24 / 8
   A0    = 18
   A1    = 19
+
+  ' W6100 parallel-bus delays for the E1.31 cog (waitx operands, P2 clocks at 270 MHz).
+  ' W6100 DS 8.4.2 minimums at SYS_CLK = 100 MHz: RD/WR low 40 ns, RD/WR high 30 ns,
+  ' data valid <= 35 ns after RD low. Values below leave about 2x margin.
+  BUS_CS_SETUP   = 4    ' after CSn asserted, before first address strobe (spec 0 ns)
+  BUS_WR_PULSE   = 20   ' WRn low time (spec >= 40 ns); 22 clocks + DRVL = ~90 ns
+  BUS_RD_SAMPLE  = 20   ' RDn low to data sample (spec <= 35 ns); ~96 ns
+  BUS_RD_RECOVER = 2    ' extra RDn high time between reads (spec >= 30 ns); ~80 ns total
+  BUS_RD_DSAMPLE = 20   ' RDn low to data sample in the REP data loop (spec <= 35 ns); 26 clocks = ~96 ns
+                        ' Measured 2026-11-08: values 12-14 (sample ~66-74 ns) read corrupt bytes on hardware,
+                        ' 0-11 and 15-20 read clean. Do not lower this below 16.
+  BUS_RD_HIGH    = 12   ' RDn high time in the REP data loop (spec >= 30 ns); 16 clocks = ~59 ns
+  BUS_TURNAROUND = 4    ' after FLTL DATA, before first RDn (bus turnaround + address setup)
+  BUS_CS_RECOVER = 4    ' after CSn released, before LOCKREL (spec Tcsn >= 30 ns)
 
   LED1  = 56
   LED2  = 57
@@ -1313,6 +1327,21 @@ if_nz  jmp #lstart ' If lr is not the same as ll_RX_RSR, go fish.
       call #lrx
       mov ll_RX_RD, lr ' lr is what is returned from rx. rx returns the last two bytes as a word.
 
+' Get this datagram's size from the W6100 UDP4 PACKET INFO header (DS 6.2.3):
+' bytes 0-1 = 5 flag bits + 11-bit data length, 2-5 = IP, 6-7 = port.
+' Only this datagram is consumed below; any datagrams queued behind it stay in the
+' buffer (RSR still counts them) and are handled on the next pass through lstart.
+      mov lREGISTER, ll_RX_RD
+      mov lBS, lsocket_rd
+      mov lBLEN, #2 ' get two bytes
+      mov lRB, lREGBUFFERTMP
+      call #lrx
+      mov lpktlen, lr
+      and lpktlen, ##$07FF       ' data length (strip the PACKET INFO flag bits)
+      add lpktlen, #8            ' 8-byte header + payload
+      cmp ll_RX_RSR, lpktlen wc  ' C = RSR smaller than this datagram (inconsistent header)
+if_c  mov lpktlen, ll_RX_RSR     ' then drop everything received, as before
+
 ' Determine if this is a VECTOR_E131_DATA_PACKET
       mov E131ADDR, #50 ' Vector of patcket is two bytes at addr 41
       add E131ADDR, ll_RX_RD
@@ -1380,6 +1409,7 @@ if_nz jmp #e131lutenum
  lskipit
 
       mov lBS, lsocket
+      mov ll_RX_RSR, lpktlen   ' advance past this datagram only (was: past all RSR bytes)
       add ll_RX_RSR,ll_RX_RD 'Determine new RX address
 
       movbyts   ll_RX_RSR, #%%2301
@@ -1445,7 +1475,7 @@ if_nc  jmp #rxlk
 
 ' Enable Chip Select on the W6100
       DRVH  ##CSn
-      waitx #100
+      waitx #BUS_CS_SETUP
 ' Load high byte
       DRVH  ##A0 'ADDR bit 0
       DRVH  ##A1 'ADDR bit 1
@@ -1457,7 +1487,7 @@ if_nc  jmp #rxlk
 '      debug(uhex(lLADDRH))
 
       DRVH  ##WRn
-      waitx #50
+      waitx #BUS_WR_PULSE
       DRVL  ##WRn
 
 'load low byte
@@ -1469,7 +1499,7 @@ if_nc  jmp #rxlk
       setbyte lLADDRL
 '      debug(uhex(lLADDRL))
       DRVH  ##WRn
-      waitx #50
+      waitx #BUS_WR_PULSE
       DRVL  ##WRn
 
 'Set lBS
@@ -1481,7 +1511,7 @@ if_nc  jmp #rxlk
 '      debug(uhex(lBS))
 
       DRVH  ##WRn
-      waitx #50
+      waitx #BUS_WR_PULSE
       DRVL  ##WRn
 
       DRVL  ##A0 'ADDR bit 0
@@ -1489,28 +1519,44 @@ if_nc  jmp #rxlk
       FLTL  #DATA
 '      debug(uhex(#DATA ))
 ' Read i number of bytes.
-      waitx #50
+      waitx #BUS_TURNAROUND
+      tjz lBLEN, #lrxdone        ' nothing to read
+' Data reads (more than 2 bytes) use a zero-overhead REP loop. Only the 2-byte
+' register reads need lr (the returned word), so they keep the loop below.
+      cmp lBLEN, #2 wcz          ' C or Z: lBLEN <= 2
+if_be jmp #lrxloop
+      rep @lrxfend, lBLEN
+      drvh #RDn                  ' assert RDn
+      waitx #BUS_RD_DSAMPLE      ' wait for data valid
+      altgb ldatapin, #ina
+      getbyte ltmpdata           ' sample
+      drvl #RDn                  ' release RDn right after sampling
+      wfbyte ltmpdata            ' to hub through the write FIFO
+      waitx #BUS_RD_HIGH         ' RDn high time before the next byte
+lrxfend
+      jmp #lrxdone
+
 lrxloop DRVH ##RDn ' Enable Chip Read
 '      debug(uhex(DIRA))
-      waitx #50 ' Wait cuz this is slow
+      waitx #BUS_RD_SAMPLE ' Wait for data valid (spec <= 35 ns after RDn low)
 '      debug(uhex(ldatapin))
       altgb ldatapin, #ina ' Where you gonna get that data?
       getbyte ltmpdata ' Get that data and put it in ltmpdata
-      waitx #50
+      DRVL ##RDn ' Disable Chip read right after sampling
 '      debug(uhex(ltmpdata))
 '      WRBYTE ltmpdata, RB ' Write that data to the read buffer in HUBRAM.
 '      debug(uhex(ltmpdata))
       WFBYTE ltmpdata
       add lRB, #1 ' Increment the read buffer by 1 byte
-      DRVL ##RDn ' Disable Chip read
-      waitx #50  ' Wait cuz this is slow
 
       add lr,ltmpdata  ' Populate return value
       shl lr,#8
+      waitx #BUS_RD_RECOVER ' RDn high margin (spec >= 30 ns between reads)
 
 ' R U Dun? (Compare i, which is where we stop where it is equal to the current read buffer value)
       CMP li,lRB wz
 if_nz jmp #lrxloop
+lrxdone
       shr lr,#8
 ' Disable Chip Select
       DRVL  ##CSn
@@ -1521,7 +1567,7 @@ if_nz jmp #lrxloop
 '      FLTL ##WRn
 '      FLTL ##RDn
       FLTL #DATA
-      waitx #50
+      waitx #BUS_CS_RECOVER
       lockrel lelock
       ret
 
@@ -1553,7 +1599,7 @@ if_nc  jmp #txlk
 
 ' Enable Chip Select on the W6100
       DRVH  ##CSn
-      waitx #100
+      waitx #BUS_CS_SETUP
 ' Load high byte
       DRVH  ##A0 'ADDR bit 0
       DRVH  ##A1 'ADDR bit 1
@@ -1565,7 +1611,7 @@ if_nc  jmp #txlk
       setbyte lLADDRH
 
       DRVH  ##WRn
-      waitx #50
+      waitx #BUS_WR_PULSE
       DRVL  ##WRn
 
 'load low byte
@@ -1577,7 +1623,7 @@ if_nc  jmp #txlk
       setbyte lLADDRL
 
       DRVH  ##WRn
-      waitx #50
+      waitx #BUS_WR_PULSE
       DRVL  ##WRn
 
 'Set lBS
@@ -1588,7 +1634,7 @@ if_nc  jmp #txlk
       setbyte lBS
 
       DRVH  ##WRn
-      waitx #50
+      waitx #BUS_WR_PULSE
       DRVL  ##WRn
 
       DRVL  ##A0 'ADDR bit 0
@@ -1600,12 +1646,11 @@ if_nc  jmp #txlk
 
  'RDBYTE ltmpdata, lRB
 ltxloop RFBYTE ltmpdata
-       waitx #50
        altsb ldatapin,#outa ' Where you gonna send that data?
        setbyte ltmpdata ' Set that data from ltmpdata
 '      WRBYTE ltmpdata, lRB ' Write that data to the read buffer in HUBRAM.
        DRVH ##WRn ' Disable Chip read
-       waitx #50  ' Wait cuz this is slow
+       waitx #BUS_WR_PULSE ' WRn low time
        DRVL ##WRn ' Enable Chip Write
        add lRB, #1 ' Increment the read buffer by 1 byte
 '      add lr,ltmpdata  ' Populate return value
@@ -1625,7 +1670,7 @@ if_nz  jmp #ltxloop
 '      FLTL ##RDn
 '      FLTL ##CSn
       FLTL #DATA
-      waitx #50
+      waitx #BUS_CS_RECOVER
        lockrel lelock
        ret
 
@@ -1648,6 +1693,7 @@ lBS                 RES  1
 lsocket_rd          RES  1
 ll_RX_RSR           RES  1
 ll_RX_RD            RES  1
+lpktlen             RES  1
 lr                  RES  1
 E131ADDR            RES  1
 tE131ADDR           RES  1
