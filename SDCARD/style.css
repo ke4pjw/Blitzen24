@@ -127,7 +127,7 @@ main > div > a:hover{color: #FFF;}
     display: inline-block;
     vertical-align: middle;
     font-size: 30px;
-    margin-right: 75px;
+    margin-right: 0px;
     color: #FFF;
 }
 #logo img {
