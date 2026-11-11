@@ -1,6 +1,6 @@
 {
 **************************************************
-*  Wiznet 6100 Driver Ver 1.7    11/8/2026        *
+*  Wiznet 6100 Driver Ver 1.8    11/10/2026       *
 **************************************************
 
 LICENSE TERMS
@@ -219,6 +219,7 @@ VAR
   long E131Ptr2Config
   long E131Ptr2Counter
   long E131Ptr2Discards
+  long E131Mode          ' 0 = E1.31, 1 = DDP (read by the fast-RX cog with the 7 longs above)
   long  ADDRH
   long  ADDRL
   byte  REGBUFFER[16]
@@ -1219,14 +1220,19 @@ PUB nl()
 ''
 ''
  send( $0D, $0A)
-PUB startfastrx(skt,pbf,txb,e131ptr)
-'' Start E1.31 cog.
+PUB startfastrx(skt,pbf,txb,e131ptr,mode)
+'' Start the fast-RX (E1.31 / DDP) cog.
 '' skt is the Socket to listen on
 '' pbf is the pointer to the pixelbuffer
 '' txb is the pointer to buffer to use for the REGBUFFER
-'' e131prt is a pointer to the E1.31 configuration memory structure
+'' e131prt is a pointer to the lookup table loaded into the cog's LUT (432 longs are read):
+''   mode 0 (E1.31): the E1.31 configuration memory structure
+''   mode 1 (DDP):   DDP map, 3 longs per entry [byte length, byte offset (0-based), hub address],
+''                   terminated by an entry whose byte length is 0
+'' mode is 0 for E1.31, 1 for DDP
 
     longmove(@E131Socket, @skt, 4)
+    E131Mode := mode
     E131Ptr2Counter  := @E131Counter
     E131Ptr2Discards := @E131Discards
 '    hex(E131PACKETBUFFER,8)
@@ -1271,7 +1277,7 @@ if_nc  jmp #inlk
       mov lE131Discards, #$00
       mov lE131counter, #$00
 ' Populate config
-      setq      #7-1
+      setq      #8-1
       rdlong    lelock, ptra
 ' Populate E131 config in LUT
       setq2     #432-1
@@ -1341,6 +1347,8 @@ if_nz  jmp #lstart ' If lr is not the same as ll_RX_RSR, go fish.
       add lpktlen, #8            ' 8-byte header + payload
       cmp ll_RX_RSR, lpktlen wc  ' C = RSR smaller than this datagram (inconsistent header)
 if_c  mov lpktlen, ll_RX_RSR     ' then drop everything received, as before
+
+      tjnz lmode, #ddp           ' DDP mode: decode below, rejoin at lskipit
 
 ' Determine if this is a VECTOR_E131_DATA_PACKET
       mov E131ADDR, #50 ' Vector of patcket is two bytes at addr 41
@@ -1443,6 +1451,121 @@ if_nz jmp #e131lutenum
 
 
       jmp #lstart
+
+' ---------------------------------------------------------------------------
+' DDP (Distributed Display Protocol) datagram. Entered from above with ll_RX_RD
+' and lpktlen (8-byte PACKET INFO + payload) set; always leaves via lskipit.
+' DDP header, relative to ll_RX_RD + 8:
+'   0 flags (V1 V0 x T S R Q P), 1 sequence, 2 data type, 3 destination ID,
+'   4-7 data offset (bytes, big-endian), 8-9 data length (big-endian),
+'   10-13 timecode (only when T is set). Data follows at 10, or 14 with T.
+' The LUT holds [byte length, byte offset, hub address] per mapped output,
+' ended by a 0 length. Every output whose channel range overlaps this packet
+' gets the overlapping bytes, so gaps and overlaps both work.
+' ---------------------------------------------------------------------------
+ddp   mov dbase, ll_RX_RD
+      add dbase, #8              ' start of the DDP header in the socket RX buffer
+
+      mov lREGISTER, dbase       ' flags + sequence
+      call #ddprd2
+      mov dflags, lr
+      shr dflags, #8
+      mov dtmp, dflags
+      and dtmp, #$C0
+      cmp dtmp, #$40 wz          ' version must be 1
+if_nz jmp #ddpdrop
+      test dflags, #$0E wz       ' storage, reply or query: not pixel data
+if_nz jmp #ddpdrop
+
+      mov lREGISTER, dbase       ' data type + destination ID
+      add lREGISTER, #2
+      call #ddprd2
+      and lr, #$FF
+      cmp lr, #1 wz              ' ID 1 = default output device
+if_nz cmp lr, #255 wz            ' ID 255 = all devices
+if_nz jmp #ddpdrop
+
+      mov lREGISTER, dbase       ' data offset, high word
+      add lREGISTER, #4
+      call #ddprd2
+      mov doff, lr
+      shl doff, #16
+      mov lREGISTER, dbase       ' data offset, low word
+      add lREGISTER, #6
+      call #ddprd2
+      or doff, lr
+
+      mov lREGISTER, dbase       ' data length
+      add lREGISTER, #8
+      call #ddprd2
+      mov dlen, lr
+
+      mov dhdr, #10              ' header size
+      test dflags, #$10 wz       ' timecode present
+if_nz mov dhdr, #14
+
+' Never read past this datagram, whatever its header claims.
+      mov dtmp, lpktlen
+      sub dtmp, #8
+      cmps dtmp, dhdr wc         ' C = datagram shorter than its header
+if_c  jmp #ddpdrop
+      sub dtmp, dhdr             ' bytes of data actually in the datagram
+      fle dlen, dtmp
+      tjz dlen, #ddpdrop
+
+      mov dend, doff
+      add dend, dlen             ' one past the last byte offset in this packet
+      mov dent, #0
+      mov dcopied, #0
+
+ddploop
+      rdlut dl, dent wz          ' entry byte length; 0 ends the table
+if_z  jmp #ddpdone
+      add dent, #1
+      rdlut ds, dent             ' entry byte offset
+      add dent, #1
+      rdlut da, dent             ' entry hub address
+      add dent, #1
+
+      mov dlo, doff
+      fge dlo, ds                ' lo = max(packet start, entry start)
+      mov dhi, ds
+      add dhi, dl
+      fle dhi, dend              ' hi = min(packet end, entry end)
+      cmp dlo, dhi wc            ' C = lo < hi: they overlap
+if_nc jmp #ddploop
+
+      mov lREGISTER, dlo         ' source: header + data + (lo - packet offset)
+      sub lREGISTER, doff
+      add lREGISTER, dbase
+      add lREGISTER, dhdr
+      and lREGISTER, ##$FFFF     ' RX buffer pointers are 16 bits
+      mov lBLEN, dhi
+      sub lBLEN, dlo
+      mov lRB, dlo               ' destination: entry address + (lo - entry start)
+      sub lRB, ds
+      add lRB, da
+      mov lBS, lsocket_rd
+      call #lrx
+      mov dcopied, #1
+      jmp #ddploop
+
+ddpdone
+      tjz dcopied, #ddpdrop      ' no mapped output wanted any of it
+      add lE131Counter, #1
+      jmp #lskipit
+ddpdrop
+      add lE131Discards, #1
+      jmp #lskipit
+
+' Read the 2-byte big-endian word at lREGISTER in the socket RX buffer into lr.
+ddprd2
+      and lREGISTER, ##$FFFF
+      mov lBS, lsocket_rd
+      mov lBLEN, #2
+      mov lRB, lREGBUFFERTMP
+      call #lrx
+      ret
 
 
 ' readreg(lREGISTER,lBS,lBLEN,lRB) : lr | i , lLADDRL, lLADDRH, ltmpdata, tmpptr, ldatapin,
@@ -1681,6 +1804,7 @@ lREGBUFFERTMP       RES  1
 E131CONFIGPTR       RES  1
 lE131Ptr2Counter    RES  1
 lE131Ptr2Discards   RES  1
+lmode               RES  1    ' must follow lE131Ptr2Discards (loaded by setq #8-1)
 li                  RES  1
 lLADDRL             RES  1
 lLADDRH             RES  1
@@ -1703,4 +1827,18 @@ tpixlen             RES  1
 pixlen              RES  1
 lE131Counter        RES  1
 lE131Discards       RES  1
+dbase               RES  1    ' DDP: RX buffer address of the DDP header
+dflags              RES  1    ' DDP: header flags byte
+dtmp                RES  1
+doff                RES  1    ' DDP: packet data offset (bytes)
+dlen                RES  1    ' DDP: packet data length (bytes)
+dhdr                RES  1    ' DDP: header size (10 or 14)
+dend                RES  1    ' DDP: doff + dlen
+dent                RES  1    ' DDP: LUT index
+dl                  RES  1    ' DDP: entry byte length
+ds                  RES  1    ' DDP: entry byte offset
+da                  RES  1    ' DDP: entry hub address
+dlo                 RES  1
+dhi                 RES  1
+dcopied             RES  1
 con { license }

@@ -16,7 +16,7 @@
 			<ul>
 				<li><a href="/">Home</a>
 				<li><a href="net.htm">Networking</a>
-				<li><a href="e131.htm?output=1">E1.31 Settings</a>
+				<li><a href="e131.htm?output=1">Input Settings</a>
 				<li><a href="outputs.htm">Outputs</a>
                                 <li><a href="dmx.htm">DMX</a>
                                 <li><a href="configs.htm">Configs</a>
@@ -37,6 +37,15 @@
 <TR ID="R3"><TD><INPUT TYPE="NUMBER" ID="U3" NAME="U3" SIZE="6" min="0" max="65535" oninput="checke131(this)"><INPUT TYPE="hidden" ID="P3" NAME="P3" VALUE="170"></TD><TD>DMX Output 3</TD></TR>
 <TR ID="R4"><TD><INPUT TYPE="NUMBER" ID="U4" NAME="U4" SIZE="6" min="0" max="65535" oninput="checke131(this)"><INPUT TYPE="hidden" ID="P4" NAME="P4" VALUE="170"></TD><TD>DMX Output 4</TD></TR>
 </TABLE>
+<!-- DDP mode only: shown, and its inputs enabled, by ddpmode() from e131.js -->
+<TABLE ID="DDPDMX" style="display:None">
+<TR><TD>DDP Start Channel</TD><TD>Channels (always 510)</TD><TD>DMX-512 Output</TD></TR>
+<TR ID="DR1"><TD><INPUT TYPE="NUMBER" ID="DS1" NAME="DS1" min="1" max="16776707" oninput="dmxrange(1)" disabled></TD><TD ID="DCR1">off</TD><TD>DMX Output 1</TD></TR>
+<TR ID="DR2"><TD><INPUT TYPE="NUMBER" ID="DS2" NAME="DS2" min="1" max="16776707" oninput="dmxrange(2)" disabled></TD><TD ID="DCR2">off</TD><TD>DMX Output 2</TD></TR>
+<TR ID="DR3"><TD><INPUT TYPE="NUMBER" ID="DS3" NAME="DS3" min="1" max="16776707" oninput="dmxrange(3)" disabled></TD><TD ID="DCR3">off</TD><TD>DMX Output 3</TD></TR>
+<TR ID="DR4"><TD><INPUT TYPE="NUMBER" ID="DS4" NAME="DS4" min="1" max="16776707" oninput="dmxrange(4)" disabled></TD><TD ID="DCR4">off</TD><TD>DMX Output 4</TD></TR>
+</TABLE>
+<P ID="DDPNOTE" style="display:None">Input protocol is DDP. Each DMX output takes 510 channels from its Start Channel. Leave a Start Channel empty to turn that DMX output off.</P>
 <BR>
 <INPUT TYPE="CHECKBOX" VALUE="1" ID="dmxenabled" NAME="dmxenabled" onClick="toggledmx()" >DMX Enabled
 <BR>
@@ -62,10 +71,42 @@
  <script>
 
 // Below Function Executes On Form Submit
+let isddp = false;
+
+// Channel range text for DMX output i in DDP mode (always 510 channels)
+function dmxrange(i) {
+	const s = parseInt(document.getElementById('DS' + i).value) || 0;
+	document.getElementById('DCR' + i).textContent = (s >= 1) ? (s + ' - ' + (s + 509)) : 'off';
+}
+
+// Called from e131.js in DDP mode with [[start, channels], ...] for DMX outputs 1-4
+function ddpmode(m) {
+	isddp = true;
+	document.getElementById('E131').style.display = 'None';
+	document.getElementById('DDPDMX').style.display = '';
+	document.getElementById('DDPNOTE').style.display = '';
+	for (let i = 1; i < 5; i++) {
+		document.getElementById('U' + i).disabled = true;
+		document.getElementById('P' + i).disabled = true;
+		document.getElementById('DS' + i).disabled = false;
+		if (m[i - 1][0]) { document.getElementById('DS' + i).value = m[i - 1][0]; }
+		dmxrange(i);
+	}
+	toggledmx();
+}
+
 function ValidationEvent() {
 
 	let pass = true;
-	
+	if (isddp) {
+		for (let i = 1; i < 5; i++) {
+			if (document.getElementById('DS' + i).value == '') { continue; }
+			const s = parseInt(document.getElementById('DS' + i).value) || 0;
+			if (s < 1 || s > 16776707) { pass = false; alert('DMX Output ' + i + ': Start Channel must be 1 to 16776707 (each DMX output takes 510 channels).'); }
+		}
+		return pass;
+	}
+
 	for (let i = 1; i < 5; i++) {
 		if (e131set.has(document.getElementById("U" + i).value)) { pass = false; alert("Duplicate universe " + document.getElementById("U" + i).value + " on output " + e131set.get(document.getElementById("U" + i).value) ); }
 	        for (let c = 1; c < 5; c++) {
@@ -80,16 +121,17 @@ function ValidationEvent() {
 function toggledmx()
 	{
 	 var checkbox = document.getElementById('dmxenabled');
+		 var row = isddp ? "DR" : "R";
             if (checkbox.checked) {
-		tableRowDisplay("R1");
-		tableRowDisplay("R2");
-		tableRowDisplay("R3");
-		tableRowDisplay("R4");
+		tableRowDisplay(row + "1");
+		tableRowDisplay(row + "2");
+		tableRowDisplay(row + "3");
+		tableRowDisplay(row + "4");
 		} else {
-		tableRowHide("R1");
-		tableRowHide("R2");
-		tableRowHide("R3");
-		tableRowHide("R4");
+		tableRowHide(row + "1");
+		tableRowHide(row + "2");
+		tableRowHide(row + "3");
+		tableRowHide(row + "4");
 		}
 	}	
 

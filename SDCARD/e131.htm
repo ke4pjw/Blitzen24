@@ -16,7 +16,7 @@
 			<ul>
 				<li><a href="/">Home</a>
 				<li><a href="net.htm">Networking</a>
-				<li><a href="e131.htm?output=1">E1.31 Settings</a>
+				<li><a href="e131.htm?output=1">Input Settings</a>
 				<li><a href="outputs.htm">Outputs</a>
                                 <li><a href="dmx.htm">DMX</a>
                                 <li><a href="configs.htm">Configs</a>
@@ -25,6 +25,11 @@
 	</header>
 	<section>
           <center>
+		<FORM METHOD="POST" ID="PF" ACTION="ddp.htm?output=1" onsubmit="return protoconfirm()">
+			<strong>Input protocol:</strong>
+			<SELECT ID="PROTO" NAME="PROTO"><OPTION value="0" selected>E1.31 (sACN)</OPTION><OPTION value="1">DDP</OPTION></SELECT>
+			<button TYPE="SUBMIT">Switch</button>
+		</FORM>
 		<strong>E1.31 Configuration: Select an output below</strong><br>
 		<nav>  
 			<ul>
@@ -101,6 +106,12 @@
 const queryString = window.location.search;
 const urlParams = new URLSearchParams(queryString);
 document.getElementById('OUTPUT').value=urlParams.get('output');
+document.getElementById('PF').action = 'ddp.htm?output=' + (parseInt(urlParams.get('output')) || 1);
+
+function protoconfirm() {
+	if (document.getElementById('PROTO').value == '0') { return false; }
+	return confirm('Switch the input protocol to DDP?\n\nYour E1.31 universes are kept, and switching back restores them. The first time, the DDP channel map is filled in from your E1.31 pixel counts.\nUse Configs > Save to keep the change after a reboot.');
+}
 document.getElementById('td1').innerHTML = 'Output #' + urlParams.get('output');
 document.getElementById("R2").style.display = 'None';
 document.getElementById("R3").style.display = 'None';

@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blitzen 24</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+	<header>
+		<div id="logo"><img src="blitzen.png">Blitzen 24</div>
+		<nav>
+			<ul>
+				<li><a href="/">Home</a>
+				<li><a href="net.htm">Networking</a>
+				<li><a href="e131.htm?output=1">Input Settings</a>
+				<li><a href="outputs.htm">Outputs</a>
+                                <li><a href="dmx.htm">DMX</a>
+                                <li><a href="configs.htm">Configs</a>
+			</ul>
+		</nav>
+	</header>
+	<section>
+          <center>
+		<FORM METHOD="POST" ID="PF" onsubmit="return protoconfirm()">
+			<strong>Input protocol:</strong>
+			<SELECT ID="PROTO" NAME="PROTO"><OPTION value="0">E1.31 (sACN)</OPTION><OPTION value="1" selected>DDP</OPTION></SELECT>
+			<button TYPE="SUBMIT">Switch</button>
+		</FORM>
+		<strong>DDP Configuration: Select an output below</strong><br>
+		<nav>
+			<ul>
+				<li><a href="?output=1">1</a>
+				<li><a href="?output=2">2</a>
+				<li><a href="?output=3">3</a>
+                                <li><a href="?output=4">4</a>
+                                <li><a href="?output=5">5</a>
+                                <li><a href="?output=6">6</a>
+                                <li><a href="?output=7">7</a>
+                                <li><a href="?output=8">8</a>
+                                <li><a href="?output=9">9</a>
+                                <li><a href="?output=10">10</a>
+				<li><a href="?output=11">11</a>
+				<li><a href="?output=12">12</a> </ul><ul>
+				<li><a href="?output=13">13</a>
+                                <li><a href="?output=14">14</a>
+                                <li><a href="?output=15">15</a>
+                                <li><a href="?output=16">16</a>
+                                <li><a href="?output=17">17</a>
+                                <li><a href="?output=18">18</a>
+                                <li><a href="?output=19">19</a>
+                                <li><a href="?output=20">20</a>
+				<li><a href="?output=21">21</a>
+				<li><a href="?output=22">22</a>
+				<li><a href="?output=23">23</a>
+                                <li><a href="?output=24">24</a>
+			</ul>
+			<ul ID="LR">
+				<li><a href="?output=25">25</a>
+				<li><a href="?output=26">26</a>
+				<li><a href="?output=27">27</a>
+                                <li><a href="?output=28">28</a>
+ 			</ul>
+		</nav>
+          </center>
+	</section>
+	<section id="pageContent">
+		<main role="main">
+			<FORM METHOD="POST" onsubmit='return ValidationEvent()'>
+<TABLE ID="DDP">
+<TR><TD colspan="2" ID="td1" style="font-weight:bold"></TD></TR>
+<TR><TD>Name</TD><TD><INPUT TYPE="TEXT" ID="ON" NAME="ON" SIZE="31" maxlength="31"></TD></TR>
+<TR><TD>Start Channel</TD><TD><INPUT TYPE="NUMBER" ID="DDPS" NAME="DDPS" min="1" max="16777216" oninput="ddpcalc()"></TD></TR>
+<TR><TD>Pixel Count</TD><TD><INPUT TYPE="NUMBER" ID="DDPC" NAME="DDPC" min="0" max="99999" oninput="ddpcalc()"></TD></TR>
+<TR><TD>Channels</TD><TD ID="ddprange"></TD></TR>
+</TABLE>
+				<button TYPE="SUBMIT" Name="Save" Value="Save">Save</button>
+			</FORM>
+			<p>Leave Start Channel empty to turn this output off. Start Channel is 1-based, as in xLights and FPP; each pixel uses 3 channels. Outputs do not have to be contiguous.</p>
+<TABLE ID="MAP">
+<TR><TD colspan="4" style="font-weight:bold">Channel map</TD></TR>
+<TR><TD>Output</TD><TD>Name</TD><TD>Channels</TD><TD>Pixels</TD></TR>
+</TABLE>
+			<p ID="ddptotal"></p>
+		<BR><BR>
+		</main>
+	</section>
+
+	<footer>
+		<p>&copy; 2022 GriswoldFX. This is free software licensed under the MIT license. Visit <a HREF="http://www.griswoldfx.com">GriswoldFX.com</A> for more infromation.</p>
+<p> Template by <a href="https://html5-templates.com/" target="_blank" rel="nofollow">HTML5 Templates</a></p>
+	</footer>
+
+</body>
+    <script>
+const queryString = window.location.search;
+const urlParams = new URLSearchParams(queryString);
+const thisout = parseInt(urlParams.get('output')) || 1;
+document.getElementById('td1').innerHTML = 'Output #' + thisout;
+
+function protoconfirm() {
+	if (document.getElementById('PROTO').value == '1') { return false; }
+	return confirm('Switch the input protocol to E1.31?\n\nYour DDP channel map and your E1.31 universes are both kept, and switching back restores them.\nUse Configs > Save to keep the change after a reboot.');
+}
+
+// [start channel, count] -> 'first - last' channel text
+function chrange(s, c, chper) {
+	if (!s || !c) { return 'off'; }
+	return s + ' - ' + (s + c * chper - 1);
+}
+
+function ddpcalc() {
+	const s = parseInt(document.getElementById('DDPS').value) || 0;
+	const c = parseInt(document.getElementById('DDPC').value) || 0;
+	document.getElementById('ddprange').textContent = chrange(s, c, 3);
+}
+
+// Called from ddp.js once the map has loaded
+function ddpshow() {
+	if (dmxon == 1) { document.getElementById('LR').style.display = 'None'; }
+	ddpcalc();
+	const map = document.getElementById('MAP');
+	let total = 0;
+	for (let i = 0; i < 32; i++) {
+		const e = ddpmap[i];
+		if (i >= 28 && dmxon != 1) { continue; }
+		if (i >= 24 && i < 28 && dmxon == 1) { continue; }
+		if (!(e[0] && e[1]) && i != thisout - 1) { continue; }   // list configured outputs, plus this one
+		const chper = (i < 28) ? 3 : 1;
+		const r = map.insertRow(-1);
+		r.insertCell(-1).textContent = (i < 28) ? (i + 1) : ('DMX ' + (i - 27));
+		r.insertCell(-1).textContent = e[2];
+		r.insertCell(-1).textContent = chrange(e[0], e[1], chper);
+		r.insertCell(-1).textContent = (i < 28 && e[0]) ? e[1] : '';
+		if (i < 28 && e[0]) { total += e[1]; }
+		if (i == thisout - 1) { r.style.fontWeight = 'bold'; }
+		// Highlight channel ranges that overlap another output (allowed: both get the same data)
+		for (let j = 0; j < 32; j++) {
+			const f = ddpmap[j];
+			if (j == i || !e[0] || !e[1] || !f[0] || !f[1]) { continue; }
+			if (j >= 28 && dmxon != 1) { continue; }
+			if (j >= 24 && j < 28 && dmxon == 1) { continue; }
+			const fper = (j < 28) ? 3 : 1;
+			if (e[0] < f[0] + f[1] * fper && f[0] < e[0] + e[1] * chper) { r.style.background = 'LightYellow'; r.title = 'Overlaps another output'; }
+		}
+	}
+	document.getElementById('ddptotal').textContent = 'Pixels in use: ' + total + ' of ' + ddpmax + '. Highlighted rows overlap another output; overlapping outputs show the same data.';
+}
+
+// Below Function Executes On Form Submit
+function ValidationEvent() {
+	const sv = document.getElementById('DDPS').value;
+	const s = parseInt(sv) || 0;
+	const c = parseInt(document.getElementById('DDPC').value) || 0;
+	if (sv == '') { document.getElementById('DDPC').value = ''; return true; }
+	if (s < 1) { alert('Start Channel must be 1 or more.'); return false; }
+	if (c < 1) { alert('Pixel Count must be 1 or more, or leave Start Channel empty to turn the output off.'); return false; }
+	let others = 0;
+	for (let i = 0; i < 28; i++) {
+		if (i == thisout - 1 || (i >= 24 && dmxon == 1)) { continue; }
+		if (ddpmap[i][0]) { others += ddpmap[i][1]; }
+	}
+	if (others + c > ddpmax) { alert('Too many pixels: the other outputs use ' + others + ', so this output can have at most ' + (ddpmax - others) + '.'); return false; }
+	return true;
+}
+
+// Create new script element
+const script = document.createElement('script');
+script.src = 'ddp.js?output=' + thisout;
+document.head.appendChild(script);
+ </script>
+</html>

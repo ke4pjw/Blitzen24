@@ -58,6 +58,17 @@ CON
   MAX_TASKS = 4
   MAX_MSS   = 1460
 
+  ' Input protocols (PROTOCOL)
+  PROTO_E131  = 0
+  PROTO_DDP   = 1
+  E131_PORT   = 5568
+  DDP_PORT    = 4048
+  DDP_DMX     = 28        ' DDPCONFIG entry index of DMX output 1 (entries 28-31 = DMX 1-4)
+  DMX_CH      = 510       ' bytes per DMX buffer
+  PIXBUF_SIZE = 73768     ' size of PIXELBUFFER
+  DDP_MAXPIX  = (PIXBUF_SIZE - 4 * DMX_CH) / 3   ' pixels that fit with the 4 DMX buffers reserved
+  DDP_MAXCH   = 16_777_216                       ' highest DDP start channel accepted
+
   STRUCT HTTPD_CTX(byte readbuffer[2024], byte filepath[256], byte webbuff[8192], long fh, long rdsize, word psize, long mss)
 
 VAR
@@ -75,7 +86,16 @@ VAR
         long DMXENABLED
         byte HOSTNAME[32]
         nametype OUTPUTNAME[32]
+        ' ---- 2.6.1 additions: always append new config variables HERE, just above ENDOFCONFIG. ----
+        ' ---- Never move or resize anything above, so older/newer blitzen.cfg files stay compatible. ----
+        ' A 2.6.0 file ends before these, so they load as 0 (E1.31, no DDP map); 2.6.0 ignores them.
+        long PROTOCOL           ' Input protocol: 0 = E1.31 (port 5568), 1 = DDP (port 4048)
+        long DDPCONFIG[64]      ' DDP map, 32 entries x 2 longs: [start channel (1-based, 0 = unused), count]
+                                '  entries 0-27  = outputs 1-28 as pixel outputs (count = pixels, 3 channels each)
+                                '  entries 28-31 = DMX outputs 1-4 (count = channels, max 510)
         long ENDOFCONFIG ' End of the loadable config
+        long DDPLUT[32*3+1]     ' Runtime DDP map for the fast-RX cog (not saved): [bytes, offset, hub addr], 0-terminated
+        long ddpdmxbase         ' Runtime: hub address of the 4 DMX buffers in DDP mode (not saved)
         long TXBUFFER[8]
         byte PACKETBUFFER[4098]
         byte PIXELBUFFER[73768]
@@ -165,7 +185,7 @@ OBJ
         qe: "jm_quadraturesmartpin"
 
 PUB main() | i, j, handle, fsize, merr
-  str.append_str(@buildver, String("Blitzen 24 Edge 2.6.0 (Rocklin) Dev"))
+  str.append_str(@buildver, String("Blitzen 24 Edge 2.6.1 (Rocklin) Dev"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -370,10 +390,15 @@ PUB main() | i, j, handle, fsize, merr
     i := i + %001_00_000
 
 
-  debug("Configuring 8 sockets with 2K RX buffer.")
+  ' RX buffers (16 KB total): Socket 3 (E1.31/DDP) 4K so two full 1440-byte DDP packets fit;
+  ' Socket 0 (DHCP/DNS) and Socket 7 (mDNS) 1K, their packets are small; all others 2K.
+  debug("Configuring RX buffers: S3 4K, S0/S7 1K, others 2K.")
   i := W6100.IDM_BSR_Socket0_Register
-  WRITEBUFFER[0] := 2
   repeat 8
+    case i
+      W6100.IDM_BSR_Socket3_Register: WRITEBUFFER[0] := 4
+      W6100.IDM_BSR_Socket0_Register, W6100.IDM_BSR_Socket7_Register: WRITEBUFFER[0] := 1
+      other: WRITEBUFFER[0] := 2
     W6100.writereg(W6100.REG_Sn_RX_BSR,i,1,@WRITEBUFFER)
     debug(".")
     i := i + %001_00_000
@@ -576,9 +601,9 @@ This is here to show what the data structure looks like.
 
 
   'Maybe move the listener into the startastrx object
-  W6100.Open(5568,W6100.PM_UDP4,W6100.IDM_BSR_Socket3_Register)
+  openrx()                ' Socket 3: E1.31 on 5568 or DDP on 4048, per PROTOCOL
   PINFLOAT(W6100.DATA)
-  W6100.startfastrx(W6100.IDM_BSR_Socket3_Register,@pixelbuffer,@TXBUFFER,@E131CONFIG)
+  startrx()
 
   debug("Starting web server")
 
@@ -810,6 +835,9 @@ pub statsmenu()| p,c
 
 pub ConfigPixels() |  pixelcount, pixeloffset, i, ei
 
+  if PROTOCOL == PROTO_DDP
+    ConfigPixelsDDP()   ' DDP layout; E131CONFIG is not touched
+    return
 
   pixeloffset := 0
   i := 0
@@ -844,6 +872,123 @@ pub ConfigPixels() |  pixelcount, pixeloffset, i, ei
     pixeloffset := pixeloffset + 510
     ei := ei + 4
 
+pub ConfigPixelsDDP() | pixeloffset, i, o, e, start, cnt
+'' DDP layout. Each pixel output gets its own packed slice of PIXELBUFFER (so gaps
+'' in the channel map cost no buffer space), followed by the 4 DMX buffers.
+'' Builds DDPLUT for the fast-RX cog. Reads DDPCONFIG only; never writes E131CONFIG.
+
+  pixeloffset := 0
+  e := 0
+  i := 0
+  repeat until PIXELCONFIG[i] == 0 or i >= 140
+    o := PIXELCONFIG[i] - 1                     ' output index 0-27
+    start := DDPCONFIG[o * 2]
+    cnt := DDPCONFIG[o * 2 + 1]
+    if start == 0 or start > DDP_MAXCH or (o >= 24 and DMXENABLED == 1)
+      cnt := 0                                  ' unused, or outputs 25-28 serving DMX
+    cnt := cnt <# (DDP_MAXPIX - pixeloffset / 3) ' never overrun the buffer
+    PIXELCONFIG[i + 3] := pixeloffset + @pixelbuffer
+    PIXELCONFIG[i + 4] := cnt
+    if cnt > 0
+      DDPLUT[e] := cnt * 3
+      DDPLUT[e + 1] := start - 1
+      DDPLUT[e + 2] := pixeloffset + @pixelbuffer
+      e := e + 3
+    pixeloffset := pixeloffset + (cnt * 3)
+    debug("DDP pin: ", udec_(o + 1), " start ", udec_(start), " pixels ", udec_(cnt))
+    i := i + 5
+
+  ddpdmxbase := pixeloffset + @pixelbuffer
+  if DMXENABLED == 1
+    repeat o from 0 to 3
+      start := DDPCONFIG[(DDP_DMX + o) * 2]
+      if start > 0 and start <= DDP_MAXCH       ' a DMX output always takes 510 channels
+        DDPLUT[e] := DMX_CH
+        DDPLUT[e + 1] := start - 1
+        DDPLUT[e + 2] := ddpdmxbase + (o * DMX_CH)
+        e := e + 3
+  DDPLUT[e] := 0                                ' end of table
+
+pub ddpempty() : r | o
+'' True if no DDP output has a count (a 2.6.0 config, or DDP never set up).
+  r := true
+  repeat o from 0 to 31
+    if DDPCONFIG[o * 2 + 1] <> 0
+      return false
+
+pub seedddp() | o, ei, ch, px, d
+'' Fill an empty DDP map from the current E1.31 layout, so switching to DDP keeps
+'' the same pixels on each output. Outputs are laid out back to back from channel 1.
+'' E131CONFIG is only read.
+  longfill(@DDPCONFIG, 0, 64)
+  ch := 1
+  repeat o from 0 to 27
+    if o >= 24 and DMXENABLED == 1
+      next                                      ' outputs 25-28 are DMX; seeded below
+    px := 0
+    ei := 0
+    repeat until E131CONFIG[ei] == 0 or ei >= 432
+      if E131CONFIG[ei] == o + 1
+        px := px + E131CONFIG[ei + 2]
+      ei := ei + 4
+    if px > 0
+      DDPCONFIG[o * 2] := ch
+      DDPCONFIG[o * 2 + 1] := px
+      ch := ch + (px * 3)
+  if DMXENABLED == 1
+    d := 0
+    ei := 0
+    repeat until E131CONFIG[ei] == 0 or ei >= 432 or d > 3
+      if E131CONFIG[ei] == 25                   ' each output-25 universe feeds one DMX output
+        DDPCONFIG[(DDP_DMX + d) * 2] := ch
+        DDPCONFIG[(DDP_DMX + d) * 2 + 1] := DMX_CH
+        ch := ch + DMX_CH
+        d++
+      ei := ei + 4
+
+pub openrx()
+'' (Re)open Socket 3 on the port for the current input protocol.
+  W6100.Close(W6100.IDM_BSR_Socket3_Register)
+  if PROTOCOL == PROTO_DDP
+    W6100.Open(DDP_PORT, W6100.PM_UDP4, W6100.IDM_BSR_Socket3_Register)
+  else
+    W6100.Open(E131_PORT, W6100.PM_UDP4, W6100.IDM_BSR_Socket3_Register)
+
+pub startrx()
+'' Start the fast-RX cog for the current input protocol.
+  if PROTOCOL == PROTO_DDP
+    W6100.startfastrx(W6100.IDM_BSR_Socket3_Register, @pixelbuffer, @TXBUFFER, @DDPLUT, PROTO_DDP)
+  else
+    W6100.startfastrx(W6100.IDM_BSR_Socket3_Register, @pixelbuffer, @TXBUFFER, @E131CONFIG, PROTO_E131)
+
+pub reloadoutputs()
+'' Rebuild the pixel layout and restart the pixel drivers, then restart the
+'' fast-RX cog if it was running (not in pixel-test blink mode).
+  ConfigPixels()
+  StopPixels()
+  StartPixels()
+  if blinkmode <> true and W6100.e131cognum() <> 0
+    W6100.stopfastrx()
+    startrx()
+
+pub setprotocol(newp)
+'' Switch the input protocol. E131CONFIG and DDPCONFIG are both kept as they are;
+'' an empty DDP map is seeded from the E1.31 layout the first time DDP is chosen.
+  if newp <> PROTO_DDP
+    newp := PROTO_E131
+  if newp == PROTOCOL
+    return
+  if newp == PROTO_DDP and ddpempty()
+    seedddp()
+  W6100.stopfastrx()
+  PROTOCOL := newp
+  bytefill(@pixelbuffer, 0, PIXBUF_SIZE)
+  ConfigPixels()
+  StopPixels()
+  StartPixels()
+  openrx()
+  if blinkmode <> true
+    startrx()
 
 pub httpd(port,PM,socket) | t, i, sir, sockbit, firstopen
 
@@ -926,8 +1071,16 @@ repeat
               str.ucstr(@ctx[t].filepath)
               if str.instr(@ctx[t].filepath,string("NET.HTM")) <> -1
                 netpost()
-              if str.instr(@ctx[t].filepath,string("E131.HTM")) <> -1 or str.instr(@ctx[t].filepath,string("DMX.HTM")) <> -1
+              if str.instr(@ctx[t].filepath,string("E131.HTM")) <> -1
                 e131post()
+              if str.instr(@ctx[t].filepath,string("DMX.HTM")) <> -1
+                ' dmx.htm submits its DDP fields (DS1..DS4) only in DDP mode, universes only in E1.31 mode
+                if str.instr(@ctx[t].readbuffer,string("DS1=")) <> -1
+                  ddpdmxpost()
+                else
+                  e131post()
+              if str.instr(@ctx[t].filepath,string("DDP.HTM")) <> -1
+                ddppost()
               if str.instr(@ctx[t].filepath,string("CONFIGS.HTM")) <> -1
                 configspost(socket)
               if str.instr(@ctx[t].filepath,string("OUTPUTS.HTM")) <> -1
@@ -1017,6 +1170,8 @@ repeat
                       netjs()
                    if str.instr(@ctx[t].filepath,string("E131.JS")) <> -1
                       e131js()
+                   if str.instr(@ctx[t].filepath,string("DDP.JS")) <> -1
+                      ddpjs()
                    if str.instr(@ctx[t].filepath,string("OUTPUT.JS")) <> -1
                       outputjs()
                    if str.instr(@ctx[t].filepath,string("CONFIG.JS")) <> -1
@@ -1133,7 +1288,10 @@ pub configspost(socket) | t, length, startpoint, datarxed, bpos, qc, cpysize
         debug("Found Boundry in Packet: ", udec_(bpos))
         debug($0D, $0A)
         datarxed :=  startpoint - bpos
-      bytemove(@PIXELCONFIG, @ctx[t].readbuffer + startpoint, datarxed) ' Copy 1st packet of uploaded config into memory
+      ' 2.6.1: clear the appended config block first, so an older (shorter) file can't leave
+      ' stale DDP settings behind, and never copy past ENDOFCONFIG.
+      longfill(@PROTOCOL, 0, 65)
+      bytemove(@PIXELCONFIG, @ctx[t].readbuffer + startpoint, datarxed <# ((@ENDOFCONFIG + 3) - @PIXELCONFIG + 1)) ' Copy 1st packet of uploaded config into memory
       debug("Data size: ", udec_(datarxed))
       debug($0D, $0A)
 '      waitms(3000)
@@ -1153,7 +1311,8 @@ pub configspost(socket) | t, length, startpoint, datarxed, bpos, qc, cpysize
              else
                 datarxed :=  datarxed + ctx[t].psize
                 cpysize := ctx[t].psize
-             bytemove(@PIXELCONFIG + startpoint, @ctx[t].readbuffer, cpysize)
+             if startpoint < ((@ENDOFCONFIG + 3) - @PIXELCONFIG + 1)
+               bytemove(@PIXELCONFIG + startpoint, @ctx[t].readbuffer, cpysize <# (((@ENDOFCONFIG + 3) - @PIXELCONFIG + 1) - startpoint))
       debug("Total Bytes RXed: ", udec_(datarxed))
       debug($0D, $0A)
 '      waitms(3000)
@@ -1251,7 +1410,7 @@ pub e131post() | t, output, ei, eti, u , uascii
     if blinkmode <> true and W6100.e131cognum() <> 0
       ' Restart the E1.31 ethernet driver (only if it was running)
       W6100.stopfastrx()
-      W6100.startfastrx(W6100.IDM_BSR_Socket3_Register,@pixelbuffer,@TXBUFFER,@E131CONFIG)
+      startrx()
 
 pub e131js() | t, output, u, ei, type
 
@@ -1265,6 +1424,14 @@ pub e131js() | t, output, u, ei, type
 
 ' send header
    str.append_str(@ctx[t].webbuff,resp_js_ptr)
+
+' In DDP mode the output pages live in ddp.htm (dmx.htm switches itself to DDP fields below)
+   if PROTOCOL == PROTO_DDP and type <> 2
+       str.append_str(@ctx[t].webbuff, string($0D, $0A, "window.location.replace('ddp.htm?output="))
+       str.append_str(@ctx[t].webbuff,str.dec(output,-1))
+       str.append_str(@ctx[t].webbuff, string("');"))
+       ctx[t].rdsize := strsize(@ctx[t].webbuff)
+       return
 
    u  := 1
    ei := 0
@@ -1337,11 +1504,142 @@ pub e131js() | t, output, u, ei, type
    if type <> 2 and DMXENABLED == 1
       str.append_str(@ctx[t].webbuff, String($0D, $0A, "tableRowHide('LR');"))
 
+' dmx.htm in DDP mode: hand it the DMX channel map and let it swap in the DDP fields
+   if type == 2 and PROTOCOL == PROTO_DDP
+      str.append_str(@ctx[t].webbuff, string($0D, $0A, "ddpmode(["))
+      repeat u from 0 to 3
+        str.append_str(@ctx[t].webbuff, string("["))
+        str.append_str(@ctx[t].webbuff,str.dec(DDPCONFIG[(DDP_DMX + u) * 2],-1))
+        str.append_str(@ctx[t].webbuff, string(","))
+        str.append_str(@ctx[t].webbuff,str.dec(DDPCONFIG[(DDP_DMX + u) * 2 + 1],-1))
+        str.append_str(@ctx[t].webbuff, string("],"))
+      str.append_str(@ctx[t].webbuff, string("]);"))
+
    str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('logo').innerHTML += '</DIV><DIV style=\'font-size: 15px; font-weight: bold;\'>"))
    str.append_str(@ctx[t].webbuff, @HOSTNAME)
    str.append_str(@ctx[t].webbuff, string(".local</DIV>';"))
 
    ctx[t].rdsize := strsize(@ctx[t].webbuff)
+
+pub ddpjs() | t, output, o
+'' ddp.js?output=N: values for ddp.htm, plus the whole channel map.
+  t := TASKID()
+  output := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("output="))+ 7, 2)
+  if output < 1 or output > 28
+    output := 1
+
+  ctx[t].webbuff[0] := 0
+  str.append_str(@ctx[t].webbuff,resp_js_ptr)
+
+' In E1.31 mode the output pages live in e131.htm
+  if PROTOCOL <> PROTO_DDP
+    str.append_str(@ctx[t].webbuff, string($0D, $0A, "window.location.replace('e131.htm?output="))
+    str.append_str(@ctx[t].webbuff,str.dec(output,-1))
+    str.append_str(@ctx[t].webbuff, string("');"))
+    ctx[t].rdsize := strsize(@ctx[t].webbuff)
+    return
+
+  tmpfilepath[0] := 0
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('ON').value='"))
+  singlequoteescape(@OUTPUTNAME[output-1].namefield, @tmpfilepath)
+  str.append_str(@ctx[t].webbuff, @tmpfilepath)
+  str.append_str(@ctx[t].webbuff, string("';"))
+  tmpfilepath[0] := 0
+
+  if DDPCONFIG[(output - 1) * 2] <> 0
+    str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('DDPS').value='"))
+    str.append_str(@ctx[t].webbuff,str.dec(DDPCONFIG[(output - 1) * 2],-1))
+    str.append_str(@ctx[t].webbuff, string("';"))
+    str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('DDPC').value='"))
+    str.append_str(@ctx[t].webbuff,str.dec(DDPCONFIG[(output - 1) * 2 + 1],-1))
+    str.append_str(@ctx[t].webbuff, string("';"))
+
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "const ddpmax="))
+  str.append_str(@ctx[t].webbuff,str.dec(DDP_MAXPIX,-1))
+  str.append_str(@ctx[t].webbuff, string(";", $0D, $0A, "const dmxon="))
+  str.append_str(@ctx[t].webbuff,str.dec(DMXENABLED,-1))
+  str.append_str(@ctx[t].webbuff, string(";", $0D, $0A, "const ddpmap=["))
+  ' [start channel, count, name] for outputs 1-28, then DMX 1-4
+  repeat o from 0 to 31
+    str.append_str(@ctx[t].webbuff, string("["))
+    str.append_str(@ctx[t].webbuff,str.dec(DDPCONFIG[o * 2],-1))
+    str.append_str(@ctx[t].webbuff, string(","))
+    if o >= DDP_DMX                             ' DMX outputs always take 510 channels
+      str.append_str(@ctx[t].webbuff,str.dec((DDPCONFIG[o * 2] == 0) ? 0 : DMX_CH,-1))
+    else
+      str.append_str(@ctx[t].webbuff,str.dec(DDPCONFIG[o * 2 + 1],-1))
+    str.append_str(@ctx[t].webbuff, string(",'"))
+    if o < 28
+      tmpfilepath[0] := 0
+      singlequoteescape(@OUTPUTNAME[o].namefield, @tmpfilepath)
+      str.append_str(@ctx[t].webbuff, @tmpfilepath)
+      tmpfilepath[0] := 0
+    str.append_str(@ctx[t].webbuff, string("'],"))
+  str.append_str(@ctx[t].webbuff, string("];", $0D, $0A, "ddpshow();"))
+
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('logo').innerHTML += '</DIV><DIV style=\'font-size: 15px; font-weight: bold;\'>"))
+  str.append_str(@ctx[t].webbuff, @HOSTNAME)
+  str.append_str(@ctx[t].webbuff, string(".local</DIV>';"))
+
+  ctx[t].rdsize := strsize(@ctx[t].webbuff)
+
+pub ddppost() | t, output, p, s, c
+'' POST to ddp.htm?output=N. Either a protocol switch (PROTO=0/1, sent by the selector on
+'' e131.htm and ddp.htm), or one output's DDP settings (ON=, DDPS=start channel, DDPC=pixels).
+'' Like the other settings pages this changes the running config; Configs > Save writes it to SD.
+  t := TASKID()
+  output := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("output="))+ 7, 2)
+  if output < 1 or output > 28
+    return
+
+  p := str.instr(@ctx[t].readbuffer,string("PROTO="))
+  if p <> -1
+    setprotocol(str2dec(@ctx[t].readbuffer + p + 6, 1))
+    return
+
+  p := str.instr(@ctx[t].readbuffer,string("DDPS="))
+  if p == -1
+    return                                       ' not a DDP settings form; change nothing
+  s := str2dec(@ctx[t].readbuffer + p + 5, 9)
+  c := 0
+  p := str.instr(@ctx[t].readbuffer,string("DDPC="))
+  if p <> -1
+    c := str2dec(@ctx[t].readbuffer + p + 5, 6) <# DDP_MAXPIX
+  if s > DDP_MAXCH
+    s := 0
+  if s == 0
+    c := 0
+
+  ' Get the output name (same as e131post)
+  if str.instr(@ctx[t].readbuffer,string("ON=")) <> -1
+    strcopy(@tmpfilepath, @ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("ON="))+3, str.instr(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("ON="))+3,string("&")))
+    URLDecode(@tmpfilepath,@OUTPUTNAME[output-1].namefield)
+    tmpfilepath[0] := 0
+
+  DDPCONFIG[(output - 1) * 2] := s
+  DDPCONFIG[(output - 1) * 2 + 1] := c
+  if PROTOCOL == PROTO_DDP
+    reloadoutputs()
+
+pub ddpdmxpost() | t, n, p, s
+'' POST from dmx.htm in DDP mode: dmxenabled, DS1-DS4 (start channel). Each DMX output
+'' always takes 510 channels.
+  t := TASKID()
+  if str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("dmxenabled="))+ 11, 2) == 1
+    DMXENABLED := 1
+  else
+    DMXENABLED := 0
+
+  repeat n from 0 to 3
+    p := str.instr(@ctx[t].readbuffer, lookupz(n : string("DS1="), string("DS2="), string("DS3="), string("DS4=")))
+    if p <> -1
+      s := str2dec(@ctx[t].readbuffer + p + 4, 9)
+      if s > DDP_MAXCH - DMX_CH + 1               ' all 510 channels must fit below 2^24
+        s := 0
+      DDPCONFIG[(DDP_DMX + n) * 2] := s
+      DDPCONFIG[(DDP_DMX + n) * 2 + 1] := (s == 0) ? 0 : DMX_CH
+  reloadoutputs()
+
 pub outputspost() | t, p, dis
     t := TASKID()
     eutmp[0] := 0
@@ -1380,7 +1678,7 @@ pub outputspost() | t, p, dis
     if dis == false and W6100.e131cognum() == 0
       blinkmode := false
       bytefill(@pixelbuffer,0,73768)
-      W6100.startfastrx(W6100.IDM_BSR_Socket3_Register,@pixelbuffer,@TXBUFFER,@E131CONFIG)
+      startrx()
 
     if dis == true
       bytefill(@pixelbuffer,0,73768)
@@ -2077,6 +2375,8 @@ pub pinpixelcnt(pinnum) : pinpixcnt
   pinpixcnt := PIXELCONFIG[pinnum*5+4]
   return pinpixcnt
 pub dmxbufferaddr() : dmxbuffer | ei
+   if PROTOCOL == PROTO_DDP
+     return ddpdmxbase       ' DDP layout: 4 x 510-byte DMX buffers after the pixel outputs
    ei := 0
    repeat until E131CONFIG[ei] == 0
       if E131CONFIG[ei] == 25
@@ -2658,7 +2958,7 @@ pub upgraderun(socket) | gur, fn, i, e, r, t, frags
 
    ctx[t].rdsize := strsize(@ctx[t].webbuff)
    startpixels()
-   W6100.startfastrx(W6100.IDM_BSR_Socket3_Register,@pixelbuffer,@TXBUFFER,@E131CONFIG)
+   startrx()
 
 pub cleandirectory(deldir, socket) | dirhandle, attrs, t
      t := TASKID()
