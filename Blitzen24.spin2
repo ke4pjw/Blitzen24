@@ -69,7 +69,8 @@ CON
   DDP_MAXPIX  = (PIXBUF_SIZE - 4 * DMX_CH) / 3   ' pixels that fit with the 4 DMX buffers reserved
   DDP_MAXCH   = 16_777_216                       ' highest DDP start channel accepted
 
-  STRUCT HTTPD_CTX(byte readbuffer[2024], byte filepath[256], byte webbuff[8192], long fh, long rdsize, word psize, long mss)
+  ' readbuffer: up to two full 2K socket reads (the iOS split-request read, or a Socket 6 manifest read) plus a terminating zero
+  STRUCT HTTPD_CTX(byte readbuffer[4096 + 1], byte filepath[256], byte webbuff[8192], long fh, long rdsize, word psize, long mss)
 
 VAR
         long PIXELCONFIG[144]
@@ -109,7 +110,7 @@ VAR
         byte CHIPVER[2]
         long byteindex
         long readptr
-        byte READBUFFER[2024]
+        byte READBUFFER[4096 + 1]   ' two full 2K Socket 6 reads (getURL waits for the end of the HTTP headers) plus a terminating zero
         byte WRITEBUFFER[2024]
         byte REGBUFFER[2]
         BYTE results[255]
@@ -185,7 +186,7 @@ OBJ
         qe: "jm_quadraturesmartpin"
 
 PUB main() | i, j, handle, fsize, merr
-  str.append_str(@buildver, String("Blitzen 24 Edge 2.6.1 (Rocklin) Dev"))
+  str.append_str(@buildver, String("Blitzen 24 Edge 2.6.2 (Rocklin) Dev"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -2661,6 +2662,18 @@ pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc,
         psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket6_Register,@READBUFFER)
         READBUFFER[psize] := 0
         'debug("Received: ",zstr_(@READBUFFER))
+        ' The response headers can arrive in more than one TCP segment. Keep reading until the blank
+        ' line that ends them is in the buffer; at most two full 2K reads, which READBUFFER holds.
+        repeat while str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)) == -1 and psize <= 2048
+          if W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,100) == W6100.Sn_IR_TIMEOUT
+            quit
+          psize += W6100.ReceiveProcess(W6100.IDM_BSR_Socket6_Register,@READBUFFER + psize)
+          READBUFFER[psize] := 0
+          debug("Headers continued in another read, psize = ", udec_(psize))
+        if str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)) == -1
+          debug("End of HTTP headers not received")
+          W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
+          return(-5)                                   ' the caller retries the file
     else
         'W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
         return(-3)
@@ -2702,7 +2715,8 @@ pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc,
 
        'debug(udec(i))
        repeat until i >= length
-          If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,100) <> W6100.Sn_IR_TIMEOUT)
+          ' 1 s, not 100 ms: a long download (GFX.RAW) can pause for a few hundred ms mid-stream
+          If ( W6100.ReceiveData(W6100.IDM_BSR_Socket6_Register,1000) <> W6100.Sn_IR_TIMEOUT)
              psize := W6100.ReceiveProcess(W6100.IDM_BSR_Socket6_Register,@READBUFFER)
 '             READBUFFER[psize] := 0
 '             debug("Received: ",zstr_(@READBUFFER))
@@ -2715,6 +2729,9 @@ pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc,
               debug(udec(i))
               debug("Content Length:", udec_(length))
               W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
+              ' Close the partial file, or the retry can't delete and recreate it ("Failed to create file")
+              if download <> 0 and handle >= 0
+                sd.closeFileHandle(handle)
               return(-3)
     W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
 
