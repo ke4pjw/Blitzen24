@@ -64,4 +64,36 @@
 
 </body>
 <script src="counters.js"></script>
+<script>
+// Refresh Input Stats about once a second: one request at a time (2 s timeout),
+// paused while the tab is hidden, every 5 s and greyed out after an error.
+(function () {
+  var busy = false, timer = null;
+  function schedule(ms) { if (timer) clearTimeout(timer); timer = setTimeout(poll, ms); }
+  function show(s) {
+    var t = document.getElementById('stats');
+    t.rows[0].cells[1].innerHTML = s.pps + ' pkt/sec';
+    t.rows[1].cells[1].innerHTML = s.dps + ' drops/sec';
+    t.style.color = ''; t.title = '';
+  }
+  function stale() { var t = document.getElementById('stats'); t.style.color = '#999'; t.title = 'Stats not updating'; }
+  function poll() {
+    timer = null;
+    if (busy || document.hidden) return;
+    busy = true;
+    var ac = window.AbortController ? new AbortController() : null;
+    var to = setTimeout(function () { if (ac) ac.abort(); }, 2000);
+    function done(ms) { clearTimeout(to); busy = false; if (!document.hidden) schedule(ms); }
+    fetch('stats.js', { cache: 'no-store', signal: ac ? ac.signal : undefined })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (s) { show(s); done(1000); })
+      .catch(function () { stale(); done(5000); });
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { if (timer) { clearTimeout(timer); timer = null; } }
+    else if (!busy) schedule(0);
+  });
+  schedule(1000);
+})();
+</script>
 </html>

@@ -186,7 +186,7 @@ OBJ
         qe: "jm_quadraturesmartpin"
 
 PUB main() | i, j, handle, fsize, merr
-  str.append_str(@buildver, String("Blitzen 24 Edge 2.6.2 (Rocklin) Dev"))
+  str.append_str(@buildver, String("Blitzen 24 Edge 2.6.3 (Rocklin) Dev"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -1096,7 +1096,10 @@ repeat
                ctx[t].filepath[0] := 0
                str.append_str(@ctx[t].filepath,string("index.htm"))
 
-           ctx[t].fh := sd.openFileRead(@ctx[t].filepath)
+           if str.instr(@ctx[t].filepath,string("STATS.JS")) == 0
+             ctx[t].fh := -1                          ' Home page stats poll: built in RAM, skip the SD lookup
+           else
+             ctx[t].fh := sd.openFileRead(@ctx[t].filepath)
            if ctx[t].fh >= 0
 
                 ' Default response header
@@ -1163,6 +1166,8 @@ repeat
                 if str.instr(@ctx[t].filepath,string(".JS")) <> -1
                    bytemove(@ctx[t].webbuff,resp_404_ptr,strsize(resp_404_ptr))
                    ctx[t].rdsize :=  strsize(resp_404_ptr)
+                   if str.instr(@ctx[t].filepath,string("STATS.JS")) == 0
+                      statsjs()
                    if str.instr(@ctx[t].filepath,string("COUNTERS.JS")) <> -1
                       countersjs()
                       'This is here as an easy way to trigger a DNS lookup when testing.
@@ -1877,6 +1882,19 @@ PUB countersjs() | t
    str.append_str(@ctx[t].webbuff, @HOSTNAME)
    str.append_str(@ctx[t].webbuff, string(".local</DIV>';"))
 
+   ctx[t].rdsize := strsize(@ctx[t].webbuff)
+
+PUB statsjs() | t
+'' Home page Input Stats poll (index.htm, about once a second): only the two
+'' per-second values from the stats loop, as JSON. No SD access.
+   t := TASKID()
+   ctx[t].webbuff[0] := 0
+   str.append_str(@ctx[t].webbuff,resp_js_ptr)
+   str.append_str(@ctx[t].webbuff, string("{", $22, "pps", $22, ":"))
+   str.append_str(@ctx[t].webbuff,str.dec(wdpps,-1))
+   str.append_str(@ctx[t].webbuff, string(",", $22, "dps", $22, ":"))
+   str.append_str(@ctx[t].webbuff,str.dec(wddps,-1))
+   str.append_str(@ctx[t].webbuff, string("}"))
    ctx[t].rdsize := strsize(@ctx[t].webbuff)
 PUB configjs() | dns_ptr, t
     t := TASKID()
