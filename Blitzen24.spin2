@@ -142,6 +142,8 @@ VAR
         byte serverip[4]
         byte buildver[256]
         long upgradeserver_ptr
+        long savedcrc           ' CRC-32 (GETCRC) of the config block as last loaded/saved; RAM only, not in the config file
+        long unsaved            ' TRUE while the running config differs from savedcrc
         byte md51[16]
         byte md52[16]
         byte manifest[64000]
@@ -460,6 +462,7 @@ PUB main() | i, j, handle, fsize, merr
   debug("Configuring pixel config.")
   ConfigPixels()
   StartPixels()
+  markconfigsaved()    ' Baseline: config loaded and applied, DHCP done
 
 {
 This is here to show what the data structure looks like.
@@ -1088,6 +1091,7 @@ repeat
                 outputspost()
               if str.instr(@ctx[t].filepath,string("UPGRADE.HTM")) <> -1
                 upgradepost()
+              checkunsaved()   ' Any POST may have changed the running config
 
     '       debug("Filename: ", zstr_(@ctx[t].filepath))
 
@@ -1188,6 +1192,9 @@ repeat
                       upgraderun(socket)
                    if str.instr(@ctx[t].filepath,string("REBOOT.JS")) <> -1
                       rebootjs()
+                   ' Every page's firmware-generated script carries the unsaved banner
+                   if unsaved and str.instr(@ctx[t].filepath,string("STATS.JS")) <> 0 and str.instr(@ctx[t].filepath,string("UPGRADERUN.JS")) == -1 and str.instr(@ctx[t].webbuff,string("404 Not Found")) == -1
+                      unsavedbanner()
                 else
                    if str.instr(@ctx[t].filepath,string("RUNNINGCONFIG.CFG")) <> -1
                       downloadconfig()
@@ -1251,15 +1258,19 @@ pub netpost() | t
     SCREENTIMEOUT := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("DTO="))+ 4, 5)
     writeconfig()
 
-pub writeconfig() | handle
+pub writeconfig() | handle, written
 
     sd.deleteFile(string("blitzen.cfg"))           ' Delete existing (ignore error if not found)
     handle := sd.createFileNew(string("blitzen.cfg"))
     if handle >= 0
 
       debug("Writing Configuration to SD Card.", $0D, $0A)
-      sd.writeHandle(handle, @PIXELCONFIG, (@ENDOFCONFIG + 3) - @PIXELCONFIG + 1)
-      sd.closeFileHandle(handle)
+      written := sd.writeHandle(handle, @PIXELCONFIG, (@ENDOFCONFIG + 3) - @PIXELCONFIG + 1)
+      if sd.closeFileHandle(handle) == sd.SUCCESS and written == (@ENDOFCONFIG + 3) - @PIXELCONFIG + 1
+        markconfigsaved()                          ' Only a complete write becomes the new baseline
+      else
+        debug("Config write incomplete; still unsaved.", $0D, $0A)
+        checkunsaved()
 
     else
 
@@ -1883,6 +1894,30 @@ PUB countersjs() | t
    str.append_str(@ctx[t].webbuff, string(".local</DIV>';"))
 
    ctx[t].rdsize := strsize(@ctx[t].webbuff)
+
+PUB markconfigsaved()
+'' The running config now matches blitzen.cfg (boot load or a complete save).
+  savedcrc := GETCRC(@PIXELCONFIG, $EDB8_8320, (@ENDOFCONFIG + 3) - @PIXELCONFIG + 1)
+  unsaved := false
+
+PUB checkunsaved()
+'' After a settings change: unsaved only if the config block differs from the baseline,
+'' so a no-op save or a change that is undone does not count.
+  unsaved := GETCRC(@PIXELCONFIG, $EDB8_8320, (@ENDOFCONFIG + 3) - @PIXELCONFIG + 1) <> savedcrc
+
+PUB unsavedbanner() | t
+'' Appends the "Unsaved changes" banner to this page's script, and swaps any link to
+'' upgrade.htm (Upgrade Available, Development Firmware) for a save-first note.
+  t := TASKID()
+  if strsize(@ctx[t].webbuff) > 7000
+    return
+  str.append_str(@ctx[t].webbuff, string($0D, $0A, "(function()", 123, "if(document.getElementById('unsaved'))return;var d=document.createElement('div');d.id='unsaved';"))
+  str.append_str(@ctx[t].webbuff, string("d.style.cssText='background:#FFD54F;color:#000;padding:6px;text-align:center;font-weight:bold;';"))
+  str.append_str(@ctx[t].webbuff, string("d.innerHTML='Unsaved changes. <a href=configs.htm?save=y>Save</a>';"))
+  str.append_str(@ctx[t].webbuff, string("var h=document.querySelector('header');if(h)h.insertAdjacentElement('afterend',d);else document.body.insertAdjacentElement('afterbegin',d);"))
+  str.append_str(@ctx[t].webbuff, string("document.querySelectorAll('a[href*=upgrade]').forEach(function(a)", 123, "var s=document.createElement('span');s.textContent='Save your changes before upgrading.';s.style.color='#999';a.replaceWith(s);", 125, ");"))
+  str.append_str(@ctx[t].webbuff, string(125, ")();"))
+  ctx[t].rdsize := strsize(@ctx[t].webbuff)
 
 PUB statsjs() | t
 '' Home page Input Stats poll (index.htm, about once a second): only the two
@@ -2511,6 +2546,11 @@ pri upgradejs()| dns_ptr, gur, t
     ' Zero out buffers
     ctx[t].webbuff[0] := 0
 
+    if unsaved                                    ' No upgrade (production or dev) while changes are unsaved
+      str.append_str(@ctx[t].webbuff,resp_ptr)
+      str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('main').innerHTML = '<h3>Save your changes first.</h3>Upgrades are blocked while the running configuration has unsaved changes. <a href=configs.htm?save=y>Save now</a>';"))
+      ctx[t].rdsize := strsize(@ctx[t].webbuff)
+      return
 
     if str.instr(@ctx[t].readbuffer,string("/upgrade.htm?Save=Upgrade+My+Controller")) == -1
       ' send header
@@ -2801,6 +2841,12 @@ pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc,
 
 pub upgraderun(socket) | gur, fn, i, e, r, t, frags
    t := TASKID()
+   if unsaved                                     ' Refuse to start, even from a typed or bookmarked URL
+     ctx[t].webbuff[0] := 0
+     str.append_str(@ctx[t].webbuff,resp_evt_ptr)
+     str.append_str(@ctx[t].webbuff, String("data: <h2>Save your changes first.</h2>Upgrades are blocked while the running configuration has unsaved changes.", $0A, $0A))
+     ctx[t].rdsize := strsize(@ctx[t].webbuff)
+     return
    stoppixels()
    W6100.stopfastrx()
 
@@ -3078,7 +3124,16 @@ pub movedirectory(sourcedir,destdir, socket) | dirhandle, attrs, t
                 str.append_str(@ctx[t].webbuff, String($0A, $0A))
           httpflush(socket)
      sd.closeDirectoryHandle(dirhandle)
-pub rebootjs()
+pub rebootjs() | t
+    t := TASKID()
+    if unsaved and str.instr(@ctx[t].readbuffer,string("force=Y")) == -1
+      ' Warn instead of rebooting; reboot.htm?force=Y reboots anyway
+      ctx[t].webbuff[0] := 0
+      str.append_str(@ctx[t].webbuff,resp_js_ptr)
+      str.append_str(@ctx[t].webbuff, string("if(window.rbt)clearTimeout(rbt);document.querySelector('main').innerHTML = '<center><h2>Unsaved changes</h2>Rebooting now loses the changes that have not been saved.<br><br>"))
+      str.append_str(@ctx[t].webbuff, string("<a href=configs.htm?save=y>Save first</a> &nbsp; | &nbsp; <a href=reboot.htm?force=Y>Reboot anyway</a></center>';"))
+      ctx[t].rdsize := strsize(@ctx[t].webbuff)
+      return
     waitms(1000)
     sd.unmount()
     sd.stop()
