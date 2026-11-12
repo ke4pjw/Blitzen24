@@ -66,6 +66,11 @@ CON
   DDP_DMX     = 28        ' DDPCONFIG entry index of DMX output 1 (entries 28-31 = DMX 1-4)
   DMX_CH      = 510       ' bytes per DMX buffer
   PIXBUF_SIZE = 73768     ' size of PIXELBUFFER
+
+  ' OLED screens (encoder pages)
+  PG_NETWORK   = 4        ' hostname, IP, MAC, speed/duplex (bug 72)
+  PG_PIXELTEST = 5        ' Pixel Test menu (feature 42)
+  PG_LAST      = 5
   DDP_MAXPIX  = (PIXBUF_SIZE - 4 * DMX_CH) / 3   ' pixels that fit with the 4 DMX buffers reserved
   DDP_MAXCH   = 16_777_216                       ' highest DDP start channel accepted
 
@@ -659,13 +664,13 @@ pub watchdogcog() | time1,time2,lt, t, ev, last, now, check, counts, p, c, dnsco
  WRPIN ##$00000900, 55
  end
 
- qe.start(54, 53, 55, TRUE, 1, 1, 4)
+ qe.start(54, 53, 55, TRUE, 1, 1, PG_LAST)
  last := 1
  repeat
     lt++
     if SCREENTIMEOUT <> 0 and lt > SCREENTIMEOUT
       OLED.ssd1331_command(OLED.SSD1331_CMD_DISPLAYOFF)
-      if lt == SCREENTIMEOUT + 1 and last == 4   ' Display going to sleep on the Pixel Test screen
+      if lt == SCREENTIMEOUT + 1 and last == PG_PIXELTEST   ' Display going to sleep on the Pixel Test screen
         ptleave()
     if ptmode <> 0                               ' Choosing a port or color: give up after 10 s idle
       if ++ptidle >= 10
@@ -707,8 +712,10 @@ pub watchdogcog() | time1,time2,lt, t, ev, last, now, check, counts, p, c, dnsco
      1: statsmenu()
      2: qrcodemenu()
      3: vermenu()
-     4: if ptdirty                          ' Pixel Test screen redraws only after input
-          ptdraw()
+     PG_NETWORK: netmenu()
+     PG_PIXELTEST:                         ' Pixel Test screen redraws only after input
+       if ptdirty
+         ptdraw()
 
     time1 := GETSEC()
     repeat while time1 == GETSEC()
@@ -718,16 +725,16 @@ pub watchdogcog() | time1,time2,lt, t, ev, last, now, check, counts, p, c, dnsco
       ' A press that wakes the display does nothing else.
       if b == 1
           if ptbtn == 0
-            ptwake := (SCREENTIMEOUT <> 0 and lt > SCREENTIMEOUT) or last <> 4
+            ptwake := (SCREENTIMEOUT <> 0 and lt > SCREENTIMEOUT) or last <> PG_PIXELTEST
             ptdown := GETMS()
             ptheld := false
-          elseif last == 4 and not ptwake and not ptheld and GETMS() - ptdown >= 1500
+          elseif last == PG_PIXELTEST and not ptwake and not ptheld and GETMS() - ptdown >= 1500
             ptheld := true
             ptalloff()
             ptlist()
           OLED.ssd1331_command(OLED.SSD1331_CMD_DISPLAYON)
           lt := 0
-      elseif ptbtn == 1 and last == 4 and not ptwake and not ptheld
+      elseif ptbtn == 1 and last == PG_PIXELTEST and not ptwake and not ptheld
           ptpress()
       ptbtn := b
       if ptmode <> 0                       ' Choosing: the knob moves the selection, not the page
@@ -737,7 +744,7 @@ pub watchdogcog() | time1,time2,lt, t, ev, last, now, check, counts, p, c, dnsco
         next
       now := qe.value()                    ' re-sample encoder inputs
       if (now <> last)
-          if last == 4                     ' Leaving the Pixel Test screen stops all tests
+          if last == PG_PIXELTEST          ' Leaving the Pixel Test screen stops all tests
             ptleave()
           OLED.clearDisplay()
           OLED.ssd1331_command(OLED.SSD1331_CMD_DISPLAYON)
@@ -789,15 +796,54 @@ pub vermenu(): time
     OLED.TERMSEND(str.rjdec(time // 3600 / 60,2,"0",0))
     OLED.TERMSEND(String(":"))
     OLED.TERMSEND(str.rjdec(time // 60,2,"0",0))
-    OLED.TERMSEND(String(OLED.CR, OLED.LF))
-    OLED.TERMSEND(String(OLED.CR, OLED.LF))
+    ' Speed/Duplex is on the Network screen (bug 72): with it here the screen ran past 8 rows and scrolled
+
+pub netmenu() | n, p, r
+'' Network screen (bug 72): hostname (without .local) at the top, then IP, MAC and
+'' speed/duplex. Rows are placed explicitly, so nothing scrolls; a hostname of
+'' 17-31 characters takes two rows.
+    OLED.TERMPOSY(0)
+    OLED.TERMPOSX(0)
+    OLED.SETFG(OLED.White)
+    n := strsize(@HOSTNAME) <# 31
+    if n >= 6
+      if strcomp(@HOSTNAME + n - 6, string(".local"))
+        n -= 6
+    if n > 0
+      repeat p from 0 to n - 1
+        OLED.TERMCHR(HOSTNAME[p])   ' TERMCHR wraps to the next row at 16 characters without scrolling
+    if n > 16
+      r := 2
+    else
+      r := 1
+    OLED.TERMPOSY(r)
+    OLED.TERMPOSX(0)
+    OLED.TERMSEND(string("IP Address:"))
+    OLED.TERMPOSY(r + 1)
+    OLED.TERMPOSX(0)
+    OLED.DEC(IPADDRESS[0])
+    OLED.TERMCHR(".")
+    OLED.DEC(IPADDRESS[1])
+    OLED.TERMCHR(".")
+    OLED.DEC(IPADDRESS[2])
+    OLED.TERMCHR(".")
+    OLED.DEC(IPADDRESS[3])
+    OLED.TERMPOSY(r + 2)
+    OLED.TERMPOSX(0)
+    OLED.TERMSEND(string("MAC Address:"))
+    OLED.TERMPOSY(r + 3)
+    OLED.TERMPOSX(0)
+    repeat p from 0 to 5
+      OLED.hex(MACADDRESS[p],2)
+    OLED.TERMPOSY(r + 4)
+    OLED.TERMPOSX(0)
     OLED.TERMSEND(string("Speed/Dpx:"))
     CASE SPEEDDUPLEX
-        0: OLED.TERMSEND(string("Auto",OLED.CR, OLED.LF))
-        4: OLED.TERMSEND(string("100F",OLED.CR, OLED.LF))
-        5: OLED.TERMSEND(string("100H",OLED.CR, OLED.LF))
-        6: OLED.TERMSEND(string("10F",OLED.CR, OLED.LF))
-        7: OLED.TERMSEND(string("10H",OLED.CR, OLED.LF))
+        0: OLED.TERMSEND(string("Auto"))
+        4: OLED.TERMSEND(string("100F"))
+        5: OLED.TERMSEND(string("100H"))
+        6: OLED.TERMSEND(string("10F "))
+        7: OLED.TERMSEND(string("10H "))
 
 
 pub ptdraw() | p, n
@@ -939,14 +985,14 @@ pub ptturn() : moved | r, n, m
 pub ptlist()
 '' Back to the test list (after a choice, All off, or 10 s without input).
     ptmode := 0
-    qe.set(4)                            ' Choosing moved the encoder count; stay on the Pixel Test page
+    qe.set(PG_PIXELTEST)                 ' Choosing moved the encoder count; stay on the Pixel Test page
     ptdraw()
 
 pub ptleave()
 '' Leaving the Pixel Test screen (another page, or the display going to sleep) stops all tests.
     if ptmode <> 0
       ptmode := 0
-      qe.set(4)
+      qe.set(PG_PIXELTEST)
     ptalloff()
     ptdirty := true
 
