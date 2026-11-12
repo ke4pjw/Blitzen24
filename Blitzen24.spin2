@@ -159,6 +159,9 @@ VAR
         byte serverip[4]
         byte buildver[256]
         long upgradeserver_ptr
+        long progon             ' TRUE while upgraderun() is downloading: getURL() sends progress to the upgrade log (feature 75)
+        long progsock           ' browser socket of the upgrade log's event stream
+        long progpct            ' percentage last sent for the current file
         long savedcrc           ' CRC-32 (GETCRC) of the config block as last loaded/saved; RAM only, not in the config file
         long unsaved            ' TRUE while the running config differs from savedcrc
         byte md51[16]
@@ -205,7 +208,7 @@ OBJ
         qe: "jm_quadraturesmartpin"
 
 PUB main() | i, j, handle, fsize, merr
-  str.append_str(@buildver, String("Blitzen 24 Edge 2.6.4 (Rocklin) Dev"))
+  str.append_str(@buildver, String("Blitzen 24 Edge 2.6.5 (Rocklin) Dev"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -2887,10 +2890,34 @@ pub upgradepost() | t
     t := TASKID()
     str.append_str(@ctx[t].webbuff,resp_ptr)
     str.append_str(@ctx[t].webbuff, string("var source = new EventSource('upgraderun.js'); ", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("var cur = null;", $0D, $0A))
     str.append_str(@ctx[t].webbuff, string("source.onmessage = function(event) {", $0D, $0A))
-    str.append_str(@ctx[t].webbuff, string("  document.getElementById('main').insertAdjacentHTML('beforeend', event.data + '<br>');", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("  document.getElementById('main').insertAdjacentHTML('beforeend', '<span>' + event.data + '</span><br>');", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("  cur = null;", $0D, $0A))
     str.append_str(@ctx[t].webbuff, string("window.scrollBy(0, 500);", $0D, $0A))
     str.append_str(@ctx[t].webbuff, string("};", $0D, $0A))
+    ' Feature 75: a progress bar per downloaded file, updated in place. The first
+    ' "progress" event after a log line adds a blue bar and text on that line
+    ' (to the right of the file name); later ones move it.
+    str.append_str(@ctx[t].webbuff, string("function kb(n) { return Math.round(n / 1024).toLocaleString(); }", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("source.addEventListener('progress', function(event) {", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("  var a = event.data.split(' ');", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("  if (!cur) {", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("    var d = document.getElementById('main').lastElementChild.previousElementSibling;", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("    d.style.whiteSpace = 'nowrap';", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("    d.insertAdjacentHTML('beforeend', ' <span style=display:inline-block;width:150px;height:12px;background:#ddd;vertical-align:middle;margin-left:8px>' +", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("      '<span style=display:block;height:100%;width:0;background:#1e73be></span></span><span style=white-space:pre;font-size:inherit></span>');", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("    cur = { bar: d.lastElementChild.previousElementSibling.firstElementChild, txt: d.lastElementChild, base: '' };", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("  }", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("  cur.bar.style.width = a[0] + '%';", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("  cur.base = ' ' + a[0] + '%   ' + kb(a[1]) + ' / ' + kb(a[2]) + ' KB';", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("  cur.txt.textContent = cur.base;", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("});", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("source.addEventListener('verify', function(event) {", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("  if (!cur) return;", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("  var s = { start: '   Verifying...', ok: '   MD5 OK', fail: '   MD5 failed' };", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("  cur.txt.textContent = cur.base + (s[event.data] || '');", $0D, $0A))
+    str.append_str(@ctx[t].webbuff, string("});", $0D, $0A))
     str.append_str(@ctx[t].webbuff, string("source.onerror = (err) => { ", $0D, $0A))
     str.append_str(@ctx[t].webbuff, string("source.close();", $0D, $0A))
     str.append_str(@ctx[t].webbuff, string("console.error('EventSource failed:', err);", $0D, $0A))
@@ -3028,6 +3055,8 @@ pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc,
 
       if handle >= 0
         sd.writeHandle(handle, @READBUFFER + str.instr(@READBUFFER,string($0D, $0A, $0D, $0A)) + 4,i)
+      progpct := -5                                   ' New file: its first progress update goes out at once
+      sendprogress(i, length)
 
     if length > i
 
@@ -3042,6 +3071,8 @@ pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc,
                  sd.writeHandle(handle, @READBUFFER, psize)
 
              i := i + psize
+             if download <> 0
+                 sendprogress(i, length)
              'debug(udec(i))
           else
               debug(udec(i))
@@ -3063,6 +3094,7 @@ pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc,
         bc := sd.fileSizeHandle(handle)
         tfs := bc
   '      debug(udec(bc))
+        sendverify(string("start"))
         MD5.hashStart(@md51)
 
         repeat
@@ -3087,9 +3119,12 @@ pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc,
          long[b64md5][8] <> long[md51][8] or ...
          long[b64md5][12] <> long[md51][12]
          debug("MD5's do not match")
+         sendverify(string("fail"))
          if rcode == 200
 '           W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
            return(-6)
+      else
+         sendverify(string("ok"))
 
     debug("Content Length:", udec_(length))
     debug(udec(i))
@@ -3098,6 +3133,37 @@ pub getURL(path,svr,download) : rt | dns_ptr, length, rcode, contentmd5, md5loc,
 
 '    W6100.Disconnect(W6100.IDM_BSR_Socket6_Register)
     return(rcode)
+
+pub sendprogress(done, total) | t, p
+'' Upgrade log progress bar (feature 75): sends "event: progress" with
+'' "<percent> <bytes done> <bytes total>" on the browser's event stream, at the
+'' first call for a file, then about every 5% and at 100%. Does nothing outside
+'' upgraderun() or when the server sent no Content-Length.
+    if not progon or total <= 0
+      return
+    p := (done <# total) * 100 / total
+    if p < progpct + 5 and done < total
+      return
+    progpct := p
+    t := TASKID()
+    str.append_str(@ctx[t].webbuff, string("event: progress", $0A, "data: "))
+    str.append_str(@ctx[t].webbuff, str.dec(p, -1))
+    str.append_str(@ctx[t].webbuff, string(" "))
+    str.append_str(@ctx[t].webbuff, str.dec(done <# total, -1))
+    str.append_str(@ctx[t].webbuff, string(" "))
+    str.append_str(@ctx[t].webbuff, str.dec(total, -1))
+    str.append_str(@ctx[t].webbuff, string($0A, $0A))
+    httpflush(progsock)
+
+pub sendverify(state) | t
+'' Upgrade log (feature 75): "event: verify" with start, ok or fail, around the MD5 check.
+    if not progon
+      return
+    t := TASKID()
+    str.append_str(@ctx[t].webbuff, string("event: verify", $0A, "data: "))
+    str.append_str(@ctx[t].webbuff, state)
+    str.append_str(@ctx[t].webbuff, string($0A, $0A))
+    httpflush(progsock)
 
 pub upgraderun(socket) | gur, fn, i, e, r, t, frags
    t := TASKID()
@@ -3160,6 +3226,8 @@ pub upgraderun(socket) | gur, fn, i, e, r, t, frags
    httpflush(socket)
 
    sd.changeDirectory(string("/"))
+   progsock := socket                 ' getURL() sends download progress to this upgrade log (feature 75)
+   progon := true
    repeat fn - 1
       tmpfilepath[0] := 0
       str.copy_field(@tmpfilepath, str.field_pntr(@manifest, i, $0A), $0A, 256)
@@ -3229,6 +3297,7 @@ pub upgraderun(socket) | gur, fn, i, e, r, t, frags
 -5 : Not an HTTP reponse
 -6 : MD5 does not match
 }
+   progon := false
    If e == 0
 
      str.append_str(@ctx[t].webbuff, String("data: Moving files to Backup"))
