@@ -1666,7 +1666,9 @@ pub outputspost() | t, p, dis
       str.append_str(@eutmp,string("O"))
       str.append_str(@eutmp,str.dec(p+1,1))
       str.append_str(@eutmp,string("="))
-      PIXELCONFIG[(p * 5) + 1] := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,@eutmp)+ strsize(@eutmp), 3)
+      ' Disabled outputs aren't submitted by the browser: keep their stored color order (bug 71)
+      if str.instr(@ctx[t].readbuffer,@eutmp) <> -1
+        PIXELCONFIG[(p * 5) + 1] := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,@eutmp)+ strsize(@eutmp), 3)
       eutmp[0] := 0
 '      debug(udec(PIXELCONFIG[(p * 5) + 1] )
 '
