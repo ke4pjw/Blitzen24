@@ -137,6 +137,18 @@ VAR
         long wddps
         byte testpixel[28]
         long blinkmode
+        long testlock           ' Hub lock: one cog at a time applies testpixel[] (web Outputs page on cog 0, OLED menu on the watchdog cog)
+        ' OLED Pixel Test menu (feature 42); used only by the watchdog cog
+        long ptmode             ' 0 = test list, 1 = choosing a port, 2 = choosing a color
+        long ptsel              ' highlighted entry: port index (last entry = All off) or color index
+        long ptport             ' port (0-27) whose color is being chosen
+        long ptidle             ' seconds without input while choosing
+        long ptraw              ' encoder raw count last seen while choosing
+        long ptbtn              ' button state at the last poll (for press detection)
+        long ptdown             ' GETMS() when the current press started
+        long ptwake             ' TRUE if the current press woke the display or began on another screen (it does nothing else)
+        long ptheld             ' TRUE once the current press has been held long enough to stop all tests
+        long ptdirty            ' TRUE when the Pixel Test screen needs a redraw
         long dot
         byte servername[256]
         byte serverip[4]
@@ -188,7 +200,7 @@ OBJ
         qe: "jm_quadraturesmartpin"
 
 PUB main() | i, j, handle, fsize, merr
-  str.append_str(@buildver, String("Blitzen 24 Edge 2.6.3 (Rocklin) Dev"))
+  str.append_str(@buildver, String("Blitzen 24 Edge 2.6.4 (Rocklin) Dev"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -371,6 +383,7 @@ PUB main() | i, j, handle, fsize, merr
   W6100.writereg(W6100.REG_NETLCKR,W6100.IDM_BSR_Common_Register,1,@WRITEBUFFER)
 
 
+  testlock := LOCKNEW()
   COGSPIN(NEWCOG,watchdogcog(), @watchdogstack)
 
   debug("Configuring 8 sockets with 2K TX buffer.")
@@ -635,7 +648,7 @@ This is here to show what the data structure looks like.
   TASKSPIN(3, httpd(80, W6100.PM_TCP4, W6100.IDM_BSR_Socket4_Register), @task_stack_3)
   httpd(80, W6100.PM_TCP4, W6100.IDM_BSR_Socket1_Register)  ' Task 0 in main context
 
-pub watchdogcog() | time1,time2,lt, t, ev, last, now, check, counts, p, c, dnscounter
+pub watchdogcog() | time1,time2,lt, t, ev, last, now, check, counts, p, c, dnscounter, b
  OLED.clearDisplay()
  alt := false
  time1 := GETCT()
@@ -646,12 +659,17 @@ pub watchdogcog() | time1,time2,lt, t, ev, last, now, check, counts, p, c, dnsco
  WRPIN ##$00000900, 55
  end
 
- qe.start(54, 53, 55, TRUE, 1, 1, 3)
+ qe.start(54, 53, 55, TRUE, 1, 1, 4)
  last := 1
  repeat
     lt++
     if SCREENTIMEOUT <> 0 and lt > SCREENTIMEOUT
       OLED.ssd1331_command(OLED.SSD1331_CMD_DISPLAYOFF)
+      if lt == SCREENTIMEOUT + 1 and last == 4   ' Display going to sleep on the Pixel Test screen
+        ptleave()
+    if ptmode <> 0                               ' Choosing a port or color: give up after 10 s idle
+      if ++ptidle >= 10
+        ptlist()
  ' Set E1.31 Packets/s
     wdpps :=  W6100.Counter() - wdcounter     ' Calculate E1.31 packets/sec
     wddps :=  W6100.Discards() - wddiscards   ' Calculate E1.31 discarded packets/sec
@@ -689,18 +707,42 @@ pub watchdogcog() | time1,time2,lt, t, ev, last, now, check, counts, p, c, dnsco
      1: statsmenu()
      2: qrcodemenu()
      3: vermenu()
+     4: if ptdirty                          ' Pixel Test screen redraws only after input
+          ptdraw()
 
     time1 := GETSEC()
     repeat while time1 == GETSEC()
       waitms(20)
-      if qe.button(5) == 1
+      b := qe.button(5)
+      ' Pixel Test screen: a short press acts on release; holding 1.5 s stops all tests.
+      ' A press that wakes the display does nothing else.
+      if b == 1
+          if ptbtn == 0
+            ptwake := (SCREENTIMEOUT <> 0 and lt > SCREENTIMEOUT) or last <> 4
+            ptdown := GETMS()
+            ptheld := false
+          elseif last == 4 and not ptwake and not ptheld and GETMS() - ptdown >= 1500
+            ptheld := true
+            ptalloff()
+            ptlist()
           OLED.ssd1331_command(OLED.SSD1331_CMD_DISPLAYON)
           lt := 0
+      elseif ptbtn == 1 and last == 4 and not ptwake and not ptheld
+          ptpress()
+      ptbtn := b
+      if ptmode <> 0                       ' Choosing: the knob moves the selection, not the page
+        if ptturn()
+          OLED.ssd1331_command(OLED.SSD1331_CMD_DISPLAYON)
+          lt := 0
+        next
       now := qe.value()                    ' re-sample encoder inputs
       if (now <> last)
+          if last == 4                     ' Leaving the Pixel Test screen stops all tests
+            ptleave()
           OLED.clearDisplay()
           OLED.ssd1331_command(OLED.SSD1331_CMD_DISPLAYON)
           last := now
+          ptdirty := true
           lt := 0
           quit
 
@@ -757,6 +799,189 @@ pub vermenu(): time
         6: OLED.TERMSEND(string("10F",OLED.CR, OLED.LF))
         7: OLED.TERMSEND(string("10H",OLED.CR, OLED.LF))
 
+
+pub ptdraw() | p, n
+'' OLED Pixel Test screen (feature 42), drawn only after input: the test list,
+'' or the port / color being chosen.
+    ptdirty := false
+    OLED.clearDisplay()
+    OLED.TERMPOSY(0)
+    OLED.TERMPOSX(0)
+    OLED.SETFG(OLED.White)
+    OLED.TERMSEND(string("Pixel Test"))
+    case ptmode
+      0:  ' Ports under test, in their test color, 5 per line (lines 1-6 hold all 28)
+        n := 0
+        repeat p from 0 to 27
+          if testpixel[p] >= 1 and testpixel[p] <= 4
+            OLED.TERMPOSY(1 + n / 5)
+            OLED.TERMPOSX((n // 5) * 3)
+            OLED.SETFG(ptcolor(testpixel[p]))
+            if p < 9
+              OLED.TERMSEND(string(" "))
+            OLED.dec(p + 1)
+            n++
+        OLED.SETFG(OLED.White)
+        if n == 0
+          OLED.TERMPOSY(2)
+          OLED.TERMPOSX(0)
+          OLED.TERMSEND(string("No tests running"))
+        OLED.TERMPOSY(7)
+        OLED.TERMPOSX(0)
+        OLED.TERMSEND(string("Press to edit"))
+      1:  ' Choosing a port (or All off)
+        OLED.TERMPOSY(2)
+        OLED.TERMPOSX(0)
+        OLED.TERMSEND(string("Choose port:"))
+        OLED.TERMPOSY(4)
+        OLED.TERMPOSX(0)
+        if ptsel == ptmax()
+          OLED.SETFG(OLED.Yellow)
+          OLED.TERMSEND(string("> All off"))
+        else
+          OLED.TERMSEND(string("> Port "))
+          OLED.dec(ptsel + 1)
+          if testpixel[ptsel] >= 1 and testpixel[ptsel] <= 4
+            OLED.TERMSEND(string(" "))
+            OLED.SETFG(ptcolor(testpixel[ptsel]))
+            OLED.TERMSEND(ptname(testpixel[ptsel]))
+        OLED.SETFG(OLED.White)
+        OLED.TERMPOSY(7)
+        OLED.TERMPOSX(0)
+        OLED.TERMSEND(string("Turn & press"))
+      2:  ' Choosing a color for ptport
+        OLED.TERMPOSY(2)
+        OLED.TERMPOSX(0)
+        OLED.TERMSEND(string("Port "))
+        OLED.dec(ptport + 1)
+        OLED.TERMSEND(string(" color:"))
+        OLED.TERMPOSY(4)
+        OLED.TERMPOSX(0)
+        OLED.TERMSEND(string("> "))
+        n := lookupz(ptsel : 1, 2, 3, 4, 0)
+        OLED.SETFG(ptcolor(n))
+        OLED.TERMSEND(ptname(n))
+        OLED.SETFG(OLED.White)
+        OLED.TERMPOSY(7)
+        OLED.TERMPOSX(0)
+        OLED.TERMSEND(string("Turn & press"))
+
+pub ptname(v) : s
+'' Test value (testpixel) to its name.
+    case v
+      1: s := string("Red")
+      2: s := string("Green")
+      3: s := string("Blue")
+      4: s := string("White")
+      other: s := string("Off")
+
+pub ptcolor(v) : c
+'' Test value (testpixel) to its OLED text color.
+    case v
+      1: c := OLED.Red
+      2: c := OLED.Green
+      3: c := OLED.Blue
+      other: c := OLED.White
+
+pub ptmax() : m
+'' Index of the "All off" entry: ports 25-28 are offered only when DMX is disabled.
+    if DMXENABLED == 1
+      m := 24
+    else
+      m := 28
+
+pub ptpress() | v
+'' Button press on the Pixel Test screen: start choosing, pick a port, or apply a color.
+    case ptmode
+      0:
+        ptmode := 1
+        ptsel := 0
+        ptraw := qe.raw()
+      1:
+        if ptsel == ptmax()
+          ptalloff()
+          ptlist()
+          return
+        ptport := ptsel
+        ptmode := 2
+        v := testpixel[ptport]           ' Start on the port's current color (Off if none)
+        if v >= 1 and v <= 4
+          ptsel := v - 1
+        else
+          ptsel := 4
+      2:
+        testpixel[ptport] := lookupz(ptsel : 1, 2, 3, 4, 0)
+        applytests()
+        ptlist()
+        return
+    ptidle := 0
+    ptdraw()
+
+pub ptturn() : moved | r, n, m
+'' While choosing: move the selection by the knob's travel since the last poll.
+'' The lists wrap around (port 1 <-> All off). Returns TRUE if the knob moved.
+    r := qe.raw()
+    if r == ptraw
+      return false
+    n := ptsel + r - ptraw
+    ptraw := r
+    if ptmode == 1
+      m := ptmax() + 1                   ' ports plus All off
+    else
+      m := 5                             ' Red, Green, Blue, White, Off
+    n := (n // m + m) // m
+    ptidle := 0
+    if n <> ptsel
+      ptsel := n
+      ptdraw()
+    return true
+
+pub ptlist()
+'' Back to the test list (after a choice, All off, or 10 s without input).
+    ptmode := 0
+    qe.set(4)                            ' Choosing moved the encoder count; stay on the Pixel Test page
+    ptdraw()
+
+pub ptleave()
+'' Leaving the Pixel Test screen (another page, or the display going to sleep) stops all tests.
+    if ptmode <> 0
+      ptmode := 0
+      qe.set(4)
+    ptalloff()
+    ptdirty := true
+
+pub ptalloff() | p, on
+'' Stop every pixel test, if any is running (same as clearing all tests on the Outputs page).
+    on := blinkmode
+    repeat p from 0 to 27
+      if testpixel[p]
+        on := true
+    if on
+      bytefill(@testpixel, 0, 28)
+      applytests()
+
+pub applytests() | p, on
+'' Apply testpixel[] (1 = R, 2 = G, 3 = B, 4 = White, 0 = off per output): any test
+'' stops input receive and blinks; no tests restarts receive. Called from the web
+'' Outputs page (cog 0) and the OLED Pixel Test menu (watchdog cog); testlock keeps
+'' the two from running at once.
+    repeat until LOCKTRY(testlock)
+      TASKNEXT()
+    on := false
+    repeat p from 0 to 27
+      if testpixel[p] > 0
+        on := true
+    if on
+      W6100.stopfastrx()
+      blinkmode := true
+      bytefill(@pixelbuffer,0,73768)
+    elseif W6100.e131cognum() == 0
+      blinkmode := false
+      bytefill(@pixelbuffer,0,73768)
+      startrx()
+    stoppixels()
+    startpixels()
+    LOCKREL(testlock)
 
 pub statsmenu()| p,c
     W6100.readreg(W6100.REG_PHYSR,W6100.IDM_BSR_Common_Register,1,@bgtmp)
@@ -1660,11 +1885,10 @@ pub ddpdmxpost() | t, n, p, s
       DDPCONFIG[(DDP_DMX + n) * 2 + 1] := (s == 0) ? 0 : DMX_CH
   reloadoutputs()
 
-pub outputspost() | t, p, dis
+pub outputspost() | t, p
     t := TASKID()
     eutmp[0] := 0
     p := 0
-    dis := false
     repeat 28
       str.append_str(@eutmp,string("O"))
       str.append_str(@eutmp,str.dec(p+1,1))
@@ -1688,25 +1912,12 @@ pub outputspost() | t, p, dis
       str.append_str(@eutmp,str.dec(p+1,1))
       str.append_str(@eutmp,string("="))
       testpixel[p] := str2dec(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,@eutmp)+ strsize(@eutmp), 3)
-      if testpixel[p] > 0
-        W6100.stopfastrx()
-        dis := true
-        blinkmode :=  true
       eutmp[0] := 0
 '      debug(udec(PIXELCONFIG[(p * 5) + 1] )
 '
       p++
 
-    if dis == false and W6100.e131cognum() == 0
-      blinkmode := false
-      bytefill(@pixelbuffer,0,73768)
-      startrx()
-
-    if dis == true
-      bytefill(@pixelbuffer,0,73768)
-
-    stoppixels()
-    startpixels()
+    applytests()      ' Shared with the OLED Pixel Test menu; also restarts the pixel drivers
 '    waitms(3000)
 
 pub outputjs() | t, p, idx
