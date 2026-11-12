@@ -670,8 +670,6 @@ pub watchdogcog() | time1,time2,lt, t, ev, last, now, check, counts, p, c, dnsco
     lt++
     if SCREENTIMEOUT <> 0 and lt > SCREENTIMEOUT
       OLED.ssd1331_command(OLED.SSD1331_CMD_DISPLAYOFF)
-      if lt == SCREENTIMEOUT + 1 and last == PG_PIXELTEST   ' Display going to sleep on the Pixel Test screen
-        ptleave()
     if ptmode <> 0                               ' Choosing a port or color: give up after 10 s idle
       if ++ptidle >= 10
         ptlist()
@@ -989,7 +987,7 @@ pub ptlist()
     ptdraw()
 
 pub ptleave()
-'' Leaving the Pixel Test screen (another page, or the display going to sleep) stops all tests.
+'' Leaving the Pixel Test screen for another page stops all tests (display sleep does not).
     if ptmode <> 0
       ptmode := 0
       qe.set(PG_PIXELTEST)
