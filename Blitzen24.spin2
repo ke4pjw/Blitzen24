@@ -1222,6 +1222,7 @@ pub netpost() | t
         ' Get the output name
      if str.instr(@ctx[t].readbuffer,string("HOSTNAME=")) <> -1
        strcopy(@tmpfilepath, @ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("HOSTNAME="))+9, str.instr(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("HOSTNAME="))+9,string("&")))
+       bytefill(@HOSTNAME, 0, 32)                  ' Clear the whole field: no leftover bytes from a longer name
        URLDecode(@tmpfilepath,@HOSTNAME)
        tmpfilepath[0] := 0 ' Zero out the tmp string. tmpfilepath is used because it is available.
      else
@@ -1351,6 +1352,7 @@ pub e131post() | t, output, ei, eti, u , uascii
     ' Get the output name
     if str.instr(@ctx[t].readbuffer,string("ON=")) <> -1
       strcopy(@tmpfilepath, @ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("ON="))+3, str.instr(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("ON="))+3,string("&")))
+      bytefill(@OUTPUTNAME[output-1].namefield, 0, 32)   ' Clear the whole field: no leftover bytes from a longer name
       URLDecode(@tmpfilepath,@OUTPUTNAME[output-1].namefield)
       tmpfilepath[0] := 0 ' Zero out the tmp string. tmpfilepath is used because it is available.
 
@@ -1630,6 +1632,7 @@ pub ddppost() | t, output, p, s, c
   ' Get the output name (same as e131post)
   if str.instr(@ctx[t].readbuffer,string("ON=")) <> -1
     strcopy(@tmpfilepath, @ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("ON="))+3, str.instr(@ctx[t].readbuffer + str.instr(@ctx[t].readbuffer,string("ON="))+3,string("&")))
+    bytefill(@OUTPUTNAME[output-1].namefield, 0, 32)     ' Clear the whole field: no leftover bytes from a longer name
     URLDecode(@tmpfilepath,@OUTPUTNAME[output-1].namefield)
     tmpfilepath[0] := 0
 
