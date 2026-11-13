@@ -1,0 +1,110 @@
+'' pixeltest.spin2 - Blitzen 24 pixel test patterns (feature 73)
+''
+'' Runs in its own cog while pixel tests are on. The fast-RX cog is stopped then,
+'' so its cog is free. While running, this cog is the only writer of the pixel
+'' buffer. Each frame it goes through outputs 1-28 and draws each output under
+'' test into that output's own slice of the pixel buffer:
+''   1 = Red, 2 = Green, 3 = Blue, 4 = White: on for 1 s, off for 1 s
+''   5 = Rainbow: a color wheel that starts at the output's pixel 1 and moves
+''       along the string, so every Rainbow output shows the same pattern
+'' Outputs not under test, unused buffer and the DMX buffers are never written.
+''
+'' The caller owns all the data: this object reads the test values and the output
+'' layout through the addresses given to start(), and reads them every frame, so a
+'' change to the test values shows at once. Stop the cog before changing the output
+'' layout (buffer addresses or pixel counts) and start it again afterward.
+
+CON
+  RAINBOW   = 5                 ' test value for Rainbow
+  OUTPUTS   = 28
+  FRAME_MS  = 25                ' frame period (40 frames/s)
+  BLINK_MS  = 1000              ' blink: on this long, then off this long
+  HUE_STEP  = 4                 ' hue change from one pixel to the next: a full rainbow every 64 pixels
+  HUE_SPEED = 4                 ' hue change per frame: the rainbow moves 1 pixel per frame
+
+VAR
+  long cog                      ' cog ID + 1, or 0 when stopped
+  long wheel[256]               ' hue -> $00_RR_GG_BB
+  byte shown[OUTPUTS]           ' blink state last drawn per output (test value + 8 when on), $FF = not drawn
+  long stack[128]
+
+PUB start(pconfig, ptests, pdmx) : ok
+'' Start (or restart) the test cog. Returns TRUE if it started.
+''   pconfig = @PIXELCONFIG: 5 longs per output; [3] = buffer address, [4] = pixel count
+''   ptests  = @testpixel: 28 bytes, one test value per output (0 = no test)
+''   pdmx    = @DMXENABLED: when 1, outputs 25-28 serve DMX and are skipped
+  stop()
+  cog := COGSPIN(NEWCOG, run(pconfig, ptests, pdmx), @stack) + 1
+  return cog <> 0
+
+PUB stop()
+'' Stop the test cog, if it is running. Safe to call at any time.
+  if cog
+    COGSTOP(cog - 1)
+    cog := 0
+
+PRI run(pconfig, ptests, pdmx) | t0, tf, on, phase, p, t, a, n, s, w
+  makewheel()
+  bytefill(@shown, $FF, OUTPUTS)
+  t0 := GETMS()
+  phase := 0
+  repeat
+    tf := GETMS()
+    on := (((tf - t0) / BLINK_MS) & 1) == 0
+    repeat p from 0 to OUTPUTS - 1
+      t := byte[ptests][p]
+      a := long[pconfig][p * 5 + 3]
+      n := long[pconfig][p * 5 + 4]
+      if t == 0 or t > RAINBOW or n <= 0 or a == 0 or (p >= 24 and long[pdmx] == 1)
+        shown[p] := $FF                 ' nothing to draw; redraw if a blink test starts here
+      elseif t == RAINBOW
+        drawrainbow(a, n, phase)
+        shown[p] := $FF
+      else
+        s := t
+        if on
+          s += 8
+        if shown[p] <> s                ' blink outputs are redrawn only when they turn on or off
+          shown[p] := s
+          drawsolid(a, n, t, on)
+    phase := (phase + HUE_SPEED) & 255
+    w := FRAME_MS - (GETMS() - tf)
+    if w > 0
+      waitms(w)
+
+PRI drawsolid(a, n, t, on)
+'' One blink output: its test color (1 = R, 2 = G, 3 = B, 4 = White) when on, black when off.
+  if not on
+    bytefill(a, 0, n * 3)
+  elseif t == 4
+    bytefill(a, 255, n * 3)
+  else
+    bytefill(a, 0, n * 3)
+    a += t - 1                          ' pixel buffer is R, G, B per pixel
+    repeat n
+      byte[a] := 255
+      a += 3
+
+PRI drawrainbow(a, n, phase) | h, c
+'' One Rainbow output: pixel 1 gets hue -phase, each next pixel HUE_STEP further on.
+  h := -phase
+  repeat n
+    c := wheel[h & 255]
+    byte[a] := c >> 16
+    byte[a + 1] := c >> 8
+    byte[a + 2] := c
+    a += 3
+    h += HUE_STEP
+
+PRI makewheel() | h, x
+'' Full-brightness color wheel: red -> green -> blue -> red over 256 hues.
+  repeat h from 0 to 255
+    if h < 85
+      x := h * 3
+      wheel[h] := ((255 - x) << 16) | (x << 8)
+    elseif h < 170
+      x := (h - 85) * 3
+      wheel[h] := ((255 - x) << 8) | x
+    else
+      x := (h - 170) * 3
+      wheel[h] := (x << 16) | (255 - x)

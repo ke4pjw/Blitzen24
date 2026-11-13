@@ -206,9 +206,10 @@ OBJ
 '        qrssd:     "qrssd"    'Object to display the QR code on an SSD1331.
         qr:     "p2qr"        'Object that creates the QR code.
         qe: "jm_quadraturesmartpin"
+        ptc: "pixeltest"              ' Pixel test cog: blink and Rainbow (feature 73)
 
 PUB main() | i, j, handle, fsize, merr
-  str.append_str(@buildver, String("Blitzen 24 Edge 2.6.5 (Rocklin) Dev"))
+  str.append_str(@buildver, String("Blitzen 24 Edge 2.6.6 (Rocklin) Dev"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -656,7 +657,7 @@ This is here to show what the data structure looks like.
   TASKSPIN(3, httpd(80, W6100.PM_TCP4, W6100.IDM_BSR_Socket4_Register), @task_stack_3)
   httpd(80, W6100.PM_TCP4, W6100.IDM_BSR_Socket1_Register)  ' Task 0 in main context
 
-pub watchdogcog() | time1,time2,lt, t, ev, last, now, check, counts, p, c, dnscounter, b
+pub watchdogcog() | time1,time2,lt, t, ev, last, now, check, counts, dnscounter, b
  OLED.clearDisplay()
  alt := false
  time1 := GETCT()
@@ -684,29 +685,8 @@ pub watchdogcog() | time1,time2,lt, t, ev, last, now, check, counts, p, c, dnsco
     wdcounter := W6100.Counter()
     wddiscards := W6100.Discards()
 
-    if blinkmode == true
-      if alt == true
-        p := 0
-        repeat 28
-
-          if testpixel[p] > 0
-            if testpixel[p] == 4
-              c:= 0
-            else
-              c:= testpixel[p] - 1
-            repeat PIXELCONFIG[p * 5 + 4]
-
-              PIXELBUFFER[PIXELCONFIG[(p * 5) + 3] - @PIXELBUFFER + c]  := 255
-              if testpixel[p] == 4
-                PIXELBUFFER[PIXELCONFIG[(p * 5) + 3] - @PIXELBUFFER + c + 1]  := 255
-                PIXELBUFFER[PIXELCONFIG[(p * 5) + 3] - @PIXELBUFFER + c + 2]  := 255
-
-              c := c + 3
-          p := p + 1
-        alt := false
-      else
-        bytefill(@pixelbuffer,0,73768)
-        alt := true
+    if blinkmode == true                ' Pixel tests are drawn by the pixel test cog (ptc, feature 73);
+      alt := not alt                    ' alt only blinks the OLED receive icon (statsmenu)
 
 '    qrcodemenu()
     case last
@@ -860,7 +840,7 @@ pub ptdraw() | p, n
       0:  ' Ports under test, in their test color, 5 per line (lines 1-6 hold all 28)
         n := 0
         repeat p from 0 to 27
-          if testpixel[p] >= 1 and testpixel[p] <= 4
+          if testpixel[p] >= 1 and testpixel[p] <= 5
             OLED.TERMPOSY(1 + n / 5)
             OLED.TERMPOSX((n // 5) * 3)
             OLED.SETFG(ptcolor(testpixel[p]))
@@ -888,10 +868,13 @@ pub ptdraw() | p, n
         else
           OLED.TERMSEND(string("> Port "))
           OLED.dec(ptsel + 1)
-          if testpixel[ptsel] >= 1 and testpixel[ptsel] <= 4
-            OLED.TERMSEND(string(" "))
-            OLED.SETFG(ptcolor(testpixel[ptsel]))
-            OLED.TERMSEND(ptname(testpixel[ptsel]))
+          if testpixel[ptsel] >= 1 and testpixel[ptsel] <= 5
+            if testpixel[ptsel] == 5 and ptsel >= 9   ' "> Port 10 Rainbow" is 17 characters: name on the next line
+              OLED.TERMPOSY(5)
+              OLED.TERMPOSX(2)
+            else
+              OLED.TERMSEND(string(" "))
+            ptshow(testpixel[ptsel])
         OLED.SETFG(OLED.White)
         OLED.TERMPOSY(7)
         OLED.TERMPOSX(0)
@@ -905,9 +888,7 @@ pub ptdraw() | p, n
         OLED.TERMPOSY(4)
         OLED.TERMPOSX(0)
         OLED.TERMSEND(string("> "))
-        n := lookupz(ptsel : 1, 2, 3, 4, 0)
-        OLED.SETFG(ptcolor(n))
-        OLED.TERMSEND(ptname(n))
+        ptshow(lookupz(ptsel : 1, 2, 3, 4, 5, 0))
         OLED.SETFG(OLED.White)
         OLED.TERMPOSY(7)
         OLED.TERMPOSX(0)
@@ -920,6 +901,7 @@ pub ptname(v) : s
       2: s := string("Green")
       3: s := string("Blue")
       4: s := string("White")
+      5: s := string("Rainbow")
       other: s := string("Off")
 
 pub ptcolor(v) : c
@@ -928,7 +910,19 @@ pub ptcolor(v) : c
       1: c := OLED.Red
       2: c := OLED.Green
       3: c := OLED.Blue
+      5: c := OLED.Magenta
       other: c := OLED.White
+
+pub ptshow(v) | i, s
+'' Print a test value's name in its color; Rainbow gets one color per letter.
+    s := ptname(v)
+    if v == 5
+      repeat i from 0 to 6
+        OLED.SETFG(lookupz(i : OLED.Red, OLED.Orange, OLED.Yellow, OLED.Green, OLED.Cyan, OLED.Blue, OLED.Magenta))
+        OLED.TERMCHR(byte[s][i])
+    else
+      OLED.SETFG(ptcolor(v))
+      OLED.TERMSEND(s)
 
 pub ptmax() : m
 '' Index of the "All off" entry: ports 25-28 are offered only when DMX is disabled.
@@ -952,12 +946,12 @@ pub ptpress() | v
         ptport := ptsel
         ptmode := 2
         v := testpixel[ptport]           ' Start on the port's current color (Off if none)
-        if v >= 1 and v <= 4
+        if v >= 1 and v <= 5
           ptsel := v - 1
         else
-          ptsel := 4
+          ptsel := 5
       2:
-        testpixel[ptport] := lookupz(ptsel : 1, 2, 3, 4, 0)
+        testpixel[ptport] := lookupz(ptsel : 1, 2, 3, 4, 5, 0)
         applytests()
         ptlist()
         return
@@ -975,7 +969,7 @@ pub ptturn() : moved | r, n, m
     if ptmode == 1
       m := ptmax() + 1                   ' ports plus All off
     else
-      m := 5                             ' Red, Green, Blue, White, Off
+      m := 6                             ' Red, Green, Blue, White, Rainbow, Off
     n := (n // m + m) // m
     ptidle := 0
     if n <> ptsel
@@ -1008,12 +1002,14 @@ pub ptalloff() | p, on
       applytests()
 
 pub applytests() | p, on
-'' Apply testpixel[] (1 = R, 2 = G, 3 = B, 4 = White, 0 = off per output): any test
-'' stops input receive and blinks; no tests restarts receive. Called from the web
+'' Apply testpixel[] (1 = R, 2 = G, 3 = B, 4 = White, 5 = Rainbow, 0 = off per output):
+'' any test stops input receive and starts the pixel test cog (ptc) in the fast-RX
+'' cog's place; no tests stops ptc and restarts receive. Called from the web
 '' Outputs page (cog 0) and the OLED Pixel Test menu (watchdog cog); testlock keeps
 '' the two from running at once.
     repeat until LOCKTRY(testlock)
       TASKNEXT()
+    ptc.stop()                            ' Restarted below if tests remain
     on := false
     repeat p from 0 to 27
       if testpixel[p] > 0
@@ -1028,6 +1024,34 @@ pub applytests() | p, on
       startrx()
     stoppixels()
     startpixels()
+    if on
+      teststart()
+    LOCKREL(testlock)
+
+pub teststart()
+'' Start the pixel test cog. If no cog is free, clear the tests and restart receive.
+'' The caller holds testlock.
+    ifnot ptc.start(@PIXELCONFIG, @testpixel, @DMXENABLED)
+      debug("Pixel test cog did not start; tests cleared")
+      bytefill(@testpixel, 0, 28)
+      blinkmode := false
+      bytefill(@pixelbuffer, 0, PIXBUF_SIZE)
+      if W6100.e131cognum() == 0
+        startrx()
+
+pub testhold()
+'' Before the output layout changes: stop the pixel test cog, so it never draws
+'' with a half-updated buffer address or pixel count. Pair with testresume().
+    repeat until LOCKTRY(testlock)
+      TASKNEXT()
+    ptc.stop()
+
+pub testresume()
+'' After the output layout changed: clear the buffer and restart the pixel test cog
+'' if tests are running, then release testlock.
+    if blinkmode == true
+      bytefill(@pixelbuffer, 0, PIXBUF_SIZE)
+      teststart()
     LOCKREL(testlock)
 
 pub statsmenu()| p,c
@@ -1240,9 +1264,11 @@ pub startrx()
 pub reloadoutputs()
 '' Rebuild the pixel layout and restart the pixel drivers, then restart the
 '' fast-RX cog if it was running (not in pixel-test blink mode).
+  testhold()
   ConfigPixels()
   StopPixels()
   StartPixels()
+  testresume()
   if blinkmode <> true and W6100.e131cognum() <> 0
     W6100.stopfastrx()
     startrx()
@@ -1257,13 +1283,15 @@ pub setprotocol(newp)
   if newp == PROTO_DDP and ddpempty()
     seedddp()
   W6100.stopfastrx()
+  testhold()
   PROTOCOL := newp
   bytefill(@pixelbuffer, 0, PIXBUF_SIZE)
   ConfigPixels()
   StopPixels()
   StartPixels()
   openrx()
-  if blinkmode <> true
+  testresume()
+  if blinkmode <> true and W6100.e131cognum() == 0
     startrx()
 
 pub httpd(port,PM,socket) | t, i, sir, sockbit, firstopen
@@ -1694,10 +1722,12 @@ pub e131post() | t, output, ei, eti, u , uascii
     ' Overwrite the E131CONFIG with tE131CONFIG
     longmove(@E131CONFIG,@tE131CONFIG,432)
     ' Rebuild the Pixel/E1.31 relationship
+    testhold()
     ConfigPixels()
     ' Stop and restart the pixel drivers
     StopPixels()
     StartPixels()
+    testresume()
     if blinkmode <> true and W6100.e131cognum() <> 0
       ' Restart the E1.31 ethernet driver (only if it was running)
       W6100.stopfastrx()
@@ -2005,6 +2035,7 @@ pub outputjs() | t, p, idx
         2: idx:=2
         3: idx:=3
         4: idx:=4
+        5: idx:=5
 
       str.append_str(@ctx[t].webbuff, string($0D, $0A, "document.getElementById('T"))
       str.append_str(@ctx[t].webbuff,str.dec(p+1,-1))
