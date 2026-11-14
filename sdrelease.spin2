@@ -1,0 +1,69 @@
+'' sdrelease.spin2 - reset and release the SD card before a P2 reboot (bug 78)
+''
+'' Some SD cards will not boot after a P2 reset unless they were reset first:
+'' the card is not power cycled across the reset, so it keeps the state the SD
+'' driver left it in, and the boot ROM cannot start it. Tested with a standalone
+'' harness on an affected card:
+''   nothing extra            -> did not boot
+''   CS high + 16 clocks      -> card released MISO, but still did not boot
+''   CMD0, CS high, 16 clocks -> booted
+''
+'' Call release() just before the reset, after the SD driver has been unmounted
+'' and stopped, so that no other cog is driving the SD pins. It is bit-banged at
+'' about 250 kHz from the calling cog, and leaves all four pins floating, as at
+'' power on.
+
+CON
+  BIT_US  = 2                                   ' half a clock period, in microseconds
+  RETRIES = 3                                   ' CMD0 attempts
+
+PUB release(cs, mosi, miso, sck) : r1 | try
+'' Reset the card to idle (CMD0), deselect it and clock it so it lets go of MISO,
+'' then float the pins. Returns the last R1 ($01 = idle, $FF = no reply).
+  ' The SD driver leaves its smart pin modes set on these pins (P_TRANSITION on
+  ' SCK, P_SYNC_TX on MOSI, P_SYNC_RX on MISO). A smart pin mode belongs to the
+  ' pin, not the cog, so it outlives the driver's cog. Clear them first, or the
+  ' smart pins take over SCK and MOSI as soon as this cog drives them and CMD0
+  ' never reaches the card.
+  pinclear(cs)
+  pinclear(sck)
+  pinclear(mosi)
+  pinclear(miso)                                ' input
+  pinh(cs)                                      ' deselected
+  pinh(mosi)
+  pinl(sck)                                     ' SPI mode 0: clock idles low
+
+  repeat try from 1 to RETRIES
+    xfer(mosi, miso, sck, $FF)                  ' 8 clocks with CS high
+    pinl(cs)
+    xfer(mosi, miso, sck, $FF)
+    xfer(mosi, miso, sck, $40)                  ' CMD0, argument 0
+    repeat 4
+      xfer(mosi, miso, sck, $00)
+    xfer(mosi, miso, sck, $95)                  ' CRC for CMD0
+    repeat 8                                    ' R1 comes within 8 bytes
+      r1 := xfer(mosi, miso, sck, $FF)
+      if r1 <> $FF
+        quit
+    pinh(cs)
+    if r1 == $01
+      quit
+
+  repeat 2                                      ' CS high + 16 clocks: card releases MISO
+    xfer(mosi, miso, sck, $FF)
+
+  pinclear(sck)                                 ' float everything, as at power on
+  pinclear(mosi)
+  pinclear(cs)
+  pinclear(miso)
+
+PRI xfer(mosi, miso, sck, tx) : rx | b
+'' One SPI mode 0 byte, MSB first.
+  repeat b from 7 to 0
+    pinw(mosi, (tx >> b) & 1)
+    waitus(BIT_US)
+    pinh(sck)
+    rx := (rx << 1) | pinr(miso)
+    waitus(BIT_US)
+    pinl(sck)
+  pinh(mosi)

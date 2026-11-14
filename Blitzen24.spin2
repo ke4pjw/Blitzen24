@@ -1,7 +1,7 @@
 {Spin2_v45}
 {
 *******************************************************
-* Blitzen 24 Edge Ver 2.6.6 (Rocklin)  11/12/2026     *
+* Blitzen 24 Edge Ver 2.6.7 (Rocklin) Dev 11/13/2026  *
 *******************************************************
 
 LICENSE TERMS
@@ -207,9 +207,10 @@ OBJ
         qr:     "p2qr"        'Object that creates the QR code.
         qe: "jm_quadraturesmartpin"
         ptc: "pixeltest"              ' Pixel test cog: blink and Rainbow (feature 73)
+        sdr: "sdrelease"              ' Resets and releases the SD card before a reboot (bug 78)
 
 PUB main() | i, j, handle, fsize, merr
-  str.append_str(@buildver, String("Blitzen 24 Edge 2.6.6 (Rocklin)"))
+  str.append_str(@buildver, String("Blitzen 24 Edge 2.6.7 (Rocklin) Dev"))
   resp_ptr     := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/html", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_css_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Content-Type: text/css",$0D, $0A, "Cache-Control: max-age=604800", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
   resp_jpg_ptr := String("HTTP/1.1 200 OK", $0D, $0A, "Cache-Control: max-age=604800", $0D, $0A,  "Content-Type: image/jpeg", $0D, $0A, "Connection: close", $0D, $0A, $0D, $0A)
@@ -3484,7 +3485,7 @@ pub movedirectory(sourcedir,destdir, socket) | dirhandle, attrs, t
                 str.append_str(@ctx[t].webbuff, String($0A, $0A))
           httpflush(socket)
      sd.closeDirectoryHandle(dirhandle)
-pub rebootjs() | t
+pub rebootjs() | t, r1
     t := TASKID()
     if unsaved and str.instr(@ctx[t].readbuffer,string("force=Y")) == -1
       ' Warn instead of rebooting; reboot.htm?force=Y reboots anyway
@@ -3495,8 +3496,12 @@ pub rebootjs() | t
       ctx[t].rdsize := strsize(@ctx[t].webbuff)
       return
     waitms(1000)
-    sd.unmount()
-    sd.stop()
+    r1 := sd.unmount()
+    debug("rebootjs: unmount ", sdec_(r1))
+    r1 := sd.stop()
+    debug("rebootjs: stop ", sdec_(r1))
+    r1 := sdr.release(SD_CS, SD_MOSI, SD_MISO, SD_SCK)   ' CMD0 + release, so every card boots after the reset (bug 78)
+    debug("rebootjs: SD release R1 ", uhex_byte_(r1), " MISO ", udec_(pinr(SD_MISO)), " CS ", udec_(pinr(SD_CS)), ", resetting")
     org
       HUBSET  ##$1000_0000    'hard reset, reboots the P2 chip
     end
