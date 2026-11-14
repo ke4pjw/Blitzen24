@@ -7,6 +7,14 @@ How this history was put together:
 - **2.6.x** comes from detailed commit messages.
 - **Earlier releases** are reconstructed from the version string and code at each release branch, the work items closed before each branch, and the commit messages that describe a change. Many early commits are just "Updated N files", so a few items are placed by closing date. Those are marked "closed with this release".
 
+## 2.6.7 (Rocklin): 2026-11-13
+
+- **SD card reset before every reboot** [#78]: some SD card brands would not boot after a firmware update or a Reboot until the card was power cycled. The P2 resets but the card keeps its power, so it stayed in the state the SD driver left it in, and the boot ROM could not start it.
+  - A new `sdrelease.spin2` object runs in `rebootjs()` after the SD driver is unmounted and stopped, so it covers the Reboot page and the reboot after an upgrade.
+  - It clears the SD driver's leftover smart pin modes and sends CMD0, so the card returns to idle. Then it raises CS, sends 16 clocks so the card lets go of MISO, and floats all four SD pins as at power on.
+  - Debug builds report the unmount and stop status and the card's CMD0 reply (R1).
+- Tested on three cards, including the affected one, after a Reboot and after an OTA update. A firmware update to 2.6.7 still reboots with the old firmware, so an affected card may need one power cycle on that first upgrade.
+
 ## 2.6.6 (Rocklin): 2026-11-12
 
 Release build. This includes everything listed below since 2.5.0.
