@@ -10,11 +10,24 @@
 #
 # This pipeline pushes all branches and tags to GitHub on every commit
 # to your default branch (and can be extended to other triggers).
+#
+# It also mirrors the project wiki (Blitzen-24.wiki) to the GitHub wiki
+# (github.com/ke4pjw/Blitzen24/wiki), one way. Edits made on GitHub are
+# overwritten. It runs after every push and nightly, so wiki edits reach
+# GitHub within a day, or right away if the pipeline is run by hand.
 
 trigger:
   branches:
     include:
       - '*'           # run on a push to any branch, so new branches are mirrored right away
+
+schedules:
+  - cron: '0 8 * * *'   # 08:00 UTC daily, to pick up wiki edits (wiki edits don't trigger a run)
+    displayName: Nightly wiki mirror
+    branches:
+      include:
+        - main
+    always: true         # run even when the code hasn't changed
 
 pool:
   vmImage: 'ubuntu-latest'
@@ -49,3 +62,64 @@ steps:
     displayName: 'Push to GitHub'
     env:
       GITHUB_PAT: $(GITHUB_PAT)   # maps the secret variable into the env
+
+  # ---- mirror the ADO project wiki to the GitHub wiki ----
+  # ADO wiki pages link with a leading "/" and keep images in /.attachments.
+  # GitHub wiki links are relative, so the links are rewritten, images move
+  # to images/, the ADO-only [[_TOC_]] macro is dropped, and a _Sidebar.md
+  # is built from the ADO page order.
+  - script: |
+      set -euo pipefail
+      git -c core.autocrlf=false clone -q --depth 1 -b wikiMaster "https://griswoldfx.visualstudio.com/Blitzen%2024/_git/Blitzen-24.wiki" ado-wiki
+      git clone -q "https://$(GITHUB_PAT)@github.com/ke4pjw/Blitzen24.wiki.git" gh-wiki
+      src=ado-wiki; dst=gh-wiki
+
+      # start from an empty GitHub wiki tree (keep .git), so deleted pages disappear too
+      find "$dst" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+
+      # attachments: /.attachments/x -> images/x
+      if [ -d "$src/.attachments" ]; then
+        mkdir -p "$dst/images"
+        cp -r "$src/.attachments/." "$dst/images/"
+      fi
+
+      # pages: drop [[_TOC_]], rewrite attachment and page links
+      find "$src" -name '*.md' -not -path '*/.git/*' | while read -r f; do
+        rel="${f#$src/}"
+        mkdir -p "$dst/$(dirname "$rel")"
+        sed -E \
+          -e '/^\[\[_TOC_\]\][[:space:]]*$/d' \
+          -e 's#\]\(/\.attachments/#](images/#g' \
+          -e 's#\]\(/([^)]*)\)#](\1)#g' \
+          "$f" > "$dst/$rel"
+      done
+
+      # sidebar in the ADO page order (.order is CRLF, with no newline after the last page)
+      if [ -f "$src/.order" ]; then
+        {
+          echo "**Blitzen 24 wiki**"
+          echo
+          while IFS= read -r p || [ -n "$p" ]; do
+            p="${p%$'\r'}"
+            [ -n "$p" ] && echo "- [${p//-/ }]($p)"
+          done < "$src/.order"
+          echo
+          echo "_Mirrored from the [Azure DevOps wiki](https://griswoldfx.visualstudio.com/Blitzen%2024/_wiki/wikis/Blitzen-24.wiki). Edits made here are overwritten._"
+        } > "$dst/_Sidebar.md"
+      fi
+
+      cd "$dst"
+      git add -A
+      if git diff --cached --quiet; then
+        echo "GitHub wiki is already up to date."
+        exit 0
+      fi
+      ado_sha=$(git -C ../ado-wiki rev-parse --short HEAD)
+      git -c user.name="Blitzen 24 wiki mirror" -c user.email="wiki-mirror@users.noreply.github.com" \
+        commit -q -m "Mirror ADO wiki at $ado_sha"
+      git push -q origin HEAD:master
+      echo "✅ Mirrored the wiki to GitHub."
+    displayName: 'Mirror wiki to GitHub'
+    condition: succeededOrFailed()   # mirror the wiki even if the code push failed
+    env:
+      GITHUB_PAT: $(GITHUB_PAT)
